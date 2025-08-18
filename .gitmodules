@@ -27,6 +27,9 @@
 [submodule "rts/lib/RmlUi"]
 	path = rts/lib/RmlUi
 	url = https://github.com/mikke89/RmlUi.git
+[submodule "rts/lib/sse2neon"]
+	path = rts/lib/sse2neon
+	url = https://github.com/DLTcollab/sse2neon.git
 [submodule "rts/lib/lunasvg"]
 	path = rts/lib/lunasvg
 	url = https://github.com/sammycage/lunasvg.git
@@ -40,6 +43,3 @@
 	path = rts/lib/nowide
 	url = https://github.com/boostorg/nowide
 	branch = standalone
-[submodule "rts/lib/sse2neon"]
-	path = rts/lib/sse2neon
-	url = https://github.com/DLTcollab/sse2neon.git
