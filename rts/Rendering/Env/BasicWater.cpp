@@ -5,7 +5,8 @@
 #include "ISky.h"
 #include "WaterRendering.h"
 
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h" // still needed transitively by RHI OpenGL backend
+#include "Rendering/RHI/RHITypes.h"
 #include "Rendering/Textures/Bitmap.h"
 #include "Map/MapInfo.h"
 #include "Map/ReadMap.h"
@@ -40,7 +41,10 @@ void CBasicWater::InitResources(bool loadShader)
 void CBasicWater::FreeResources()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glDeleteTextures(1, &textureID);
+	if (textureID > 0) {
+		glDeleteTextures(1, &textureID);
+		textureID = 0;
+	}
 }
 
 void CBasicWater::GenWaterQuadsRB()
@@ -89,15 +93,18 @@ void CBasicWater::Draw()
 	if (!waterRendering->forceRendering && !readMap->HasVisibleWater())
 		return;
 
+	// RHI-TODO: Replace glPushAttrib/glPopAttrib with scoped pipeline state
+	// once a full RHI state stack is available. For now, use GL attrib stack
+	// as safety net while migrating individual calls inside.
 	glPushAttrib(GL_FOG_BIT | GL_POLYGON_BIT | GL_ENABLE_BIT);
 
-	glDisable(GL_ALPHA_TEST);
+	glDisable(GL_ALPHA_TEST); // deprecated fixed-function, no-op in core profile
 	glDepthMask(GL_FALSE);
-	glEnable(GL_TEXTURE_2D);
+	glEnable(GL_TEXTURE_2D); // deprecated fixed-function, no-op in core profile
 
 	const auto& sky = ISky::GetSky();
 	sky->SetupFog();
-	glPolygonMode(GL_FRONT_AND_BACK, mix(GL_FILL, GL_LINE, static_cast<int>(wireFrameMode)));
+	glPolygonMode(GL_FRONT_AND_BACK, wireFrameMode ? GL_LINE : GL_FILL);
 
 	glBindTexture(GL_TEXTURE_2D, textureID);
 
@@ -108,7 +115,7 @@ void CBasicWater::Draw()
 	sh.SetUniform("ucolor", 1.0f, 1.0f, 1.0f, 1.0f);
 	sh.Disable();
 
-	glBindTexture(GL_TEXTURE_2D,         0);
+	glBindTexture(GL_TEXTURE_2D, 0);
 
 	glPopAttrib();
 }

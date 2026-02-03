@@ -14,6 +14,7 @@
 #include "Rendering/Features/FeatureDrawer.h"
 #include "Rendering/Units/UnitDrawer.h"
 #include "Rendering/Env/Particles/ProjectileDrawer.h"
+#include "Rendering/GL/myGL.h" // still needed for GL_CLIP_PLANE2 (no RHI equivalent yet)
 #include "Sim/Projectiles/ExplosionListener.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/EventHandler.h"
@@ -46,6 +47,9 @@ void IWater::ExplosionOccurred(const CExplosionParams& event) {
 	AddExplosion(event.pos, event.damages.GetDefault(), event.craterAreaOfEffect);
 }
 
+// RHI-GAP: glClipPlane / GL_CLIP_PLANE2 has no RHI equivalent.
+// Metal uses [[clip_distance]] in shaders. This must remain as direct GL
+// until shader-based clip-distance is implemented across both backends.
 void IWater::SetModelClippingPlane(const double* planeEq) {
 	RECOIL_DETAILED_TRACY_ZONE;
 	glPushMatrix();
@@ -57,6 +61,10 @@ void IWater::SetModelClippingPlane(const double* planeEq) {
 void IWater::SetWater(int rendererMode)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI-GAP: These GLAD_GL_ARB_* capability checks have no RHI equivalent.
+	// They query legacy ARB extension support for selecting water renderer modes.
+	// On a Metal backend, all modes except BUMPMAPPED (which uses GLSL) would
+	// need to be disabled or the shaders ported. Kept as direct GL for now.
 	static std::array<bool, NUM_WATER_RENDERERS> allowedModes = {
 		true,
 		GLAD_GL_ARB_fragment_program && ProgramStringIsNative(GL_FRAGMENT_PROGRAM_ARB, "ARB/water.fp"),
@@ -135,6 +143,8 @@ void IWater::SetWater(int rendererMode)
 }
 
 
+// RHI-GAP: GL_CLIP_PLANE2 usage in DrawReflections/DrawRefractions has no
+// RHI equivalent. Metal requires shader-based clipping via [[clip_distance]].
 void IWater::DrawReflections(const double* clipPlaneEqs, bool drawGround, bool drawSky) {
 	RECOIL_DETAILED_TRACY_ZONE;
 	game->SetDrawMode(CGame::gameReflectionDraw);

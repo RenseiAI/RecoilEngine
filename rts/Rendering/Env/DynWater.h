@@ -5,7 +5,7 @@
 
 #include "IWater.h"
 #include "Rendering/GL/FBO.h"
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h" // RHI-TODO: ~170 GL calls need migration (ARB programs, immediate mode, raw FBOs)
 
 #include <vector>
 

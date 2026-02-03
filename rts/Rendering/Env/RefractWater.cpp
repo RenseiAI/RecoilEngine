@@ -4,7 +4,7 @@
 #include "WaterRendering.h"
 
 #include "Rendering/GlobalRendering.h"
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h" // ARB programs, texgen, glCopyTexSubImage2D - no RHI equivalent
 #include "RefractWater.h"
 #include "Map/MapInfo.h"
 #include "Map/ReadMap.h"
@@ -12,6 +12,11 @@
 #include <bit>
 
 #include "System/Misc/TracyDefs.h"
+
+// RHI-GAP: RefractWater uses GL_TEXTURE_RECTANGLE_ARB (not supported on Metal),
+// glCopyTexSubImage2D (screen capture), ARB fragment programs, and fixed-function
+// texture coordinate generation. None have RHI equivalents. Metal would need
+// blit-based screen copy and shader-based texcoord generation.
 
 void CRefractWater::InitResources(bool loadShader)
 {

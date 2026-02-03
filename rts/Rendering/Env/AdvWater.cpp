@@ -11,9 +11,15 @@
 #include "Map/ReadMap.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/VertexArray.h"
+#include "Rendering/GL/myGL.h" // ARB programs, texgen, fixed-function GL have no RHI equivalent
 #include "System/Exceptions.h"
 
 #include "System/Misc/TracyDefs.h"
+
+// RHI-GAP: AdvWater uses legacy ARB fragment programs (glBindProgramARB,
+// glProgramEnvParameter4fARB), fixed-function texture coordinate generation
+// (glTexGeni/glTexGenfv), and matrix stack ops. None have RHI equivalents.
+// Metal port requires replacing ARB programs with GLSL/MSL shaders.
 
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
@@ -175,7 +181,7 @@ void CAdvWater::Draw(bool useBlending)
 
 	glBindProgramARB(GL_FRAGMENT_PROGRAM_ARB, waterFP);
 	glEnable(GL_FRAGMENT_PROGRAM_ARB);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE * wireFrameMode + GL_FILL * (1 - wireFrameMode));
+	glPolygonMode(GL_FRONT_AND_BACK, wireFrameMode ? GL_LINE : GL_FILL);
 
 	forward.ANormalize2D();
 
