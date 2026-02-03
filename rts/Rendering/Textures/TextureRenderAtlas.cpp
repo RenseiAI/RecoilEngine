@@ -1,3 +1,23 @@
+/**
+ * TextureRenderAtlas.cpp - GPU-rendered texture atlas implementation.
+ *
+ * RHI Migration Status: PARTIAL
+ * ============================
+ * Uses direct GL calls for:
+ *   - Destructor: glDeleteTextures for intermediate textures
+ *   - CreateAtlasTexture: FBO setup, glViewport, glDrawBuffer, glReadBuffer
+ *   - CreateAtlasTexture: glTexParameteri for filter/wrap settings
+ *   - CreateAtlasTexture: glDeleteTextures for cleanup after atlas render
+ *
+ * TODO: RHI gap - Heavy GL dependencies in CreateAtlasTexture():
+ *   - GL::TextureCreationParams -> RHI texture creation parameters
+ *   - GL::Texture2D/Texture2DArray -> RHI::IRHITexture with type
+ *   - FBO render-to-texture -> RHI::IRHIFramebuffer (future)
+ *   - GL::SubState -> RHI pipeline state management
+ *   - GL::TexBind -> RHI texture binding
+ *   - RenderBuffer::GetTypedRenderBuffer -> RHI vertex buffer submission
+ */
+
 #include "TextureRenderAtlas.h"
 
 #include <algorithm>
