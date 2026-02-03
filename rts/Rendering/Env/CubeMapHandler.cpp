@@ -9,7 +9,12 @@
 #include "Map/MapInfo.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/Units/UnitDrawer.h"
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h"  // retained: raw cubemap texture creation, FBO ops, glPushAttrib, glTexImage2D/glTexSubImage2D
+#include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIPipeline.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/Env/DebugCubeMapTexture.h"
 #include "Rendering/Env/ISky.h"
 #include "Rendering/Env/SunLighting.h"
@@ -45,6 +50,9 @@ bool CubeMapHandler::Init() {
 	mapSkyReflections = (!mapInfo->smf.skyReflectModTexName.empty());
 	generateMipMaps = configHandler->GetBool("CubeTexGenerateMipMaps");
 
+	// NOTE: Raw GL cubemap texture creation retained - texture IDs are stored as
+	// raw unsigned ints and shared with other subsystems. Converting to RHI textures
+	// requires changes to CubeMapHandler's public interface (GetEnvReflectionTextureID etc.)
 	{
 		glGenTextures(1, &specularTexID);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, specularTexID);
@@ -188,16 +196,25 @@ void CubeMapHandler::CreateReflectionFace(unsigned int glFace, bool skyOnly)
 
 	glPushAttrib(GL_FOG_BIT | GL_DEPTH_BUFFER_BIT);
 	const auto& sky = ISky::GetSky();
-	glClearColor(sky->fogColor.x, sky->fogColor.y, sky->fogColor.z, 1.0f);
-	glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 
+	// Clear via RHI
+	RHI::GetDevice()->GetContext()->ClearColor(sky->fogColor.x, sky->fogColor.y, sky->fogColor.z, 1.0f);
+	RHI::GetDevice()->GetContext()->Clear(true, true, false);
+
+	// Depth state via RHI pipeline
 	if (!skyOnly) {
-		glDepthMask(GL_TRUE);
-		glEnable(GL_DEPTH_TEST);
+		RHI::PipelineDesc pipeDesc;
+		pipeDesc.depthStencil.depthTestEnabled = true;
+		pipeDesc.depthStencil.depthWriteEnabled = true;
+		auto pipeline = RHI::GetDevice()->CreatePipeline(pipeDesc);
+		RHI::GetDevice()->GetContext()->BindPipeline(pipeline.get());
 	} else {
 		// do not need depth-testing for the sky alone
-		glDepthMask(GL_FALSE);
-		glDisable(GL_DEPTH_TEST);
+		RHI::PipelineDesc pipeDesc;
+		pipeDesc.depthStencil.depthTestEnabled = false;
+		pipeDesc.depthStencil.depthWriteEnabled = false;
+		auto pipeline = RHI::GetDevice()->CreatePipeline(pipeDesc);
+		RHI::GetDevice()->GetContext()->BindPipeline(pipeline.get());
 	}
 
 	{
@@ -327,4 +344,3 @@ void CubeMapHandler::UpdateSpecularFace(
 
 	glTexSubImage2D(texType, 0, 0, y, size, 1, GL_RGBA, GL_UNSIGNED_BYTE, buf);
 }
-

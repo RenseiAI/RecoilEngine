@@ -10,7 +10,7 @@
 #include "Map/MapInfo.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/Env/DebugCubeMapTexture.h"
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h"  // retained: SetupFog() uses FFP fog calls with no RHI equivalent
 #include "System/Config/ConfigHandler.h"
 #include "System/Exceptions.h"
 #include "System/SafeUtil.h"
@@ -49,6 +49,9 @@ std::unique_ptr<ISky> ISky::sky = nullptr;
 void ISky::SetupFog() {
 	RECOIL_DETAILED_TRACY_ZONE;
 
+	// NOTE: FFP fog calls (glFog*) have no RHI equivalent.
+	// Modern rendering uses shader-based fog. These remain as direct GL
+	// calls until the fog system is migrated to a shader-based approach.
 	if (globalRendering->drawFog) {
 		glEnable(GL_FOG);
 	} else {
@@ -113,4 +116,3 @@ bool ISky::SunVisible(const float3 pos) const {
 
 	return (sunDist < 0.0f || sunDist >= camera->GetFarPlaneDist());
 }
-

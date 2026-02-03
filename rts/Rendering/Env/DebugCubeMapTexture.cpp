@@ -1,6 +1,11 @@
 #include "DebugCubeMapTexture.h"
 
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h"  // retained: raw cubemap texture creation/binding, FFP matrix stack
+#include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIPipeline.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/Textures/Bitmap.h"
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/Shaders/ShaderHandler.h"
@@ -12,6 +17,9 @@ DebugCubeMapTexture::DebugCubeMapTexture()
 	, vao()
 {
 #ifndef HEADLESS
+	// NOTE: Raw GL cubemap texture creation retained - texId is stored as a raw
+	// uint32_t and shared via GetId(). Converting to RHI texture requires
+	// interface changes.
 	glGenTextures(1, &texId);
 
 	static constexpr const char* texture = "bitmaps/testsky.dds";
@@ -93,12 +101,20 @@ void DebugCubeMapTexture::Draw(uint32_t face) const
 		vertCount = 6;
 	}
 
-	glDisable(GL_ALPHA_TEST);
-	glDisable(GL_BLEND);
+	// Pipeline state via RHI (no alpha test, no blending)
+	{
+		RHI::PipelineDesc pipeDesc;
+		pipeDesc.blend.enabled = false;
+		pipeDesc.depthStencil.depthTestEnabled = true;
+		auto pipeline = RHI::GetDevice()->CreatePipeline(pipeDesc);
+		RHI::GetDevice()->GetContext()->BindPipeline(pipeline.get());
+	}
 
+	// NOTE: cubemap bind retained as raw GL - texId is a raw GL texture ID
 	glEnable(GL_TEXTURE_CUBE_MAP);
 	glBindTexture(GL_TEXTURE_CUBE_MAP, texId);
 
+	// FFP matrix stack - no RHI equivalent
 	glMatrixMode(GL_MODELVIEW);
 	glPushMatrix();
 	CMatrix44f view = camera->GetViewMatrix();
@@ -113,7 +129,8 @@ void DebugCubeMapTexture::Draw(uint32_t face) const
 	assert(shader->IsValid());
 	shader->Enable();
 
-	glDrawArrays(GL_TRIANGLES, baseVertex, vertCount);
+	// Draw via RHI
+	RHI::GetDevice()->GetContext()->Draw(RHI::PrimitiveType::Triangles, vertCount, baseVertex);
 
 	shader->Disable();
 	vao.Unbind();

@@ -1,7 +1,12 @@
 #include "ModernSky.h"
 
 #include "Rendering/GlobalRendering.h"
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h"  // retained: FFP matrix stack calls have no RHI equivalent
+#include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIPipeline.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Env/DebugCubeMapTexture.h"
@@ -49,13 +54,21 @@ void CModernSky::Draw()
 	if (!valid)
 		return;
 
-	// FFP
-	glDisable(GL_ALPHA_TEST);
-	//glDisable(GL_BLEND);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glDepthFunc(GL_LEQUAL);
+	// Pipeline state via RHI
+	{
+		RHI::PipelineDesc pipeDesc;
+		pipeDesc.blend.enabled  = true;
+		pipeDesc.blend.srcColor = RHI::BlendFactor::SrcAlpha;
+		pipeDesc.blend.dstColor = RHI::BlendFactor::OneMinusSrcAlpha;
+		pipeDesc.blend.srcAlpha = RHI::BlendFactor::SrcAlpha;
+		pipeDesc.blend.dstAlpha = RHI::BlendFactor::OneMinusSrcAlpha;
+		pipeDesc.depthStencil.depthTestEnabled = true;
+		pipeDesc.depthStencil.depthFunc = RHI::CompareFunc::LessEqual;
+		auto pipeline = RHI::GetDevice()->CreatePipeline(pipeDesc);
+		RHI::GetDevice()->GetContext()->BindPipeline(pipeline.get());
+	}
 
+	// FFP matrix stack - no RHI equivalent
 	glMatrixMode(GL_MODELVIEW);
 	glPushMatrix();
 	const CMatrix44f& view = camera->GetViewMatrix();
@@ -96,7 +109,8 @@ void CModernSky::Draw()
 
 	skyShader->SetUniform("time", (static_cast<float>(gs->frameNum) + globalRendering->timeOffset) * 0.005f);
 
-	glDrawArrays(GL_TRIANGLES, 0, 36);
+	// Draw via RHI
+	RHI::GetDevice()->GetContext()->Draw(RHI::PrimitiveType::Triangles, 36, 0);
 
 	skyShader->Disable();
 	vao.Unbind();
