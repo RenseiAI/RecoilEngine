@@ -1,3 +1,16 @@
+/**
+ * CTextureCollection - Manages a collection of named textures.
+ *
+ * RHI Migration Status: PARTIAL
+ * - Currently stores raw GLuint texture IDs from CBitmap::CreateMipMapTexture()
+ * - Uses glDeleteTextures for cleanup (see TextureCollection.cpp)
+ *
+ * Migration Path:
+ * 1. When CBitmap::CreateTextureRHI() becomes the primary path, store
+ *    std::unique_ptr<RHI::IRHITexture> instead of raw uint32_t IDs
+ * 2. Replace glDeleteTextures calls with RHI destructor cleanup
+ * 3. GetTextureID() would return GetNativeHandle() for backward compat
+ */
 #pragma once
 
 #include <vector>
