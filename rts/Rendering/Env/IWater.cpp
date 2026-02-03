@@ -14,7 +14,7 @@
 #include "Rendering/Features/FeatureDrawer.h"
 #include "Rendering/Units/UnitDrawer.h"
 #include "Rendering/Env/Particles/ProjectileDrawer.h"
-#include "Rendering/GL/myGL.h" // still needed for GL_CLIP_PLANE2 (no RHI equivalent yet)
+#include "Rendering/GL/myGL.h" // retained: GL_CLIP_PLANE2, glClipPlane, matrix stack ops (no RHI equivalent)
 #include "Sim/Projectiles/ExplosionListener.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/EventHandler.h"
@@ -23,6 +23,16 @@
 #include "System/Log/ILog.h"
 
 #include "System/Misc/TracyDefs.h"
+
+// RHI-GAP: IWater uses legacy FFP clip planes (glClipPlane, GL_CLIP_PLANE2).
+// Metal requires shader-based clipping via [[clip_distance]]. The water
+// reflection/refraction passes set clip planes to cull geometry above/below
+// the water surface. Migration requires:
+// 1. All water-affected shaders to output gl_ClipDistance[n]
+// 2. RHI context to enable/disable clip distances (available via
+//    IRHIContext::SetClipDistanceEnabled)
+// 3. Uniform buffer to pass clip plane equations to shaders
+// This is deferred until shader-based clipping is implemented engine-wide.
 
 CONFIG(int, Water)
 .defaultValue(IWater::WATER_RENDERER_REFLECTIVE)
@@ -47,9 +57,12 @@ void IWater::ExplosionOccurred(const CExplosionParams& event) {
 	AddExplosion(event.pos, event.damages.GetDefault(), event.craterAreaOfEffect);
 }
 
-// RHI-GAP: glClipPlane / GL_CLIP_PLANE2 has no RHI equivalent.
+// RHI-GAP: glClipPlane / GL_CLIP_PLANE2 / matrix stack have no RHI equivalent.
 // Metal uses [[clip_distance]] in shaders. This must remain as direct GL
 // until shader-based clip-distance is implemented across both backends.
+// The matrix stack ops (glPushMatrix/glLoadIdentity/glPopMatrix) ensure
+// the clip plane is set in eye-space coordinates. In an RHI world, clip
+// plane equations would be passed as uniforms to shaders.
 void IWater::SetModelClippingPlane(const double* planeEq) {
 	RECOIL_DETAILED_TRACY_ZONE;
 	glPushMatrix();
@@ -127,7 +140,7 @@ void IWater::SetWater(int rendererMode)
 		}
 		if (water)
 			water->InitResources();
-	} catch (const content_error& ex) {		
+	} catch (const content_error& ex) {
 		LOG_L(L_ERROR, "Loading \"%s\" water failed, error: %s", IWater::GetWaterName(selectedRendererID), ex.what());
 		if (water)
 			water->FreeResources(); //destructor is not called for an object throwing exception in a constructor
@@ -145,6 +158,7 @@ void IWater::SetWater(int rendererMode)
 
 // RHI-GAP: GL_CLIP_PLANE2 usage in DrawReflections/DrawRefractions has no
 // RHI equivalent. Metal requires shader-based clipping via [[clip_distance]].
+// The reflection pass clips geometry below the water plane (y > 0).
 void IWater::DrawReflections(const double* clipPlaneEqs, bool drawGround, bool drawSky) {
 	RECOIL_DETAILED_TRACY_ZONE;
 	game->SetDrawMode(CGame::gameReflectionDraw);
@@ -188,6 +202,7 @@ void IWater::DrawReflections(const double* clipPlaneEqs, bool drawGround, bool d
 	game->SetDrawMode(CGame::gameNormalDraw);
 }
 
+// RHI-GAP: The refraction pass clips geometry above the water plane (y < 0).
 void IWater::DrawRefractions(const double* clipPlaneEqs, bool drawGround, bool drawSky) {
 	RECOIL_DETAILED_TRACY_ZONE;
 	game->SetDrawMode(CGame::gameRefractionDraw);
