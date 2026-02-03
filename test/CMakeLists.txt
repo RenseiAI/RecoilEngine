@@ -391,9 +391,11 @@ endif()
 		)
 	if (WIN32)
 		list(APPEND test_src "${ENGINE_SOURCE_DIR}/System/Platform/Win/CpuTopology.cpp")
-	else (WIN32)
+	elseif (APPLE)
+		list(APPEND test_src "${ENGINE_SOURCE_DIR}/System/Platform/Mac/CpuTopology.cpp")
+	else ()
 		list(APPEND test_src "${ENGINE_SOURCE_DIR}/System/Platform/Linux/CpuTopology.cpp")
-	endif (WIN32)
+	endif ()
 	set(test_libs
 			${WINMM_LIBRARY}
 		)
