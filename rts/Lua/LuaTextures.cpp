@@ -1,6 +1,25 @@
-/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
+
+/**
+ * Lua Texture Management
+ *
+ * Handles creation, binding, and destruction of Lua-created textures.
+ *
+ * RHI Migration Status:
+ * - Texture creation uses direct GL calls (glGenTextures, glTexImage*)
+ * - FBO management uses GL EXT framebuffer calls
+ * - Parameter setting uses glTexParameteri/f
+ *
+ * For RHI migration, the texture creation should eventually use
+ * IRHIDevice::CreateTexture(), but the GL path remains for OpenGL backend.
+ * The Metal backend will need equivalent texture creation via RHI.
+ *
+ * Note: The embedded FBO support (tex.fbo) is deprecated in favor of
+ * explicit LuaFBOs, but remains for backward compatibility.
+ */
 
 #include "LuaTextures.h"
+#include "LuaGLConstMappings.h"
 #include "Rendering/Textures/TextureFormat.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/FBO.h"

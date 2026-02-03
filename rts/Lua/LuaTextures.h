@@ -1,7 +1,19 @@
-/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
 
 #ifndef LUA_TEXTURES_H
 #define LUA_TEXTURES_H
+
+/**
+ * Lua Texture Container
+ *
+ * Manages textures created by Lua scripts via gl.CreateTexture().
+ * Textures are stored with their GL parameters (filter, wrap, format).
+ *
+ * RHI Migration Notes:
+ * - The Texture struct stores GL enum values for target, format, etc.
+ * - Use LuaGLConstMappings to convert to RHI types when needed
+ * - The embedded FBO (tex.fbo) is legacy - prefer explicit LuaFBOs
+ */
 
 #include <string>
 #include <vector>
