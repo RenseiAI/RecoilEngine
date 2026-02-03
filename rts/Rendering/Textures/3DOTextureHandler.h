@@ -3,10 +3,11 @@
 #ifndef _3DO_TEXTURE_HANDLER_H
 #define _3DO_TEXTURE_HANDLER_H
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h" // still needed transitively by GL backend
 #include "Rendering/Textures/AtlasedTexture.hpp"
 #include "Rendering/Textures/TAPalette.h"
 #include "System/float4.h"
@@ -42,8 +43,8 @@ private:
 
 	CTAPalette palette;
 
-	GLuint atlas3do1 = 0;
-	GLuint atlas3do2 = 0;
+	uint32_t atlas3do1 = 0;
+	uint32_t atlas3do2 = 0;
 	int bigTexX = 0;
 	int bigTexY = 0;
 };

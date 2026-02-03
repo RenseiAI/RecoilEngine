@@ -11,6 +11,8 @@
 #include "Rendering/Textures/Bitmap.h"
 #include "Rendering/Textures/IAtlasAllocator.h"
 #include "Rendering/Textures/TextureAtlas.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "TAPalette.h"
 #include "System/Exceptions.h"
 #include "System/UnorderedSet.hpp"
@@ -121,34 +123,40 @@ void C3DOTextureHandler::Init()
 	const int numLevels = atlasAlloc->GetNumTexLevels();
 
 	{
-		glGenTextures(1, &atlas3do1);
-		glBindTexture(GL_TEXTURE_2D, atlas3do1);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (numLevels > 1) ? GL_LINEAR_MIPMAP_NEAREST : GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL,  numLevels - 1);
-
+		auto* device = RHI::GetDevice();
+		auto rhiTex1 = device->CreateTexture(
+			RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
+			curAtlasSize.x, curAtlasSize.y, 1, numLevels);
+		rhiTex1->SetMagFilter(RHI::TextureFilter::Linear);
+		rhiTex1->SetMinFilter((numLevels > 1) ? RHI::TextureFilter::LinearMipmapNearest : RHI::TextureFilter::Linear);
+		rhiTex1->SetWrapS(RHI::TextureWrap::ClampToEdge);
+		rhiTex1->SetWrapT(RHI::TextureWrap::ClampToEdge);
+		rhiTex1->Bind(0);
 		if (numLevels > 1) {
 			RecoilBuildMipmaps(GL_TEXTURE_2D, GL_RGBA8, curAtlasSize.x, curAtlasSize.y, GL_RGBA, GL_UNSIGNED_BYTE, bigtex1.data()); //FIXME disable texcompression
 		} else {
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, curAtlasSize.x, curAtlasSize.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, bigtex1.data());
+			rhiTex1->Upload(0, 0, 0, curAtlasSize.x, curAtlasSize.y, bigtex1.data());
 		}
+		atlas3do1 = rhiTex1->GetNativeHandle();
+		rhiTex1.release(); // ownership transferred to atlas3do1 (raw handle)
 	}
 	{
-		glGenTextures(1, &atlas3do2);
-		glBindTexture(GL_TEXTURE_2D, atlas3do2);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (numLevels > 1) ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,     GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,     GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL,  numLevels - 1);
-
+		auto* device = RHI::GetDevice();
+		auto rhiTex2 = device->CreateTexture(
+			RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
+			curAtlasSize.x, curAtlasSize.y, 1, numLevels);
+		rhiTex2->SetMagFilter(RHI::TextureFilter::Linear);
+		rhiTex2->SetMinFilter((numLevels > 1) ? RHI::TextureFilter::NearestMipmapNearest : RHI::TextureFilter::Nearest);
+		rhiTex2->SetWrapS(RHI::TextureWrap::ClampToEdge);
+		rhiTex2->SetWrapT(RHI::TextureWrap::ClampToEdge);
+		rhiTex2->Bind(0);
 		if (numLevels > 0) {
 			RecoilBuildMipmaps(GL_TEXTURE_2D, GL_RGBA8, curAtlasSize.x, curAtlasSize.y, GL_RGBA, GL_UNSIGNED_BYTE, bigtex2.data()); //FIXME disable texcompression
 		} else {
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, curAtlasSize.x, curAtlasSize.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, bigtex2.data());
+			rhiTex2->Upload(0, 0, 0, curAtlasSize.x, curAtlasSize.y, bigtex2.data());
 		}
+		atlas3do2 = rhiTex2->GetNativeHandle();
+		rhiTex2.release(); // ownership transferred to atlas3do2 (raw handle)
 	}
 
 	if (CTextureAtlas::GetDebug()) {
