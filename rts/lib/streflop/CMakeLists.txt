@@ -92,4 +92,10 @@ ADD_LIBRARY(streflop STATIC EXCLUDE_FROM_ALL
 	${libm_flt32_source}
 	)
 set_target_properties(streflop PROPERTIES COMPILE_FLAGS "${PIC_FLAG}")
+
+# On ARM64 use STREFLOP_SOFT (pure software IEEE 754 via bundled SoftFloat)
+# instead of STREFLOP_SSE which requires x86 SSE control registers.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|armv8")
+	target_compile_definitions(streflop PUBLIC STREFLOP_SOFT)
+endif()
 #TODO do not use -fPIC for streflop (decreases performance)
