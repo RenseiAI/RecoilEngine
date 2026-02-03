@@ -1,7 +1,22 @@
-/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * Lua FBO Implementation
+ *
+ * RHI Migration Status:
+ * - Uses GL EXT framebuffer functions (glGenFramebuffersEXT, etc.)
+ * - ActiveFBO uses legacy FFP matrix push/pop - needs migration
+ * - BlitFBO maps to IRHIContext::BlitFramebuffer
+ *
+ * Migration Strategy:
+ * 1. Keep GL calls for OpenGL backend (they work via RHI GL backend)
+ * 2. For Metal backend, RHI framebuffer wraps native FBO concepts
+ * 3. The glPushAttrib/glPopAttrib in ActiveFBO can be replaced with
+ *    RHI viewport state save/restore
+ */
 
 #include "LuaFBOs.h"
+#include "LuaGLConstMappings.h"
 
 #include "LuaInclude.h"
 

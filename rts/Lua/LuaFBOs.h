@@ -1,7 +1,25 @@
-/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
 
 #ifndef LUA_FBOS_H
 #define LUA_FBOS_H
+
+/**
+ * Lua Framebuffer Objects (FBO) Management
+ *
+ * Exposes FBO creation and management to Lua scripts via:
+ * - gl.CreateFBO / gl.DeleteFBO
+ * - gl.ActiveFBO (scoped FBO binding with callback)
+ * - gl.BlitFBO (copy between framebuffers)
+ * - gl.RawBindFBO (direct binding, use with caution)
+ *
+ * RHI Migration Notes:
+ * - FBOs map to IRHIFramebuffer in the RHI layer
+ * - glBindFramebufferEXT -> IRHIContext::BeginRenderPass/EndRenderPass
+ * - glFramebufferTexture* -> IRHIFramebuffer::AttachColor/AttachDepth
+ * - glBlitFramebufferEXT -> IRHIContext::BlitFramebuffer
+ * - The matrix push/pop in ActiveFBO is legacy FFP - should migrate to
+ *   uniform-based matrices for RHI compatibility
+ */
 
 #include <vector>
 #include <string>
