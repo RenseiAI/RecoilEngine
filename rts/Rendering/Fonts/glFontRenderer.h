@@ -4,6 +4,7 @@
 
 #include "Rendering/GL/VertexArrayTypes.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHITexture.h"
 
 class CglFont;
 class CFontTexture;
