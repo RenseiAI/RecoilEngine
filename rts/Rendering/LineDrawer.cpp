@@ -7,7 +7,22 @@
 #include <cmath>
 
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHITypes.h"
 #include "Game/UI/CommandColors.h"
+
+// RHI Migration Notes (LineDrawer):
+// DrawAll() uses legacy client-state vertex arrays:
+//   glEnableClientState(GL_VERTEX_ARRAY/GL_COLOR_ARRAY), glVertexPointer,
+//   glColorPointer, glDrawArrays -> requires conversion to IRHIBuffer
+//     vertex/index buffers + IRHIContext::Draw()
+// State management:
+//   glPushAttrib/glPopAttrib -> no RHI equivalent; replace with scoped pipeline state
+//   glDisable(GL_TEXTURE_2D) -> FFP texture unit (no RHI equivalent)
+//   glDisable(GL_DEPTH_TEST) -> RHI::DepthStencilState{depthTestEnabled=false}
+//   glDisable/glEnable(GL_LINE_STIPPLE) -> no RHI equivalent (deprecated in GL3+)
+// SetupLineStipple():
+//   glLineStipple -> no RHI equivalent (line stipple is legacy GL only)
+// Header types GLenum, GLfloat used in LinePair -> should become RHI::PrimitiveType, float
 
 CLineDrawer lineDrawer;
 

@@ -8,6 +8,7 @@
 
 #include "Game/UI/CursorIcons.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHITypes.h"
 
 class CLineDrawer {
 	public:
