@@ -36,6 +36,8 @@
 #include "System/Misc/TracyDefs.h"
 #include <bit>
 
+// RHI-GAP: BumpWater has ~80 direct GL calls. Uses GLSL shaders (RHI-ready).
+// Needs IRHIDevice::CreateTexture(), glCopyTexSubImage2D->blit, matrix stack removal.
 using std::string;
 using std::vector;
 using std::min;
