@@ -1,3 +1,6 @@
+// CTextureRenderAtlas uses GL::TextureBase (the GL backend texture class) for
+// atlas storage. When RHI texture types replace GL::TextureBase, atlasTex
+// should become std::unique_ptr<RHI::IRHITexture>.
 #pragma once
 
 #include <cstdint>
