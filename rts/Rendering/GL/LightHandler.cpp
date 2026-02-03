@@ -1,4 +1,8 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+// RHI Migration: All GL calls here are fixed-function pipeline lighting with no
+// RHI equivalent. glGetIntegerv(GL_MAX_LIGHTS) -> IRHIDevice capability query.
+// glEnable/glDisable(GL_LIGHT*), glLightfv, glLightf -> replace with a light data
+// UBO (IRHIBuffer with BufferType::Uniform) uploaded each frame and read by shaders.
 
 #include "myGL.h"
 #include "LightHandler.h"
