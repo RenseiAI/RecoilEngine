@@ -4,8 +4,11 @@
 
 #include "Game/UI/MiniMap.h"
 #include "Map/ReadMap.h"
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h"  // transitional: GL types still needed for fixed-function
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/SmoothHeightMesh.h"
 #include "System/EventHandler.h"
@@ -44,6 +47,10 @@ void SmoothHeightMeshDrawer::DrawInMiniMap()
 	if (!drawEnabled)
 		return;
 
+	// TODO [RHI cross-cutting]: entire DrawInMiniMap uses fixed-function GL pipeline
+	// (matrix stack, glRectf, glColor4f, glEnable/glDisable GL_TEXTURE_2D).
+	// Requires RHI uniform buffer / push constants for matrix ops,
+	// and vertex buffer for rect geometry.
 	glMatrixMode(GL_PROJECTION);
 		glPushMatrix();
 		glLoadIdentity();
@@ -83,6 +90,9 @@ void SmoothHeightMeshDrawer::Draw(float yoffset) {
 	if (!drawEnabled)
 		return;
 
+	// TODO [RHI cross-cutting]: glPolygonMode (wireframe) needs RHI RasterizerState,
+	// glDisable(GL_TEXTURE_*) and glDisable(GL_CULL_FACE) are fixed-function no-ops
+	// with modern shaders. rb.DrawElements still uses raw GL_TRIANGLES enum.
 	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 	glLineWidth(1.0f);
 	glDisable(GL_TEXTURE_2D);
