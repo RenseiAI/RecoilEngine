@@ -5,8 +5,13 @@
 
 #include "SkyBox.h"
 #include "Rendering/GlobalRendering.h"
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h"  // retained: FFP matrix stack, raw cubemap creation, glDrawBuffer, glPushAttrib
 #include "Rendering/GL/FBO.h"
+#include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIPipeline.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Textures/Bitmap.h"
@@ -47,6 +52,8 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 		auto generateMipMaps = configHandler->GetBool("CubeTexGenerateMipMaps");
 		// here textureID represents 2D texture
 
+		// NOTE: Raw GL cubemap creation retained - cubemap texture is stored in
+		// MapTexture (raw GL ID), converting to RHI texture requires MapTexture changes
 		auto cubeTexID = spring::ScopedResource(
 			[]() { uint32_t tempID = 0; glGenTextures(1, &tempID); return tempID; }(),
 			[](uint32_t texID) { if (texID > 0) glDeleteTextures(1, &texID); }
@@ -98,10 +105,17 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 		{
 			glPushAttrib(GL_ENABLE_BIT | GL_VIEWPORT_BIT);
 
-			glViewport(0, 0, ysize, ysize);
+			// Viewport via RHI
+			RHI::GetDevice()->GetContext()->SetViewport({0.0f, 0.0f, static_cast<float>(ysize), static_cast<float>(ysize)});
 
-			glDisable(GL_DEPTH_TEST);
-			glDisable(GL_BLEND);
+			// Pipeline state via RHI (no depth test, no blending for equirect conversion)
+			{
+				RHI::PipelineDesc pipeDesc;
+				pipeDesc.depthStencil.depthTestEnabled = false;
+				pipeDesc.blend.enabled = false;
+				auto pipeline = RHI::GetDevice()->CreatePipeline(pipeDesc);
+				RHI::GetDevice()->GetContext()->BindPipeline(pipeline.get());
+			}
 
 			glMatrixMode(GL_PROJECTION);
 			glPushMatrix();
@@ -137,7 +151,8 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 
 				glDrawBuffer(GL_COLOR_ATTACHMENT0);
 
-				glDrawArrays(GL_TRIANGLES, side * 6, 6);
+				// Draw via RHI
+				RHI::GetDevice()->GetContext()->Draw(RHI::PrimitiveType::Triangles, 6, side * 6);
 			}
 			ercShader->Disable();
 			vao.Unbind();
@@ -236,10 +251,17 @@ void CSkyBox::Draw()
 	if (!valid)
 		return;
 
-	glDisable(GL_ALPHA_TEST);
-	glDisable(GL_BLEND);
-	glDepthFunc(GL_LEQUAL);
+	// Pipeline state via RHI (no blending, depth test with LessEqual)
+	{
+		RHI::PipelineDesc pipeDesc;
+		pipeDesc.blend.enabled = false;
+		pipeDesc.depthStencil.depthTestEnabled = true;
+		pipeDesc.depthStencil.depthFunc = RHI::CompareFunc::LessEqual;
+		auto pipeline = RHI::GetDevice()->CreatePipeline(pipeDesc);
+		RHI::GetDevice()->GetContext()->BindPipeline(pipeline.get());
+	}
 
+	// FFP matrix stack - no RHI equivalent
 	glMatrixMode(GL_MODELVIEW);
 	glPushMatrix();
 	CMatrix44f model; model.Rotate(skyAxisAngle.w, float3{ skyAxisAngle.x, skyAxisAngle.y, skyAxisAngle.z });
@@ -250,6 +272,8 @@ void CSkyBox::Draw()
 	glPushMatrix();
 	glLoadMatrixf(camera->GetProjectionMatrix());
 
+	// NOTE: cubemap bind retained as raw GL - skyTex stores a raw GL texture ID
+	// (MapTexture), not an RHI texture object
 	glEnable(GL_TEXTURE_CUBE_MAP);
 	glBindTexture(GL_TEXTURE_CUBE_MAP, skyTex.GetID());
 
@@ -264,7 +288,8 @@ void CSkyBox::Draw()
 		static_cast<float>(waterRendering->hasWaterPlane && !globalRendering->drawDebugCubeMap)
 	);
 
-	glDrawArrays(GL_TRIANGLES, 0, 36);
+	// Draw via RHI
+	RHI::GetDevice()->GetContext()->Draw(RHI::PrimitiveType::Triangles, 36, 0);
 
 	shader->Disable();
 	skyVAO.Unbind();
