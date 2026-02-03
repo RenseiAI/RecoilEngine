@@ -6,6 +6,10 @@
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/GL/SubState.h"
+#include "Rendering/GL/myGL.h"  // transitional: GL types still needed for glBegin/glEnd
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Map/ReadMap.h"
 #include "System/Exceptions.h"
 #include "System/Config/ConfigHandler.h"
@@ -33,11 +37,13 @@ CInfoTextureCombiner::CInfoTextureCombiner()
 	texture = GL::Texture2D(texSize, GL_RGB10_A2, tcp, false);
 
 	if (FBO::IsSupported()) {
+		auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+		auto* ctx = device->GetContext();
 		fbo.Bind();
 		fbo.AttachTexture(texture.GetId());
 		/*bool status =*/ fbo.CheckStatus("CInfoTextureCombiner");
-		glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
-		if (fbo.IsValid()) glClear(GL_COLOR_BUFFER_BIT);
+		ctx->ClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+		if (fbo.IsValid()) ctx->Clear(true, false, false);
 		FBO::Unbind();
 
 		// create mipmaps
@@ -92,9 +98,11 @@ bool CInfoTextureCombiner::CreateShader(const std::string& filename, const bool 
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (clear) {
 		// clear
+		auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+		auto* ctx = device->GetContext();
 		fbo.Bind();
-		glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
-		if (fbo.IsValid()) glClear(GL_COLOR_BUFFER_BIT);
+		ctx->ClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
+		if (fbo.IsValid()) ctx->Clear(true, false, false);
 		FBO::Unbind();
 
 		// create mipmaps
@@ -120,8 +128,11 @@ void CInfoTextureCombiner::Update()
 		ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE)
 	);
 
+	auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+	auto* ctx = device->GetContext();
+
 	fbo.Bind();
-	glViewport(0,0, texSize.x, texSize.y);
+	ctx->SetViewport(RHI::Viewport{0.0f, 0.0f, static_cast<float>(texSize.x), static_cast<float>(texSize.y)});
 
 	shader->BindTextures();
 	shader->Enable();
@@ -130,7 +141,8 @@ void CInfoTextureCombiner::Update()
 	const float isx = 2.0f * (mapDims.mapx / float(mapDims.pwr2mapx)) - 1.0f;
 	const float isy = 2.0f * (mapDims.mapy / float(mapDims.pwr2mapy)) - 1.0f;
 
-	// need to keep this old nonsence intact to keep Lua shaders compatible
+	// TODO [RHI cross-cutting]: glBegin/glEnd immediate mode cannot be directly
+	// migrated to RHI. Needs vertex buffer + draw call. Kept for Lua shader compat.
 	glBegin(GL_QUADS);
 		glTexCoord2f(0.f, 0.f); glVertex2f(-1.f, -1.f);
 		glTexCoord2f(0.f, 1.f); glVertex2f(-1.f, +isy);
