@@ -10,8 +10,20 @@
 #include "Rendering/ShadowHandler.h"
 #include "Rendering/Textures/3DOTextureHandler.h"
 #include "Rendering/Env/CubeMapHandler.h"
+#include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIPipeline.h"
+#include "Rendering/RHI/RHIFactory.h"
 
 #include "System/Misc/TracyDefs.h"
+
+namespace {
+	RHI::IRHIDevice* GetRHIDevice() {
+		static auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+		return device.get();
+	}
+}
 
 bool CModelDrawerHelper::ObjectVisibleReflection(const float3& objPos, const float3& camPos, float maxRadius)
 {
@@ -41,12 +53,21 @@ bool CModelDrawerHelper::ObjectVisibleReflection(const float3& objPos, const flo
 void CModelDrawerHelper::EnableTexturesCommon()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: texture binding uses raw GL IDs from external texture handlers
+	// (textureHandler3DO, textureHandlerS3O, cubeMapHandler) that have not been
+	// migrated to RHI yet. Once those return IRHITexture*, use ctx->BindTexture().
+	// glEnable(GL_TEXTURE_2D/GL_TEXTURE_CUBE_MAP) is legacy FFP state.
 	glActiveTexture(GL_TEXTURE1);
 	glEnable(GL_TEXTURE_2D);
 
 	if (shadowHandler.ShadowsLoaded()) {
 		shadowHandler.SetupShadowTexSampler(GL_TEXTURE2, true);
-		glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, shadowHandler.GetColorTextureID());
+		// Shadow color texture - bind via RHI if available, else GL fallback
+		if (auto* colorTex = shadowHandler.GetColorTexture()) {
+			colorTex->Bind(3);
+		} else {
+			glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, shadowHandler.GetColorTextureID());
+		}
 	}
 
 	glActiveTexture(GL_TEXTURE4);
@@ -64,12 +85,14 @@ void CModelDrawerHelper::EnableTexturesCommon()
 void CModelDrawerHelper::DisableTexturesCommon()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: see EnableTexturesCommon for texture migration notes
 	glActiveTexture(GL_TEXTURE1);
 	glDisable(GL_TEXTURE_2D);
 
 	if (shadowHandler.ShadowsLoaded())
 		shadowHandler.ResetShadowTexSampler(GL_TEXTURE2, true);
 
+	// RHI_TODO: unbind shadow color texture via RHI once cubeMapHandler migrated
 	glActiveTexture(GL_TEXTURE3);
 	glDisable(GL_TEXTURE_CUBE_MAP);
 
@@ -83,7 +106,9 @@ void CModelDrawerHelper::DisableTexturesCommon()
 void CModelDrawerHelper::PushTransform(const CCamera* cam)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// set model-drawing transform; view is combined with projection
+	// RHI_TODO: FFP matrix stack (glMatrixMode/glPushMatrix/glPopMatrix) has no
+	// RHI equivalent. GL4 path uses uniform buffers for transforms. This legacy
+	// path should be removed once the GL4 path handles all model rendering.
 	glMatrixMode(GL_PROJECTION);
 	glPushMatrix();
 	glMultMatrixf(cam->GetViewMatrix());
@@ -95,6 +120,7 @@ void CModelDrawerHelper::PushTransform(const CCamera* cam)
 void CModelDrawerHelper::PopTransform()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: FFP matrix stack - see PushTransform note
 	glMatrixMode(GL_PROJECTION);
 	glPopMatrix();
 	glMatrixMode(GL_MODELVIEW);
@@ -118,6 +144,7 @@ void CModelDrawerHelper::DIDResetPrevProjection(bool toScreen)
 	if (!toScreen)
 		return;
 
+	// RHI_TODO: FFP matrix stack - see PushTransform note
 	glMatrixMode(GL_PROJECTION);
 	glPopMatrix();
 	glPushMatrix();
@@ -126,6 +153,7 @@ void CModelDrawerHelper::DIDResetPrevProjection(bool toScreen)
 void CModelDrawerHelper::DIDResetPrevModelView()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: FFP matrix stack - see PushTransform note
 	glMatrixMode(GL_MODELVIEW);
 	glPopMatrix();
 	glPushMatrix();
@@ -134,6 +162,8 @@ void CModelDrawerHelper::DIDResetPrevModelView()
 bool CModelDrawerHelper::DIDCheckMatrixMode(int wantedMode)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: glGetIntegerv(GL_MATRIX_MODE) is FFP state query with no RHI equivalent.
+	// This debug check should be removed once FFP matrix stack is eliminated.
 #if 1
 	int matrixMode = 0;
 	glGetIntegerv(GL_MATRIX_MODE, &matrixMode);
@@ -203,18 +233,30 @@ const std::array<const CModelDrawerHelper*, MODELTYPE_CNT> CModelDrawerHelper::m
 void CModelDrawerHelper3DO::PushRenderState() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glDisable(GL_CULL_FACE);
+	auto* device = GetRHIDevice();
+	auto* ctx = device->GetContext();
+	RHI::PipelineDesc desc;
+	desc.rasterizer.cullMode = RHI::CullMode::None;
+	auto pipeline = device->CreatePipeline(desc);
+	ctx->BindPipeline(pipeline.get());
 }
 
 void CModelDrawerHelper3DO::PopRenderState() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glEnable(GL_CULL_FACE);
+	auto* device = GetRHIDevice();
+	auto* ctx = device->GetContext();
+	RHI::PipelineDesc desc;
+	desc.rasterizer.cullMode = RHI::CullMode::Back;
+	auto pipeline = device->CreatePipeline(desc);
+	ctx->BindPipeline(pipeline.get());
 }
 
 void CModelDrawerHelper3DO::BindOpaqueTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: textureHandler3DO returns raw GL IDs. Once migrated to RHI,
+	// use ctx->BindTexture(rhiTexture, unit) instead.
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, textureHandler3DO.GetAtlasTex2ID());
 	glActiveTexture(GL_TEXTURE0);
@@ -224,6 +266,7 @@ void CModelDrawerHelper3DO::BindOpaqueTex(const CS3OTextureHandler::S3OTexMat* t
 void CModelDrawerHelper3DO::UnbindOpaqueTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: see BindOpaqueTex note
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glActiveTexture(GL_TEXTURE0);
@@ -233,6 +276,7 @@ void CModelDrawerHelper3DO::UnbindOpaqueTex() const
 void CModelDrawerHelper3DO::BindShadowTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: glEnable(GL_TEXTURE_2D) is legacy FFP. textureHandler3DO returns raw GL IDs.
 	glActiveTexture(GL_TEXTURE0);
 	glEnable(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, textureHandler3DO.GetAtlasTex2ID());
@@ -241,6 +285,7 @@ void CModelDrawerHelper3DO::BindShadowTex(const CS3OTextureHandler::S3OTexMat* t
 void CModelDrawerHelper3DO::UnbindShadowTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: see BindShadowTex note
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glDisable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE0);
@@ -251,6 +296,8 @@ void CModelDrawerHelper3DO::UnbindShadowTex() const
 void CModelDrawerHelperS3O::BindOpaqueTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: S3OTexMat stores raw GL texture IDs. Once S3OTextureHandler
+	// is migrated to RHI, use ctx->BindTexture(rhiTexture, unit) instead.
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, textureMat->tex2);
 	glActiveTexture(GL_TEXTURE0);
@@ -260,6 +307,7 @@ void CModelDrawerHelperS3O::BindOpaqueTex(const CS3OTextureHandler::S3OTexMat* t
 void CModelDrawerHelperS3O::UnbindOpaqueTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: see BindOpaqueTex note
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glActiveTexture(GL_TEXTURE0);
@@ -269,6 +317,7 @@ void CModelDrawerHelperS3O::UnbindOpaqueTex() const
 void CModelDrawerHelperS3O::BindShadowTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: glEnable(GL_TEXTURE_2D) is legacy FFP. S3OTexMat stores raw GL IDs.
 	glActiveTexture(GL_TEXTURE0);
 	glEnable(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, textureMat->tex2);
@@ -277,6 +326,7 @@ void CModelDrawerHelperS3O::BindShadowTex(const CS3OTextureHandler::S3OTexMat* t
 void CModelDrawerHelperS3O::UnbindShadowTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: see BindShadowTex note
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glDisable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE0);
@@ -287,6 +337,8 @@ void CModelDrawerHelperS3O::UnbindShadowTex() const
 void CModelDrawerHelperASS::BindOpaqueTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: S3OTexMat stores raw GL texture IDs. Once S3OTextureHandler
+	// is migrated to RHI, use ctx->BindTexture(rhiTexture, unit) instead.
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, textureMat->tex2);
 	glActiveTexture(GL_TEXTURE0);
@@ -296,6 +348,7 @@ void CModelDrawerHelperASS::BindOpaqueTex(const CS3OTextureHandler::S3OTexMat* t
 void CModelDrawerHelperASS::UnbindOpaqueTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: see BindOpaqueTex note
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glActiveTexture(GL_TEXTURE0);
@@ -305,6 +358,7 @@ void CModelDrawerHelperASS::UnbindOpaqueTex() const
 void CModelDrawerHelperASS::BindShadowTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: glEnable(GL_TEXTURE_2D) is legacy FFP. S3OTexMat stores raw GL IDs.
 	glActiveTexture(GL_TEXTURE0);
 	glEnable(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, textureMat->tex2);
@@ -313,6 +367,7 @@ void CModelDrawerHelperASS::BindShadowTex(const CS3OTextureHandler::S3OTexMat* t
 void CModelDrawerHelperASS::UnbindShadowTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: see BindShadowTex note
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glDisable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE0);
