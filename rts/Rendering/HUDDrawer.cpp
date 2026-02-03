@@ -6,6 +6,19 @@
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/SubState.h"
+#include "Rendering/RHI/RHITypes.h"
+
+// RHI Migration Notes (HUDDrawer):
+// This file is dominated by legacy immediate-mode GL (glBegin/glEnd, glVertex,
+// glColor, matrix stack ops). These have no direct RHI equivalent and require
+// conversion to vertex buffer-based rendering before RHI migration can proceed.
+// GL::SubState usage maps conceptually to RHI::PipelineDesc (blend, depth state).
+// Mappable calls (deferred until vertex buffer conversion):
+//   GL::SubState DepthTest/Blending/BlendFunc -> RHI::DepthStencilState / RHI::BlendState
+// Non-mappable legacy FFP calls (require full rewrite):
+//   glPushMatrix/glPopMatrix, glMatrixMode, glLoadIdentity, glTranslatef,
+//   glScalef, glRotatef, glMultMatrixf, glBegin/glEnd, glVertex*, glColor*,
+//   glEnable/glDisable(GL_TEXTURE_2D) [FFP texturing]
 #include "Game/Camera.h"
 #include "Game/GlobalUnsynced.h"
 #include "Game/Players/Player.h"
