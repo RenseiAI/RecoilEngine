@@ -6,11 +6,18 @@
 #include <unordered_map>
 
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIBuffer.h"
+#include "Rendering/RHI/RHITypes.h"
 
 /**
  * @brief VBO
  *
  * Vertex buffer Object class (ARB_vertex_buffer_object).
+ *
+ * RHI Migration Note:
+ *   The RHI OpenGL backend (GLBuffer) wraps this class. Higher-level code
+ *   should migrate to IRHIBuffer; use the helpers below to convert GL enums
+ *   to RHI equivalents during the transition.
  */
 class VBO
 {
@@ -106,6 +113,38 @@ public:
 	void SetUsage(const GLenum _usage) { usage = _usage; }
 
 	const GLvoid* GetPtr(GLintptr offset = 0) const;
+
+	/// Convert a GL buffer target enum to the corresponding RHI::BufferType.
+	static RHI::BufferType TargetToRHI(GLenum target) {
+		switch (target) {
+		case GL_ARRAY_BUFFER:              return RHI::BufferType::Vertex;
+		case GL_ELEMENT_ARRAY_BUFFER:      return RHI::BufferType::Index;
+		case GL_UNIFORM_BUFFER:            return RHI::BufferType::Uniform;
+		case GL_SHADER_STORAGE_BUFFER:     return RHI::BufferType::Storage;
+		case GL_PIXEL_PACK_BUFFER:         return RHI::BufferType::PixelPack;
+		case GL_PIXEL_UNPACK_BUFFER:       return RHI::BufferType::PixelUnpack;
+		default:                           return RHI::BufferType::Vertex;
+		}
+	}
+
+	/// Convert a GL buffer usage enum to the corresponding RHI::BufferUsage.
+	static RHI::BufferUsage UsageToRHI(GLenum glUsage) {
+		switch (glUsage) {
+		case GL_STATIC_DRAW: case GL_STATIC_READ: case GL_STATIC_COPY:
+			return RHI::BufferUsage::Static;
+		case GL_DYNAMIC_DRAW: case GL_DYNAMIC_READ: case GL_DYNAMIC_COPY:
+			return RHI::BufferUsage::Dynamic;
+		case GL_STREAM_DRAW: case GL_STREAM_READ: case GL_STREAM_COPY:
+		default:
+			return RHI::BufferUsage::Stream;
+		}
+	}
+
+	/// Get this buffer's RHI type based on its current bound target.
+	RHI::BufferType GetRHIBufferType() const { return TargetToRHI(curBoundTarget); }
+	/// Get this buffer's RHI usage hint.
+	RHI::BufferUsage GetRHIBufferUsage() const { return UsageToRHI(usage); }
+
 public:
 	static bool IsSupported(GLenum target);
 	static size_t GetAlignedSize(GLenum target, size_t sz);
