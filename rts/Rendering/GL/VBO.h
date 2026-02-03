@@ -145,6 +145,57 @@ public:
 	/// Get this buffer's RHI usage hint.
 	RHI::BufferUsage GetRHIBufferUsage() const { return UsageToRHI(usage); }
 
+	// --- RHI-compatible interface methods ---
+	// These methods provide an RHI-like interface for easier migration.
+	// They delegate to the existing GL implementation.
+
+	/// RHI-style map with offset/size and read-only flag
+	void* RHIMap(size_t offset, size_t size, bool readOnly = false) {
+		GLbitfield access = readOnly ? GL_READ_ONLY : GL_WRITE_ONLY;
+		Bind();
+		return MapBuffer(static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size), access);
+	}
+
+	/// RHI-style map entire buffer
+	void* RHIMapAll(bool readOnly = false) {
+		return RHIMap(0, bufSize, readOnly);
+	}
+
+	/// RHI-style unmap
+	void RHIUnmap() {
+		UnmapBuffer();
+		Unbind();
+	}
+
+	/// RHI-style upload data to buffer
+	void RHIUpload(const void* newData, size_t offset, size_t size) {
+		Bind();
+		SetBufferSubData(static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size), newData);
+		Unbind();
+	}
+
+	/// RHI-style resize
+	void RHIResize(size_t newSize) {
+		Bind();
+		Resize(static_cast<GLsizeiptr>(newSize), usage);
+		Unbind();
+	}
+
+	/// RHI-style invalidate
+	void RHIInvalidate() {
+		Bind();
+		Invalidate();
+		Unbind();
+	}
+
+	/// RHI-style bind range for uniform/storage buffers
+	void RHIBindRange(uint32_t index, size_t offset, size_t size) {
+		BindBufferRange(curBoundTarget, index, static_cast<GLuint>(offset), static_cast<GLsizeiptr>(size));
+	}
+
+	/// Get native buffer handle for RHI compatibility
+	uint32_t GetNativeHandle() const { return GetIdRaw(); }
+
 public:
 	static bool IsSupported(GLenum target);
 	static size_t GetAlignedSize(GLenum target, size_t sz);
