@@ -9,6 +9,23 @@
 #include "Rendering/GL/glExtra.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHITypes.h"
+
+// RHI Migration Notes (CommandDrawer):
+// Mappable state calls in DrawLuaQueuedUnitSetCommands():
+//   glDisable(GL_DEPTH_TEST) -> RHI::DepthStencilState{depthTestEnabled=false}
+//   glEnable(GL_BLEND) + glBlendFunc -> RHI::BlendState{enabled=true, srcColor/dstColor}
+//   glLineWidth -> RHI::RasterizerState{lineWidth}
+//   glEnable(GL_DEPTH_TEST) -> restore pipeline state
+// Mappable calls in DrawQuedBuildingSquares():
+//   glPolygonMode -> RHI::RasterizerState{polygonMode=Line}
+//   glDrawArrays -> IRHIContext::Draw()
+// Non-mappable legacy FFP in DrawQuedBuildingSquares():
+//   glEnableClientState/glDisableClientState, glVertexPointer, glColorPointer
+//     -> requires conversion to IRHIBuffer vertex buffers
+//   glPushAttrib/glPopAttrib, glColor4f -> legacy FFP state stack
+// Non-mappable FFP:
+//   glDisable(GL_TEXTURE_2D) -> FFP texture unit enable (no RHI equivalent)
 #include "Sim/Features/Feature.h"
 #include "Sim/Features/FeatureHandler.h"
 #include "Sim/Units/CommandAI/Command.h"

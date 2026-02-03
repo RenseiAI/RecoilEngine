@@ -5,11 +5,27 @@
 #include "Rendering/Colors.h"
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHITypes.h"
 
 #include "Game/Camera.h"
 #include "Game/InMapDrawModel.h"
 #include "Map/ReadMap.h"
 #include "Sim/Misc/TeamHandler.h"
+
+// RHI Migration Notes (InMapDrawView):
+// Texture lifecycle in constructor/destructor is directly mappable:
+//   glGenTextures + glBindTexture + glTexParameteri + glTexImage2D
+//     -> IRHIDevice::CreateTexture() + IRHITexture::SetMinFilter/SetMagFilter/SetWrapS/SetWrapT
+//   RecoilBuildMipmaps -> IRHITexture::GenerateMipmaps() (after Upload)
+//   glDeleteTextures -> IRHITexture destructor (unique_ptr)
+//   Requires: changing `GLuint texture` member to std::unique_ptr<RHI::IRHITexture>
+// Pipeline state in Draw():
+//   glDepthMask(GL_FALSE) -> RHI::DepthStencilState{depthWriteEnabled=false}
+//   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+//     -> RHI::BlendState{srcColor=SrcAlpha, dstColor=OneMinusSrcAlpha}
+//   glEnable(GL_BLEND) -> RHI::BlendState{enabled=true}
+//   glLineWidth(3.0f) -> RHI::RasterizerState{lineWidth=3.0f}
+//   glBindTexture(GL_TEXTURE_2D, texture) -> IRHIContext::BindTexture(tex, 0)
 
 CInMapDrawView* inMapDrawerView = nullptr;
 

@@ -10,9 +10,19 @@
 #include "Rendering/Units/UnitDrawer.h"
 #include "Rendering/Models/3DModelPiece.hpp"
 #include "Rendering/Textures/S3OTextureHandler.h"
+#include "Rendering/RHI/RHITypes.h"
 #include "System/SpringMath.h"
 
 #include "System/Misc/TracyDefs.h"
+
+// RHI Migration Notes (FlyingPiece):
+// Mappable pipeline state in BeginDraw()/EndDraw():
+//   glDisable(GL_CULL_FACE) -> RHI::RasterizerState{cullMode=None}
+//   glEnable(GL_CULL_FACE)  -> RHI::RasterizerState{cullMode=Back}
+//   These should become a scoped pipeline state change.
+// Non-mappable legacy FFP in Draw():
+//   glPushMatrix/glPopMatrix, glMultMatrixf -> matrix stack
+//   Requires conversion to uniform-based transform upload
 
 
 static const float EXPLOSION_SPEED = 2.f;
