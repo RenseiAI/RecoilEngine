@@ -1,7 +1,20 @@
-/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
 
 #ifndef LUA_VBO_IMPL_H
 #define LUA_VBO_IMPL_H
+
+/**
+ * Lua VBO Implementation
+ *
+ * Wraps the VBO class for Lua-created vertex/index/uniform/storage buffers.
+ * Uses the existing VBO class which handles GL buffer operations.
+ *
+ * RHI Migration Notes:
+ * - VBO class wraps GL buffer objects -> should migrate to IRHIBuffer
+ * - Buffer types map via LuaGLConstMappings (GL_ARRAY_BUFFER, etc.)
+ * - BindBufferRange used for UBO/SSBO binding
+ * - Most GL calls are inside the VBO class, not here
+ */
 
 #include <map>
 #include <vector>

@@ -1,7 +1,26 @@
-/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
 
 #ifndef LUA_VAO_IMPL_H
 #define LUA_VAO_IMPL_H
+
+/**
+ * Lua VAO Implementation
+ *
+ * Vertex Array Object for Lua scripts - binds vertex/instance/index buffers
+ * and issues draw calls.
+ *
+ * RHI Migration Notes:
+ * - VAO is an OpenGL concept; Metal uses vertex descriptors in pipelines
+ * - Draw calls (glDrawArrays*, glDrawElements*) -> IRHIContext::Draw*()
+ * - Primitive restart -> may need emulation on Metal
+ * - glVertexAttribPointer/Divisor -> vertex layout in pipeline descriptor
+ * - The primitive type (GL_TRIANGLES) maps via LuaGLConstMappings
+ *
+ * Key draw functions to migrate:
+ * - DrawArrays: mode, count, first, instances -> RHIContext::Draw/DrawInstanced
+ * - DrawElements: mode, count, offset, baseVertex -> RHIContext::DrawIndexed*
+ * - Submit (MultiDrawIndirect): glMultiDrawElementsIndirect
+ */
 
 #include <map>
 #include <string>
