@@ -166,6 +166,10 @@
 #include <nowide/cstdio.hpp>
 
 // spring related
+// nv_dds uses direct GL calls for DDS texture upload (glCompressedTexImage*,
+// glTexImage*, glPixelStorei). These upload functions are deeply GL-specific
+// and should be wrapped behind RHI::IRHITexture::Upload() in a future pass.
+// The load/save/flip functions are pure CPU data manipulation and need no changes.
 #include "Rendering/GL/myGL.h"
 #include "nv_dds.h"
 #include "System/FileSystem/FileHandler.h"
