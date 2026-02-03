@@ -1,11 +1,33 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * NamedTextures.cpp - Global named texture cache implementation.
+ *
+ * RHI Migration Status: PARTIAL
+ * ============================
+ * RHI texture creation used for placeholders:
+ *   - GenTex() creates 1x1 placeholder via RHI::GetDevice()->CreateTexture()
+ *   - GenLoadTex() creates placeholder then calls Load() to fill content
+ *
+ * GL dependencies requiring migration:
+ *   - Kill(): glDeleteTextures for non-persistent textures
+ *   - EraseTex(): glDeleteTextures for single texture removal
+ *   - Load(): glBindTexture, glTexParameteri (wrap, border color)
+ *   - Bind(): glBindTexture, glGetBooleanv(GL_LIST_INDEX)
+ *   - Update(): glPushAttrib/glPopAttrib(GL_TEXTURE_BIT)
+ *   - GetInfo(): glGetBooleanv(GL_LIST_INDEX) for display list check
+ *
+ * TODO: RHI gap markers in code:
+ *   - Line ~278: GL_TEXTURE_BORDER_COLOR has no IRHITexture equivalent
+ *   - Lines ~336,409: GL_LIST_INDEX display list check is deprecated
+ */
+
 // must be included before streflop! else we get streflop/cmath resolve conflicts in its hash implementation files
 #include <bit>
 #include <vector>
 #include "NamedTextures.h"
 
-#include "Rendering/GL/myGL.h" // needed for display list queries and glPushAttrib/glPopAttrib
+#include "Rendering/GL/myGL.h" // TODO: RHI gap - needed for display list queries and glPushAttrib/glPopAttrib
 #include "Bitmap.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/RHI/RHIFactory.h"
