@@ -11,15 +11,39 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIFactory.h"
 
-// RHI Migration Notes (IconHandler):
-// Texture lifecycle calls are mappable to RHI:
-//   glDeleteTextures -> IRHITexture destructor (requires refactoring
-//     atlasTextureIDs from raw uint32_t to std::unique_ptr<IRHITexture>)
-//   GL_RGBA8 enum -> RHI::TextureFormat::RGBA8
-// glSaveTexture is a debug/utility function with no RHI equivalent.
-// CBitmap::CreateMipMapTexture() returns raw GL texture ID; needs RHI wrapper.
-// CTextureRenderAtlas::DisownTexture() returns raw GL ID; needs RHI wrapper.
+/**
+ * RHI_MIGRATION_DOCS(IconHandler)
+ *
+ * Migration Status: PARTIAL - Texture lifecycle documented
+ *
+ * Texture Lifecycle Mapping:
+ *   glDeleteTextures(2, atlasTextureIDs.data())
+ *   Maps to:
+ *     // atlasTextureIDs becomes std::array<std::unique_ptr<RHI::IRHITexture>, 2>
+ *     atlasTextureIDs[0].reset();  // destructor handles deletion
+ *     atlasTextureIDs[1].reset();
+ *
+ *   glDeleteTextures(1, &atlasTextureIDs[atlasIdx])
+ *   Maps to:
+ *     atlasTextureIDs[atlasIdx].reset();
+ *
+ * Texture Creation:
+ *   atlasTextureIDs[atlasIdx] = bm.CreateMipMapTexture();
+ *   Should become:
+ *     atlasTextureIDs[atlasIdx] = RHI::GetDevice()->CreateTexture(...);
+ *     atlasTextureIDs[atlasIdx]->Upload(bm.GetRawMem());
+ *     atlasTextureIDs[atlasIdx]->GenerateMipmaps();
+ *
+ * Debug Functions:
+ *   glSaveTexture - No RHI equivalent, keep GL for debug builds only
+ *
+ * Completion Criteria:
+ *   [ ] Refactor atlasTextureIDs to use RHI::IRHITexture
+ *   [ ] Add RHI wrapper for CBitmap::CreateMipMapTexture
+ *   [x] Document texture lifecycle mapping
+ */
 #include "System/Log/ILog.h"
 #include "System/UnorderedSet.hpp"
 #include "System/UnorderedMap.hpp"
