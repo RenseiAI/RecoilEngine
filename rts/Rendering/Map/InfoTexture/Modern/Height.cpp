@@ -7,6 +7,7 @@
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/GL/SubState.h"
+#include "Rendering/GL/myGL.h"  // transitional: GL types still needed
 #include "System/Color.h"
 #include "System/Exceptions.h"
 #include "System/Config/ConfigHandler.h"
@@ -116,6 +117,8 @@ void CHeightTexture::Update()
 	);
 	auto binding = paletteTex.ScopedBind(1);
 
+	// TODO [RHI cross-cutting]: readMap->GetHeightMapTexture() returns raw GLuint;
+	// needs RHI texture wrapper before this can be migrated to ctx->BindTexture()
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, hmTexID);
 
