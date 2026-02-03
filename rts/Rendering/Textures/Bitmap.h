@@ -1,5 +1,40 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * CBitmap - Image loading, manipulation, and texture creation.
+ *
+ * RHI Migration Status: MOSTLY COMPLETE
+ * =====================================
+ * RHI texture creation methods already implemented:
+ *   - CreateTextureRHI() - creates RHI texture with ownership (preferred)
+ *   - CreateDDSTextureRHI() - creates RHI texture from compressed DDS data
+ *
+ * Legacy GL methods still available (for backward compatibility):
+ *   - CreateTexture() - returns raw GLuint
+ *   - CreateMipMapTexture() - returns raw GLuint with mipmaps
+ *   - CreateDDSTexture() - returns raw GLuint from DDS data
+ *
+ * Remaining RHI Gaps:
+ *   - textype member stores GL enum values (GL_TEXTURE_2D, GL_TEXTURE_CUBE_MAP)
+ *     TODO: Map to RHI::TextureType when used
+ *   - dataType member stores GL data type (GL_UNSIGNED_BYTE, GL_FLOAT)
+ *     TODO: Map to RHI data type when needed
+ *   - Alloc() glType parameter uses GL enum values
+ *
+ * Migration Guide for Callers:
+ *   // Before (GL):
+ *   uint32_t texID = bitmap.CreateMipMapTexture();
+ *   glBindTexture(GL_TEXTURE_2D, texID);
+ *   // ... use texture ...
+ *   glDeleteTextures(1, &texID);
+ *
+ *   // After (RHI):
+ *   auto texture = bitmap.CreateTextureRHI();
+ *   texture->Bind(0);
+ *   // ... use texture ...
+ *   // automatic cleanup via unique_ptr
+ */
+
 #ifndef _BITMAP_H
 #define _BITMAP_H
 
