@@ -1,7 +1,7 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h" // needed for glDeleteTextures (raw texture handles from CBitmap)
 #include "S3OTextureHandler.h"
 
 #include "System/FileSystem/FileHandler.h"

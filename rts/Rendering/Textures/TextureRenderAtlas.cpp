@@ -8,7 +8,7 @@
 #include "MultiPageAtlasAlloc.hpp"
 
 #include "Rendering/GlobalRendering.h"
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h" // needed for FBO, SubState, RenderBuffers, TexBind (rendering pipeline)
 #include "Rendering/GL/FBO.h"
 #include "Rendering/GL/TexBind.h"
 #include "Rendering/GL/SubState.h"

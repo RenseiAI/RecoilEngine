@@ -3,6 +3,7 @@
 #ifndef NAMED_TEXTURES_H
 #define NAMED_TEXTURES_H
 
+#include <cstdint>
 #include <string>
 
 namespace CNamedTextures {
@@ -10,7 +11,7 @@ namespace CNamedTextures {
 	void Kill(bool shutdown = false);
 	void Reload();
 
-	static bool Load(const std::string& texName, unsigned int texID, bool genInsert = true);
+	static bool Load(const std::string& texName, uint32_t texID, bool genInsert = true);
 
 	/**
 	 * Reload textures we could not load because Bind() was called
@@ -26,10 +27,10 @@ namespace CNamedTextures {
 	struct TexInfo {
 		TexInfo()
 			: id(0), xsize(-1), ysize(-1), texType(0), alpha(false), persist(false) {}
-		unsigned int id;
+		uint32_t id;
 		int xsize;
 		int ysize;
-		unsigned int texType;
+		uint32_t texType;
 		bool alpha;
 		bool persist;
 	};

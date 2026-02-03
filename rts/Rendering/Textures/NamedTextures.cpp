@@ -5,9 +5,11 @@
 #include <vector>
 #include "NamedTextures.h"
 
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h" // needed for display list queries and glPushAttrib/glPopAttrib
 #include "Bitmap.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "System/type2.h"
 #include "System/Log/ILog.h"
 #include "System/Threading/SpringThreading.h"
@@ -51,7 +53,7 @@ namespace CNamedTextures {
 		const std::lock_guard<spring::recursive_mutex> lck(mutex);
 
 		for (const auto& [texName, texIdx]: texInfoMap) {
-			const GLuint texID = texInfoVec[texIdx].id;
+			const uint32_t texID = texInfoVec[texIdx].id;
 
 			if (shutdown || !texInfoVec[texIdx].persist) {
 				glDeleteTextures(1, &texID);
@@ -72,7 +74,7 @@ namespace CNamedTextures {
 		const std::lock_guard<spring::recursive_mutex> lck(mutex); //needed?
 
 		for (const auto& [texName, texIdx] : texInfoMap) {
-			const GLuint texID = texInfoVec[texIdx].id;
+			const uint32_t texID = texInfoVec[texIdx].id;
 			if (texID == 0)
 				continue;
 
@@ -104,15 +106,19 @@ namespace CNamedTextures {
 	static TexInfo GenTex(bool bindTex, bool persistTex)
 	{
 	RECOIL_DETAILED_TRACY_ZONE;
-		GLuint texID = 0;
-		glGenTextures(1, &texID);
+		// Create a 1x1 placeholder texture via RHI; actual content filled by Load()
+		auto* device = RHI::GetDevice();
+		auto rhiTex = device->CreateTexture(
+			RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
+			1, 1, 1, 1);
 
 		if (bindTex)
-			glBindTexture(GL_TEXTURE_2D, texID);
+			rhiTex->Bind(0);
 
 		TexInfo texInfo;
-		texInfo.id = texID;
+		texInfo.id = rhiTex->GetNativeHandle();
 		texInfo.persist = persistTex;
+		rhiTex.release(); // ownership transferred to raw handle
 		return texInfo;
 	}
 
@@ -138,7 +144,7 @@ namespace CNamedTextures {
 
 		if (it != texInfoMap.end()) {
 			const size_t texIdx = it->second;
-			const GLuint texID = texInfoVec[texIdx].id;
+			const uint32_t texID = texInfoVec[texIdx].id;
 
 			glDeleteTextures(1, &texID);
 
@@ -260,7 +266,7 @@ namespace CNamedTextures {
 
 			texID = bitmap.CreateTexture(tcp);
 
-			// specify extra params
+			// specify extra params via direct GL (raw handle from CBitmap)
 			glBindTexture(GL_TEXTURE_2D, texID);
 
 			if (clamped) {
@@ -269,7 +275,8 @@ namespace CNamedTextures {
 			}
 
 			if (border) {
-				GLfloat white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+				// TODO: RHI gap - no SetBorderColor on IRHITexture
+				float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 				glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, white);
 			}
 
@@ -298,8 +305,13 @@ namespace CNamedTextures {
 	static bool GenLoadTex(const std::string& texName)
 	{
 	RECOIL_DETAILED_TRACY_ZONE;
-		GLuint texID = 0;
-		glGenTextures(1, &texID);
+		// Create placeholder texture via RHI, Load() will fill content
+		auto* device = RHI::GetDevice();
+		auto rhiTex = device->CreateTexture(
+			RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
+			1, 1, 1, 1);
+		uint32_t texID = rhiTex->GetNativeHandle();
+		rhiTex.release(); // ownership transferred to raw handle
 		return (Load(texName, texID));
 	}
 
@@ -315,12 +327,13 @@ namespace CNamedTextures {
 
 		if (it != texInfoMap.end()) {
 			const size_t texIdx = it->second;
-			const GLuint texID = texInfoVec[texIdx].id;
+			const uint32_t texID = texInfoVec[texIdx].id;
 			glBindTexture(GL_TEXTURE_2D, texID);
 			return (texID != 0);
 		}
 
 		// load texture
+		// NOTE: display list compilation check is GL-specific, no RHI equivalent
 		GLboolean inListCompile;
 		glGetBooleanv(GL_LIST_INDEX, &inListCompile);
 		if (inListCompile) {
@@ -393,6 +406,7 @@ namespace CNamedTextures {
 
 		if (forceLoad) {
 			// load texture
+			// NOTE: display list compilation check is GL-specific, no RHI equivalent
 			GLboolean inListCompile;
 			glGetBooleanv(GL_LIST_INDEX, &inListCompile);
 

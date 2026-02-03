@@ -9,13 +9,15 @@
 #include <IL/il.h>
 #include <SDL_video.h>
 
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h" // needed for GL texture creation (CreateTexture, CreateDDSTexture)
 #ifndef HEADLESS
 	#include "System/TimeProfiler.h"
 #endif
 
 #include "Bitmap.h"
 #include "Rendering/GL/TexBind.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "System/ScopedFPUSettings.h"
 #include "System/ContainerUtil.h"
 #include "System/SafeUtil.h"
@@ -1732,8 +1734,15 @@ uint32_t CBitmap::CreateTexture(const GL::TextureCreationParams& tcp) const
 	const auto minFilter = tcp.GetMinFilter(numLevels);
 	const auto magFilter = tcp.GetMagFilter();
 
-	if (texID == 0)
-		glGenTextures(1, &texID);
+	// Use RHI to generate texture if no existing ID provided
+	if (texID == 0) {
+		auto* device = RHI::GetDevice();
+		auto rhiTex = device->CreateTexture(
+			RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
+			1, 1, 1, 1); // minimal placeholder; RecoilBuildMipmaps will allocate real storage
+		texID = rhiTex->GetNativeHandle();
+		rhiTex.release(); // ownership transferred to raw handle
+	}
 
 	auto binding = GL::TexBind(GL_TEXTURE_2D, texID);
 
@@ -1745,6 +1754,7 @@ uint32_t CBitmap::CreateTexture(const GL::TextureCreationParams& tcp) const
 	if (tcp.aniso > 0.0f)
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, tcp.aniso);
 
+	// RecoilBuildMipmaps does glTexImage2D for each level; no RHI equivalent yet
 	RecoilBuildMipmaps(GL_TEXTURE_2D, GetIntFmt(), xsize, ysize, GetExtFmt(), dataType, GetRawMem(), numLevels);
 
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magFilter);
@@ -1766,12 +1776,20 @@ static void HandleDDSMipmap(GLenum target, int32_t numEmbeddedLevels, uint32_t m
 uint32_t CBitmap::CreateDDSTexture(const GL::TextureCreationParams& tcp) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// glPushAttrib/glPopAttrib: GL-specific state save/restore, no RHI equivalent
 	glPushAttrib(GL_TEXTURE_BIT);
 
 	auto texID = tcp.texID;
 
-	if (texID == 0)
-		glGenTextures(1, &texID);
+	// Use RHI to generate texture if no existing ID provided
+	if (texID == 0) {
+		auto* device = RHI::GetDevice();
+		auto rhiTex = device->CreateTexture(
+			RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
+			1, 1, 1, 1); // placeholder; DDS upload functions will fill real data
+		texID = rhiTex->GetNativeHandle();
+		rhiTex.release(); // ownership transferred to raw handle
+	}
 
 	switch (ddsimage.get_type()) {
 		case nv_dds::TextureNone:

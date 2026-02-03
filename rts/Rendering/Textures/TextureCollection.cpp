@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <iterator>
 
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h" // needed for glDeleteTextures (raw texture handles from CBitmap)
 
 #include "System/Misc/TracyDefs.h"
 

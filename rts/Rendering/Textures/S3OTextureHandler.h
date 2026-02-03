@@ -3,6 +3,7 @@
 #ifndef S3O_TEXTURE_HANDLER_H
 #define S3O_TEXTURE_HANDLER_H
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -19,20 +20,20 @@ public:
 	struct S3OTexMat {
 		int num;
 
-		unsigned int tex1;
-		unsigned int tex2;
+		uint32_t tex1;
+		uint32_t tex2;
 
-		unsigned int tex1SizeX;
-		unsigned int tex1SizeY;
+		uint32_t tex1SizeX;
+		uint32_t tex1SizeY;
 
-		unsigned int tex2SizeX;
-		unsigned int tex2SizeY;
+		uint32_t tex2SizeX;
+		uint32_t tex2SizeY;
 	};
 
 	struct CachedS3OTex {
-		unsigned int texID;
-		unsigned int xsize;
-		unsigned int ysize;
+		uint32_t texID;
+		uint32_t xsize;
+		uint32_t ysize;
 		bool invertAxis;
 		bool invertAlpha;
 	};
@@ -45,7 +46,7 @@ public:
 	void PreloadTexture(S3DModel* model, bool invertAxis, bool invertAlpha);
 
 public:
-	const S3OTexMat* GetTexture(unsigned int num) {
+	const S3OTexMat* GetTexture(uint32_t num) {
 		if (num < textures.size())
 			return &textures[num];
 
@@ -53,19 +54,19 @@ public:
 	}
 
 private:
-	unsigned int LoadAndCacheTexture(
+	uint32_t LoadAndCacheTexture(
 		const S3DModel* model,
-		unsigned int texNum,
+		uint32_t texNum,
 		bool invertAxis,
 		bool invertAlpha,
 		bool preloadCall
 	);
-	unsigned int InsertTextureMat(const S3DModel* model);
+	uint32_t InsertTextureMat(const S3DModel* model);
 
 private:
 	typedef spring::unsynced_map<std::string, CachedS3OTex> TextureCache;
 	typedef spring::unsynced_map<std::string, CBitmap> BitmapCache;
-	typedef spring::unsynced_map<std::uint64_t, unsigned int> TextureTable;
+	typedef spring::unsynced_map<std::uint64_t, uint32_t> TextureTable;
 
 	TextureCache textureCache; // stores individual primary- and secondary-textures by name
 	TextureTable textureTable; // stores (primary, secondary) texture-pairs by unique ident

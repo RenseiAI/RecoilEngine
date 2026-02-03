@@ -46,6 +46,7 @@ public:
 	static void InitPool(size_t size);
 	static void KillPool();
 
+	// TODO: RHI gap - glType parameter uses GL data type enum values (GL_UNSIGNED_BYTE, GL_FLOAT, etc.)
 	void Alloc(int w, int h, int c, uint32_t glType);
 	void Alloc(int w, int h, int c) { Alloc(w, h, c, 0x1401/*GL_UNSIGNED_BYTE*/); }
 	void Alloc(int w, int h) { Alloc(w, h, channels); }
@@ -119,6 +120,7 @@ public:
 
 	// GL_TEXTURE_2D, GL_TEXTURE_CUBE_MAP, ...
 	// not set to anything until Load is called
+	// TODO: RHI gap - textype uses GL enum values as data; needs RHI::TextureType mapping
 	int32_t textype = 0;
 	#ifndef HEADLESS
 	nv_dds::CDDSImage ddsimage;
