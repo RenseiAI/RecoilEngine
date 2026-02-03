@@ -7,9 +7,28 @@
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHITypes.h"
 #include "Sim/Misc/TeamHandler.h"
 
 #include <algorithm>
+
+// RHI Migration Notes (DebugDrawerAI):
+// Texture lifecycle in TexSet::Texture constructor/destructor:
+//   glGenTextures + glBindTexture + glTexParameteri + glTexImage2D
+//     -> IRHIDevice::CreateTexture + IRHITexture::Upload/SetMinFilter/SetMagFilter/SetWrapS/SetWrapT
+//   glDeleteTextures -> IRHITexture destructor
+//   glTexSubImage2D -> IRHITexture::Upload (sub-region)
+//   Requires: changing `uint32_t id` member to std::unique_ptr<RHI::IRHITexture>
+// Pipeline state in Draw():
+//   glDisable(GL_DEPTH_TEST) -> RHI::DepthStencilState{depthTestEnabled=false}
+//   glLineWidth -> RHI::RasterizerState{lineWidth}
+// Texture binding in TexSet::Draw():
+//   glEnable/glDisable(GL_TEXTURE_2D) -> FFP texture unit (no RHI equivalent)
+//   glBindTexture(GL_TEXTURE_2D, id) -> IRHIContext::BindTexture(tex, 0)
+// Non-mappable legacy FFP:
+//   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity -> matrix stack
+//   glPushAttrib/glPopAttrib -> state stack
+//   glDisable(GL_LIGHTING) -> FFP lighting
 
 static constexpr float3 GRAPH_MIN_SCALE( 1e9,  1e9, 0.0f);
 static constexpr float3 GRAPH_MAX_SCALE(-1e9, -1e9, 0.0f);
