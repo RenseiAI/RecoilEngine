@@ -1,5 +1,30 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * CNamedTextures - Global texture cache with string-based lookup.
+ *
+ * RHI Migration Status: PARTIAL
+ * ============================
+ * RHI texture creation already used in GenTex() and GenLoadTex():
+ *   - RHI::GetDevice()->CreateTexture() for placeholder textures
+ *   - GetNativeHandle() extracts raw handle, then releases ownership
+ *
+ * Remaining GL Dependencies:
+ *   - Kill(), EraseTex() use glDeleteTextures for cleanup
+ *   - Bind() uses glBindTexture directly
+ *   - Load() uses glBindTexture, glTexParameteri for extra params
+ *   - Update() uses glPushAttrib/glPopAttrib (GL_TEXTURE_BIT)
+ *   - Bind(), GetInfo() check GL_LIST_INDEX for display list compilation
+ *   - TexInfo.texType stores GL texture target enums
+ *
+ * Migration Path:
+ * 1. Store std::unique_ptr<RHI::IRHITexture> instead of raw id in TexInfo
+ * 2. Replace glDeleteTextures with unique_ptr destruction
+ * 3. Replace glBindTexture with texture->Bind()
+ * 4. Remove display list compilation checks (deprecated feature)
+ * 5. Map texType from GL enums to RHI::TextureType
+ */
+
 #ifndef NAMED_TEXTURES_H
 #define NAMED_TEXTURES_H
 
