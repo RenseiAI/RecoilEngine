@@ -3,6 +3,30 @@
 // This software contains source code provided by NVIDIA Corporation.
 // License: http://developer.download.nvidia.com/licenses/general_license.txt
 
+/**
+ * nv_dds.cpp - NVIDIA DDS texture loader implementation.
+ *
+ * RHI Migration Status: NOT MIGRATED (Legacy GL-only)
+ * ===================================================
+ * GL dependencies in upload_texture*() functions (lines ~740-950):
+ *   - glCompressedTexImage1D/2D/3DARB for DXT compressed textures
+ *   - glTexImage1D/2D/3D for uncompressed textures
+ *   - glPixelStorei(GL_UNPACK_ALIGNMENT) for alignment
+ *   - GL texture targets (GL_TEXTURE_1D, GL_TEXTURE_2D, etc.)
+ *
+ * GL format enum usage in load() (lines ~390-440):
+ *   - GL_COMPRESSED_RGBA_S3TC_DXT1/3/5_EXT for compressed
+ *   - GL_BGRA, GL_BGR, GL_LUMINANCE for uncompressed
+ *
+ * TODO: RHI gap - Full migration would require:
+ *   1. Map m_format to RHI::TextureFormat in load()
+ *   2. Replace upload_texture*() with RHI texture Upload() calls
+ *   3. Handle compressed texture formats in RHI layer
+ *
+ * Alternative: Use Bitmap::CreateDDSTextureRHI() which already wraps
+ * the loaded data into RHI textures (see Bitmap.cpp).
+ */
+
 // Modified DDS reader class from NVIDIA SDK
 ///////////////////////////////////////////////////////////////////////////////
 //
