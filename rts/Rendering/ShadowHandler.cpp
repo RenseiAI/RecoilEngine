@@ -15,11 +15,14 @@
 #include "Rendering/Units/UnitDrawer.h"
 #include "Rendering/Env/GrassDrawer.h"
 #include "Rendering/Env/ISky.h"
-#include "Rendering/GL/FBO.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIPipeline.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/EventHandler.h"
 #include "System/Matrix44f.h"
@@ -28,6 +31,22 @@
 #include "System/Log/ILog.h"
 
 #include "lib/fmt/format.h"
+
+namespace {
+	RHI::IRHIDevice* GetRHIDevice() {
+		static auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+		return device.get();
+	}
+
+	RHI::TextureFormat DepthBitsToRHIFormat(int bits) {
+		switch (bits) {
+			case 16: return RHI::TextureFormat::Depth16;
+			case 24: return RHI::TextureFormat::Depth24;
+			case 32: return RHI::TextureFormat::Depth32F;
+			default: return RHI::TextureFormat::Depth24;
+		}
+	}
+}
 
 CONFIG(int, Shadows).defaultValue(2).headlessValue(-1).minimumValue(-1).safemodeValue(-1).description("Sets whether shadows are rendered.\n-1:=forceoff, 0:=off, 1:=full, 2:=fast (skip terrain)"); //FIXME document bitmask
 CONFIG(int, ShadowMapSize).defaultValue(CShadowHandler::DEF_SHADOWMAP_SIZE).minimumValue(32).description("Sets the resolution of shadows. Higher numbers increase quality at the cost of performance.");
@@ -75,8 +94,8 @@ void CShadowHandler::Init()
 	shadowsLoaded = false;
 	inShadowPass = false;
 
-	shadowDepthTexture = 0;
-	shadowColorTexture = 0;
+	shadowDepthTexture = nullptr;
+	shadowColorTexture = nullptr;
 
 	if (!tmpFirstInit && !shadowsSupported)
 		return;
@@ -136,8 +155,13 @@ void CShadowHandler::Update()
 
 void CShadowHandler::SaveShadowMapTextures() const
 {
-	glSaveTexture(shadowDepthTexture, fmt::format("smDepth_{}.png", globalRendering->drawFrame).c_str());
-	glSaveTexture(shadowColorTexture, fmt::format("smColor_{}.png", globalRendering->drawFrame).c_str());
+	// glSaveTexture requires raw GL texture IDs
+	const uint32_t depthID = shadowDepthTexture ? shadowDepthTexture->GetNativeHandle() : 0;
+	const uint32_t colorID = shadowColorTexture ? shadowColorTexture->GetNativeHandle() : 0;
+	if (depthID > 0)
+		glSaveTexture(depthID, fmt::format("smDepth_{}.png", globalRendering->drawFrame).c_str());
+	if (colorID > 0)
+		glSaveTexture(colorID, fmt::format("smColor_{}.png", globalRendering->drawFrame).c_str());
 }
 
 void CShadowHandler::DrawFrustumDebug() const
@@ -165,6 +189,9 @@ void CShadowHandler::DrawFrustumDebug() const
 	rb.AddVertices({ { shadCam->GetFrustumVert(6) }, { shadCam->GetFrustumVert(7) } }); // FTR - FTL
 	rb.AddVertices({ { shadCam->GetFrustumVert(7) }, { shadCam->GetFrustumVert(4) } }); // FTL - FBL
 
+	// RHI_TODO: lineWidth via pipeline state (RasterizerState::lineWidth)
+	// Cannot set per-draw line width through RHI pipeline currently since
+	// RenderBuffer manages its own pipeline. Use GL fallback for debug drawing.
 	auto& sh = rb.GetShader();
 	glLineWidth(2.0f);
 	sh.Enable();
@@ -176,16 +203,15 @@ void CShadowHandler::DrawFrustumDebug() const
 }
 
 void CShadowHandler::FreeFBOAndTextures() {
-	if (smOpaqFBO.IsValid()) {
-		smOpaqFBO.Bind();
-		smOpaqFBO.DetachAll();
-		smOpaqFBO.Unbind();
+	if (smOpaqFBO && smOpaqFBO->IsComplete()) {
+		smOpaqFBO->Bind();
+		smOpaqFBO->DetachAll();
+		smOpaqFBO->Unbind();
 	}
 
-	smOpaqFBO.Kill();
-
-	glDeleteTextures(1, &shadowDepthTexture); shadowDepthTexture = 0;
-	glDeleteTextures(1, &shadowColorTexture); shadowColorTexture = 0;
+	smOpaqFBO = nullptr;
+	shadowDepthTexture = nullptr;
+	shadowColorTexture = nullptr;
 }
 
 
@@ -210,6 +236,9 @@ void CShadowHandler::LoadProjectionMatrix(const CCamera* shadowCam)
 
 void CShadowHandler::LoadShadowGenShaders()
 {
+	// NOTE: Shader loading uses GL_VERTEX_SHADER/GL_FRAGMENT_SHADER constants
+	// which are part of the shader system. Shader migration is handled by the
+	// shader-pipeline agent, not this migration.
 	#define sh shaderHandler
 	static const std::string shadowGenProgHandles[SHADOWGEN_PROGRAM_COUNT] = {
 		"ShadowGenShaderProgModel",
@@ -326,108 +355,92 @@ void CShadowHandler::LoadShadowGenShaders()
 
 bool CShadowHandler::InitFBOAndTextures()
 {
+	auto* device = GetRHIDevice();
+	auto* ctx = device->GetContext();
+
 	//create dummy textures / FBO in case shadowConfig is 0
 	const int realShTexSize = shadowConfig > 0 ? shadowMapSize : 1;
 
-	// smOpaqFBO is no-op constructed, has to be initialized manually
-	smOpaqFBO.Init(false);
+	// Create the FBO
+	smOpaqFBO = device->CreateFramebuffer();
 
-	if (!smOpaqFBO.IsValid()) {
+	if (!smOpaqFBO) {
 		LOG_L(L_ERROR, "[%s] framebuffer not valid", __func__);
 		return false;
 	}
 
-	// TODO: add bit depth?
-	static constexpr struct {
-		GLint clampMode;
-		GLint filterMode;
+	struct Preset {
+		RHI::TextureWrap clampMode;
+		RHI::TextureFilter filterMode;
 		const char* name;
-	} presets[] = {
-		{GL_CLAMP_TO_BORDER, GL_LINEAR , "SHADOW-BEST"  },
-		{GL_CLAMP_TO_EDGE  , GL_NEAREST, "SHADOW-COMPAT"},
 	};
-
-	static constexpr float one[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	static constexpr Preset presets[] = {
+		{RHI::TextureWrap::ClampToBorder, RHI::TextureFilter::Linear,  "SHADOW-BEST"  },
+		{RHI::TextureWrap::ClampToEdge,   RHI::TextureFilter::Nearest, "SHADOW-COMPAT"},
+	};
 
 	bool status = false;
 	for (const auto& preset : presets)
 	{
-		if (FBO::GetCurrentBoundFBO() == smOpaqFBO.GetId())
-			smOpaqFBO.DetachAll();
+		if (smOpaqFBO->IsComplete())
+			smOpaqFBO->DetachAll();
 
 		//depth
-		glDeleteTextures(1, &shadowDepthTexture);
-		glGenTextures(1, &shadowDepthTexture);
-		glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
-
-		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, one);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, preset.clampMode);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, preset.clampMode);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, preset.filterMode);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, preset.filterMode);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0); //no mips
-
 		const int depthBits = std::min(globalRendering->supportDepthBufferBitDepth, 24);
-		const GLint depthFormat = CGlobalRendering::DepthBitsToFormat(depthBits);
+		const auto depthFormat = DepthBitsToRHIFormat(depthBits);
 
-		glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_TEXTURE_MODE, GL_LUMINANCE);
-		glTexImage2D(GL_TEXTURE_2D, 0, depthFormat, realShTexSize, realShTexSize, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
-		glBindTexture(GL_TEXTURE_2D, 0);
+		shadowDepthTexture = device->CreateTexture(
+			RHI::TextureType::Texture2D,
+			depthFormat,
+			realShTexSize,
+			realShTexSize);
+
+		shadowDepthTexture->SetWrapS(preset.clampMode);
+		shadowDepthTexture->SetWrapT(preset.clampMode);
+		shadowDepthTexture->SetMinFilter(preset.filterMode);
+		shadowDepthTexture->SetMagFilter(preset.filterMode);
 
 		/// color
-		glDeleteTextures(1, &shadowColorTexture);
-		glGenTextures(1, &shadowColorTexture);
-		glBindTexture(GL_TEXTURE_2D, shadowColorTexture);
+		const auto colorFormat = static_cast<bool>(shadowColorMode) ? RHI::TextureFormat::RGB8 : RHI::TextureFormat::R8;
 
-		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, one);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, preset.clampMode);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, preset.clampMode);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, preset.filterMode);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, preset.filterMode);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0); //no mips
-		// TODO: Figure out if mips make sense here.
+		shadowColorTexture = device->CreateTexture(
+			RHI::TextureType::Texture2D,
+			colorFormat,
+			realShTexSize,
+			realShTexSize);
 
-		if (static_cast<bool>(shadowColorMode)) {
-			// seems like GL_RGB8 has enough precision
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, realShTexSize, realShTexSize, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
-			static constexpr GLint swizzleMask[] = { GL_RED, GL_GREEN, GL_BLUE, GL_ONE };
-			glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
+		shadowColorTexture->SetWrapS(preset.clampMode);
+		shadowColorTexture->SetWrapT(preset.clampMode);
+		shadowColorTexture->SetMinFilter(preset.filterMode);
+		shadowColorTexture->SetMagFilter(preset.filterMode);
 
-		}
-		else {
-			// Conserve VRAM
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, realShTexSize, realShTexSize, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
-			static constexpr GLint swizzleMask[] = { GL_RED, GL_RED, GL_RED, GL_ONE };
-			glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
-		}
-		glBindTexture(GL_TEXTURE_2D, 0);
+		// RHI_TODO: texture swizzle mask is not in RHI interface yet.
+		// The original code sets swizzle for greyscale mode (R->RRR1)
+		// and RGB mode (RGB->RGB1). This is a cross-cutting RHI gap
+		// that needs IRHITexture::SetSwizzle() added.
 
 		// Mesa complains about an incomplete FBO if calling Bind before TexImage (?)
-		smOpaqFBO.Bind();
-		smOpaqFBO.AttachTexture(shadowDepthTexture, GL_TEXTURE_2D, GL_DEPTH_ATTACHMENT);
-		smOpaqFBO.AttachTexture(shadowColorTexture, GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0);
-
-		glDrawBuffer(GL_COLOR_ATTACHMENT0);
-		glReadBuffer(GL_COLOR_ATTACHMENT0);
+		smOpaqFBO->Bind();
+		smOpaqFBO->AttachDepth(shadowDepthTexture.get());
+		smOpaqFBO->AttachColor(shadowColorTexture.get(), 0);
 
 		// test the FBO
-		status = smOpaqFBO.CheckStatus(preset.name);
+		status = smOpaqFBO->IsComplete();
 
 		if (status) //exit on the first occasion
 			break;
 	}
 
-	glClearDepth(1.0f);
-	glClear(GL_DEPTH_BUFFER_BIT);
+	ctx->ClearDepth(1.0f);
+	ctx->Clear(false, true, false);
 	EnableColorOutput(true);
-	glClearColor(1.0f, 1.0f, 1.0f, 0.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
+	ctx->ClearColor(1.0f, 1.0f, 1.0f, 0.0f);
+	ctx->Clear(true, false, false);
 
-	smOpaqFBO.Unbind();
+	smOpaqFBO->Unbind();
 
 	// revert to FBO = 0 default
+	// RHI_TODO: color mask should be managed via pipeline state.
 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
 	return status;
@@ -435,17 +448,22 @@ bool CShadowHandler::InitFBOAndTextures()
 
 void CShadowHandler::DrawShadowPasses()
 {
+	auto* device = GetRHIDevice();
+	auto* ctx = device->GetContext();
+
 	inShadowPass = true;
 
-	glPushAttrib(GL_POLYGON_BIT | GL_ENABLE_BIT);
-	glEnable(GL_CULL_FACE);
-	glCullFace(GL_BACK);
+	// Set up culling state via RHI pipeline
+	RHI::PipelineDesc cullDesc;
+	cullDesc.rasterizer.cullMode = RHI::CullMode::Back;
+	auto cullPipeline = device->CreatePipeline(cullDesc);
+	ctx->BindPipeline(cullPipeline.get());
 
 	eventHandler.DrawWorldShadow();
 
 	EnableColorOutput(true);
-	glClearColor(1.0f, 1.0f, 1.0f, 0.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
+	ctx->ClearColor(1.0f, 1.0f, 1.0f, 0.0f);
+	ctx->Clear(true, false, false);
 	EnableColorOutput(false);
 
 	if ((shadowGenBits & SHADOWGEN_BIT_TREE) != 0) {
@@ -460,20 +478,9 @@ void CShadowHandler::DrawShadowPasses()
 		featureDrawer->DrawShadowPass();
 	}
 
-	// cull front-faces during the terrain shadow pass: sun direction
-	// can be set so oblique that geometry back-faces are visible (eg.
-	// from hills near map edges) from its POV
-	//
-	// not the best idea, causes acne when projecting the shadow-map
-	// (rasterizing back-faces writes different depth values) and is
-	// no longer required since border geometry will fully hide them
-	// (could just disable culling of terrain faces entirely, but we
-	// also want to prevent overdraw in low-angle passes)
-	// glCullFace(GL_FRONT);
-
 	// Restore GL_BACK culling, because Lua shadow materials might
 	// have changed culling at their own discretion
-	glCullFace(GL_BACK);
+	ctx->BindPipeline(cullPipeline.get());
 	if ((shadowGenBits & SHADOWGEN_BIT_MAP) != 0){
 		ZoneScopedN("Draw::World::CreateShadows::Terrain");
 		readMap->GetGroundDrawer()->DrawShadowPass();
@@ -485,7 +492,11 @@ void CShadowHandler::DrawShadowPasses()
 		eventHandler.DrawShadowPassTransparent();
 	}
 
-	glPopAttrib();
+	// Restore default pipeline state
+	RHI::PipelineDesc defaultDesc;
+	defaultDesc.rasterizer.cullMode = RHI::CullMode::None;
+	auto defaultPipeline = device->CreatePipeline(defaultDesc);
+	ctx->BindPipeline(defaultPipeline.get());
 
 	inShadowPass = false;
 }
@@ -532,53 +543,35 @@ void CShadowHandler::SetShadowMatrix(CCamera* playerCam, CCamera* shadowCam)
 	const CMatrix44f lightMatrix = ComposeLightMatrix(playerCam, ISky::GetSky()->GetLight());
 	const CMatrix44f scaleMatrix = ComposeScaleMatrix(shadowProjScales = GetShadowProjectionScales(playerCam, lightMatrix));
 
-	// KISS; define only the world-to-light transform (P[CULLING] is unused anyway)
-	//
-	// we have two options: either place the camera such that it *looks at* projMidPos
-	// (along lightMatrix.GetZ()) or such that it is *at or behind* projMidPos looking
-	// in the inverse direction (the latter is chosen here since this matrix determines
-	// the shadow-camera's position and thereby terrain tessellation shadow-LOD)
-	// NOTE:
-	//   should be -X-Z, but particle-quads are sensitive to right being flipped
-	//   we can omit inverting X (does not impact VC) or disable PD face-culling
-	//   or just let objects end up behind znear since InView only tests against
-	//   zfar
 	viewMatrix[SHADOWMAT_TYPE_CULLING].LoadIdentity();
 	viewMatrix[SHADOWMAT_TYPE_CULLING].SetX(lightMatrix.GetX());
 	viewMatrix[SHADOWMAT_TYPE_CULLING].SetY(lightMatrix.GetY());
 	viewMatrix[SHADOWMAT_TYPE_CULLING].SetZ(lightMatrix.GetZ());
 	viewMatrix[SHADOWMAT_TYPE_CULLING].SetPos(projMidPos[2]);
 
-	// shaders need this form, projection into SM-space is done by shadow2DProj()
-	// note: ShadowGenVertProg is a special case because it does not use uniforms
 	viewMatrix[SHADOWMAT_TYPE_DRAWING].LoadIdentity();
 	viewMatrix[SHADOWMAT_TYPE_DRAWING].SetX(lightMatrix.GetX());
 	viewMatrix[SHADOWMAT_TYPE_DRAWING].SetY(lightMatrix.GetY());
 	viewMatrix[SHADOWMAT_TYPE_DRAWING].SetZ(lightMatrix.GetZ());
-	viewMatrix[SHADOWMAT_TYPE_DRAWING].Scale(float3(scaleMatrix[0], scaleMatrix[5], scaleMatrix[10])); // extract (X.x, Y.y, Z.z)
+	viewMatrix[SHADOWMAT_TYPE_DRAWING].Scale(float3(scaleMatrix[0], scaleMatrix[5], scaleMatrix[10]));
 	viewMatrix[SHADOWMAT_TYPE_DRAWING].Transpose();
 	viewMatrix[SHADOWMAT_TYPE_DRAWING].SetPos(viewMatrix[SHADOWMAT_TYPE_DRAWING] * -projMidPos[2]);
-	viewMatrix[SHADOWMAT_TYPE_DRAWING].SetPos(viewMatrix[SHADOWMAT_TYPE_DRAWING].GetPos() + scaleMatrix.GetPos()); // add z-bias
+	viewMatrix[SHADOWMAT_TYPE_DRAWING].SetPos(viewMatrix[SHADOWMAT_TYPE_DRAWING].GetPos() + scaleMatrix.GetPos());
 }
 
 void CShadowHandler::SetShadowCamera(CCamera* shadowCam)
 {
 	const int realShTexSize = shadowConfig > 0 ? shadowMapSize : 1;
 
-	// first set matrices needed by shaders (including ShadowGenVertProg)
 	shadowCam->SetProjMatrix(projMatrix[SHADOWMAT_TYPE_DRAWING]);
 	shadowCam->SetViewMatrix(viewMatrix[SHADOWMAT_TYPE_DRAWING]);
 
 	shadowCam->SetAspectRatio(shadowProjScales.x / shadowProjScales.y);
-	// convert xy-diameter to radius
 	shadowCam->SetFrustumScales(shadowProjScales * float4(0.5f, 0.5f, 1.0f, 1.0f));
 	shadowCam->UpdateFrustum();
 	shadowCam->UpdateLoadViewport(0, 0, realShTexSize, realShTexSize);
-	// load matrices into gl_{ModelView,Projection}Matrix
 	shadowCam->Update({false, false, false, false, false});
 
-	// next set matrices needed for SP visibility culling (these
-	// are *NEVER* loaded into gl_{ModelView,Projection}Matrix!)
 	shadowCam->SetProjMatrix(projMatrix[SHADOWMAT_TYPE_CULLING]);
 	shadowCam->SetViewMatrix(viewMatrix[SHADOWMAT_TYPE_CULLING]);
 	shadowCam->UpdateFrustum();
@@ -587,8 +580,8 @@ void CShadowHandler::SetShadowCamera(CCamera* shadowCam)
 
 void CShadowHandler::SetupShadowTexSampler(unsigned int texUnit, bool enable) const
 {
-	glActiveTexture(texUnit);
-	glBindTexture(GL_TEXTURE_2D, shadowDepthTexture);
+	if (shadowDepthTexture)
+		shadowDepthTexture->Bind(texUnit - GL_TEXTURE0);
 
 	// support FFP context
 	if (enable)
@@ -599,17 +592,15 @@ void CShadowHandler::SetupShadowTexSampler(unsigned int texUnit, bool enable) co
 
 void CShadowHandler::SetupShadowTexSamplerRaw() const
 {
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
-	glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_TEXTURE_MODE, GL_LUMINANCE);
-	// glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_TEXTURE_MODE, GL_INTENSITY);
-	// glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_TEXTURE_MODE, GL_ALPHA);
+	if (shadowDepthTexture)
+		shadowDepthTexture->SetCompareMode(true, RHI::CompareFunc::LessEqual);
+	// RHI_TODO: GL_DEPTH_TEXTURE_MODE (GL_LUMINANCE) is legacy FFP, no RHI equivalent.
 }
 
 void CShadowHandler::ResetShadowTexSampler(unsigned int texUnit, bool disable) const
 {
-	glActiveTexture(texUnit);
-	glBindTexture(GL_TEXTURE_2D, 0);
+	if (shadowDepthTexture)
+		shadowDepthTexture->Unbind(texUnit - GL_TEXTURE0);
 
 	if (disable)
 		glDisable(GL_TEXTURE_2D);
@@ -619,29 +610,36 @@ void CShadowHandler::ResetShadowTexSampler(unsigned int texUnit, bool disable) c
 
 void CShadowHandler::ResetShadowTexSamplerRaw() const
 {
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
-	glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_TEXTURE_MODE, GL_LUMINANCE);
+	if (shadowDepthTexture)
+		shadowDepthTexture->SetCompareMode(false);
 }
 
 
 void CShadowHandler::CreateShadows()
 {
+	auto* device = GetRHIDevice();
+	auto* ctx = device->GetContext();
+
 	// NOTE:
 	//   we unbind later in WorldDrawer::GenerateIBLTextures() to save render
 	//   context switches (which are one of the slowest OpenGL operations!)
 	//   together with VP restoration
-	smOpaqFBO.Bind();
+	if (smOpaqFBO)
+		smOpaqFBO->Bind();
 
-	glDisable(GL_BLEND);
-	glDisable(GL_LIGHTING);
-	glDisable(GL_ALPHA_TEST);
-	glDisable(GL_TEXTURE_2D);
+	// Set up shadow rendering pipeline state
+	RHI::PipelineDesc shadowDesc;
+	shadowDesc.blend.enabled = false;
+	shadowDesc.depthStencil.depthTestEnabled = true;
+	shadowDesc.depthStencil.depthWriteEnabled = true;
+	shadowDesc.blend.colorMask[0] = true;
+	shadowDesc.blend.colorMask[1] = true;
+	shadowDesc.blend.colorMask[2] = true;
+	shadowDesc.blend.colorMask[3] = true;
+	auto shadowPipeline = device->CreatePipeline(shadowDesc);
+	ctx->BindPipeline(shadowPipeline.get());
 
-	glShadeModel(GL_FLAT);
-	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-	glDepthMask(GL_TRUE);
-	glEnable(GL_DEPTH_TEST);
-	glClear(GL_DEPTH_BUFFER_BIT);
+	ctx->Clear(false, true, false);
 
 
 	//flickers without it. Why?
@@ -656,16 +654,14 @@ void CShadowHandler::CreateShadows()
 	prvCam->Update();
 
 
-	glShadeModel(GL_SMOOTH);
-
 	//revert to default, EnableColorOutput(true) is not enough
 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 }
 
 void CShadowHandler::EnableColorOutput(bool enable) const
 {
-	assert(FBO::GetCurrentBoundFBO() == smOpaqFBO.GetId());
-
+	// RHI_TODO: color mask should ideally be managed via pipeline state.
+	// Using GL fallback since this is a cross-cutting concern.
 	const GLboolean b = static_cast<GLboolean>(enable);
 	glColorMask(b, b, b, GL_FALSE);
 }
@@ -676,26 +672,6 @@ float4 CShadowHandler::GetShadowProjectionScales(CCamera* playerCam, const CMatr
 	float4 projScales;
 	float2 projRadius;
 
-	// NOTE:
-	//   the xy-scaling factors from CalcMinMaxView do not change linearly
-	//   or smoothly with camera movements, creating visible artefacts (eg.
-	//   large jumps in shadow resolution)
-	//
-	//   therefore, EITHER use "fixed" scaling values such that the entire
-	//   map barely fits into the sun's frustum (by pretending it is embedded
-	//   in a sphere and taking its diameter), OR variable scaling such that
-	//   everything that can be seen by the camera maximally fills the sun's
-	//   frustum (choice of projection-style is left to the user and can be
-	//   changed at run-time)
-	//
-	//   the first option means larger maps will have more blurred/aliased
-	//   shadows if the depth buffer is kept at the same size, but no (map)
-	//   geometry is ever omitted
-	//
-	//   the second option means shadows have higher average resolution, but
-	//   become less sharp as the viewing volume increases (through eg.camera
-	//   rotations) and geometry can be omitted in some cases
-	//
 	switch (shadowProMode) {
 		case SHADOWPROMODE_CAM_CENTER: {
 			projScales.x = GetOrthoProjectedFrustumRadius(playerCam, lightViewMat, projMidPos[2]);
@@ -708,7 +684,6 @@ float4 CShadowHandler::GetShadowProjectionScales(CCamera* playerCam, const CMatr
 			projRadius.y = GetOrthoProjectedMapRadius(-lightViewMat.GetZ(), projMidPos[1]);
 			projScales.x = std::min(projRadius.x, projRadius.y);
 
-			// pick the center position (0 or 1) for which radius is smallest
 			projMidPos[2] = projMidPos[projRadius.x >= projRadius.y];
 		} break;
 	}
@@ -718,7 +693,6 @@ float4 CShadowHandler::GetShadowProjectionScales(CCamera* playerCam, const CMatr
 	projScales.z = cam->GetNearPlaneDist();
 	projScales.w = cam->GetFarPlaneDist();
 	#else
-	// prefer slightly tighter fixed bounds
 	projScales.z = 0.0f;
 	projScales.w = readMap->GetBoundingRadius() * 2.0f;
 	#endif
@@ -726,19 +700,9 @@ float4 CShadowHandler::GetShadowProjectionScales(CCamera* playerCam, const CMatr
 }
 
 float CShadowHandler::GetOrthoProjectedMapRadius(const float3& sunDir, float3& projPos) {
-	// to fit the map inside the frustum, we need to know
-	// the distance from one corner to its opposing corner
-	//
-	// this distance is maximal when the sun direction is
-	// orthogonal to the diagonal, but in other cases we
-	// can gain some precision by projecting the diagonal
-	// onto a vector orthogonal to the sun direction and
-	// using the length of that projected vector instead
-	//
 	const float maxMapDiameter = readMap->GetBoundingRadius() * 2.0f;
 	static float curMapDiameter = 0.0f;
 
-	// recalculate pos only if the sun-direction has changed
 	if (sunProjDir != sunDir) {
 		sunProjDir = sunDir;
 
@@ -747,21 +711,17 @@ float CShadowHandler::GetOrthoProjectedMapRadius(const float3& sunDir, float3& p
 
 		if (sunDirXZ.x >= 0.0f) {
 			if (sunDirXZ.z >= 0.0f) {
-				// use diagonal vector from top-right to bottom-left
 				mapVerts[0] = float3(mapDims.mapx * SQUARE_SIZE, 0.0f,                       0.0f);
 				mapVerts[1] = float3(                      0.0f, 0.0f, mapDims.mapy * SQUARE_SIZE);
 			} else {
-				// use diagonal vector from top-left to bottom-right
 				mapVerts[0] = float3(                      0.0f, 0.0f,                       0.0f);
 				mapVerts[1] = float3(mapDims.mapx * SQUARE_SIZE, 0.0f, mapDims.mapy * SQUARE_SIZE);
 			}
 		} else {
 			if (sunDirXZ.z >= 0.0f) {
-				// use diagonal vector from bottom-right to top-left
 				mapVerts[0] = float3(mapDims.mapx * SQUARE_SIZE, 0.0f, mapDims.mapy * SQUARE_SIZE);
 				mapVerts[1] = float3(                      0.0f, 0.0f,                       0.0f);
 			} else {
-				// use diagonal vector from bottom-left to top-right
 				mapVerts[0] = float3(                      0.0f, 0.0f, mapDims.mapy * SQUARE_SIZE);
 				mapVerts[1] = float3(mapDims.mapx * SQUARE_SIZE, 0.0f,                       0.0f);
 			}
@@ -788,7 +748,6 @@ float CShadowHandler::GetOrthoProjectedFrustumRadius(CCamera* playerCam, const C
 		float sqRadius = 0.0f;
 		projPos = CalcShadowProjectionPos(playerCam, &frustumPoints[0]);
 
-		// calculate radius of the minimally-bounding sphere around projected frustum
 		for (unsigned int n = 0; n < 8; n++) {
 			sqRadius = std::max(sqRadius, (frustumPoints[n] - projPos).SqLength());
 		}
@@ -807,7 +766,6 @@ float CShadowHandler::GetOrthoProjectedFrustumRadius(CCamera* playerCam, const C
 		centerPos = CalcShadowProjectionPos(playerCam, &frustumPoints[0]);
 		lightViewCenterMat.SetPos(centerPos);
 
-		// find projected width along {x,z}-axes (.x := min, .y := max)
 		float2 xbounds = {std::numeric_limits<float>::max(), -std::numeric_limits<float>::max()};
 		float2 zbounds = {std::numeric_limits<float>::max(), -std::numeric_limits<float>::max()};
 
@@ -820,7 +778,6 @@ float CShadowHandler::GetOrthoProjectedFrustumRadius(CCamera* playerCam, const C
 			zbounds.y = std::max(zbounds.y, frustumPoints[n].z);
 		}
 
-		// factor in z-bounds to prevent clipping
 		return (std::min(readMap->GetBoundingRadius() * 2.0f, std::max(xbounds.y - xbounds.x, zbounds.y - zbounds.x)));
 	}
 	#endif
@@ -841,12 +798,9 @@ float3 CShadowHandler::CalcShadowProjectionPos(CCamera* playerCam, float3* frust
 	};
 
 	for (int i = 0; i < 4; ++i) {
-		//near quadrilateral
 		ClipRayByPlanes(frustumPoints[4 + i], frustumPoints[i], clipPlanes);
-		//far quadrilateral
 		ClipRayByPlanes(frustumPoints[i], frustumPoints[4 + i], clipPlanes);
 
-		//hard clamp xz
 		frustumPoints[    i].x = std::clamp(frustumPoints[    i].x, -T2, mapDims.mapx * SQUARE_SIZE + T2);
 		frustumPoints[    i].z = std::clamp(frustumPoints[    i].z, -T2, mapDims.mapy * SQUARE_SIZE + T2);
 		frustumPoints[4 + i].x = std::clamp(frustumPoints[4 + i].x, -T2, mapDims.mapx * SQUARE_SIZE + T2);

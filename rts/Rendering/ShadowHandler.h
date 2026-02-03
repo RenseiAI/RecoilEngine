@@ -5,8 +5,10 @@
 
 #include <array>
 #include <limits>
+#include <memory>
 
-#include "Rendering/GL/FBO.h"
+#include "Rendering/RHI/RHITexture.h"
+#include "Rendering/RHI/RHIFramebuffer.h"
 #include "System/float4.h"
 #include "System/Matrix44f.h"
 
@@ -18,9 +20,7 @@ class CCamera;
 class CShadowHandler
 {
 public:
-	CShadowHandler()
-		:smOpaqFBO(true)
-	{}
+	CShadowHandler() = default;
 
 	void Init();
 	void Kill();
@@ -80,8 +80,11 @@ public:
 
 	const float4& GetShadowParams() const { return shadowTexProjCenter; }
 
-	uint32_t GetShadowTextureID() const { return shadowDepthTexture; }
-	uint32_t GetColorTextureID() const { return shadowColorTexture; }
+	uint32_t GetShadowTextureID() const { return shadowDepthTexture ? shadowDepthTexture->GetNativeHandle() : 0; }
+	uint32_t GetColorTextureID() const { return shadowColorTexture ? shadowColorTexture->GetNativeHandle() : 0; }
+
+	RHI::IRHITexture* GetShadowTexture() const { return shadowDepthTexture.get(); }
+	RHI::IRHITexture* GetColorTexture() const { return shadowColorTexture.get(); }
 
 	static bool ShadowsInitialized() { return firstInit; }
 	static bool ShadowsSupported() { return shadowsSupported; }
@@ -138,10 +141,10 @@ private:
 	CMatrix44f projMatrix[2];
 	CMatrix44f viewMatrix[2];
 
-	uint32_t shadowDepthTexture;
-	uint32_t shadowColorTexture;
+	std::unique_ptr<RHI::IRHITexture> shadowDepthTexture;
+	std::unique_ptr<RHI::IRHITexture> shadowColorTexture;
 
-	FBO smOpaqFBO;
+	std::unique_ptr<RHI::IRHIFramebuffer> smOpaqFBO;
 
 	/// xmid, ymid, p17, p18
 	static constexpr float4 shadowTexProjCenter = {
