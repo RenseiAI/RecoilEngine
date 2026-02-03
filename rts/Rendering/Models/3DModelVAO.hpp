@@ -1,6 +1,10 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 #pragma once
 
+// RHI_TODO: This header exposes GLenum in its public interface (DrawElements,
+// Submit, SubmitImmediately). Once the RHI migration of VBO/VAO is complete,
+// replace GLenum with RHI::PrimitiveType and remove GL header dependency.
+
 #include <memory>
 
 #include "Rendering/Models/VertexData.hpp"
