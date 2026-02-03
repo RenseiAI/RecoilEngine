@@ -1,5 +1,22 @@
-/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * GL Constants for Lua API
+ *
+ * These constants are exposed to Lua scripts for backward compatibility.
+ * The values match OpenGL enum values (e.g., GL_TRIANGLES = 0x0004).
+ *
+ * For RHI migration: Lua scripts continue to use these GL constants.
+ * The translation to RHI enum types happens inside the Lua binding
+ * implementations using LuaGLConstMappings.h.
+ *
+ * Example Lua usage:
+ *   gl.DrawArrays(GL.TRIANGLES, 0, vertexCount)
+ *
+ * Internal translation (in LuaOpenGL.cpp):
+ *   RHI::PrimitiveType prim = LuaGLConstMappings::GLPrimitiveToRHI(glPrimitive);
+ *   context->Draw(prim, vertexCount, firstVertex);
+ */
 
 #include "LuaConstGL.h"
 
