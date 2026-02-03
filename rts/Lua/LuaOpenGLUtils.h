@@ -1,7 +1,19 @@
-/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
 
 #ifndef LUA_OPENGLUTILS_H
 #define LUA_OPENGLUTILS_H
+
+/**
+ * Lua OpenGL Utility Classes
+ *
+ * Provides texture binding and matrix utilities for Lua material system.
+ *
+ * RHI Migration Notes:
+ * - LuaMatTexture::Bind()/Unbind() currently use direct GL calls
+ * - BindToUnit(unit) provides RHI-compatible texture binding
+ * - The enable/disable texture calls are FFP legacy and can be removed
+ *   once all rendering uses shaders (which ignore GL_TEXTURE_*D state)
+ */
 
 #include <string>
 #include <tuple>
@@ -98,8 +110,15 @@ class LuaMatTexture {
 
 		void Enable(bool b) { enable = b; }
 		void Finalize() { /*enableTexParams = true;*/ }
+
+		/// Legacy bind - uses glBindTexture and optional glEnable for FFP
 		void Bind() const;
 		void Unbind() const;
+
+		/// RHI-compatible bind to specific texture unit
+		/// Uses glActiveTexture + glBindTexture, no FFP enable state
+		void BindToUnit(uint32_t unit) const;
+		void UnbindFromUnit(uint32_t unit) const;
 
 		void Print(const std::string& indent) const;
 

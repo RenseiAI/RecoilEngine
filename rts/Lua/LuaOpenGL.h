@@ -3,6 +3,19 @@
 #ifndef LUA_GL_H
 #define LUA_GL_H
 
+/**
+ * RHI Migration Notes for LuaOpenGL (~146 GL calls)
+ * ==================================================
+ * Categories: 1) Render state -> IRHIContext (Scissor, Viewport, Blend, etc.)
+ * 2) Deprecated FFP -> Remove/warn (Lighting, Material, Fog, MatrixMode, etc.)
+ * 3) Immediate mode -> Convert to VBO (BeginEnd, Vertex, etc.)
+ * 4) Display lists -> Remove (CreateList, CallList, DeleteList)
+ * 5) Textures -> IRHITexture (CreateTexture, BindTexture, etc.)
+ * 6) Queries -> IRHIQuery (CreateQuery, RunQuery, etc.)
+ * 7) Sync -> IRHIContext (Flush, Finish, MemoryBarrier)
+ * Use LuaGLConstMappings.h for all GL->RHI enum conversions.
+ */
+
 #include <vector>
 #include <string>
 #include <unordered_set>

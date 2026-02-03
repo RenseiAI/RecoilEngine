@@ -1,7 +1,33 @@
-/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * Lua Shader Implementation
+ *
+ * RHI Migration Status - CRITICAL FOR METAL:
+ * ==========================================
+ * This file compiles GLSL shaders provided by Lua scripts at runtime.
+ * For Metal backend support, the shader creation path needs modification.
+ *
+ * Current OpenGL path (CompileObject function):
+ *   glCreateShader -> glShaderSource -> glCompileShader -> glAttachShader
+ *   glCreateProgram -> glLinkProgram -> glValidateProgram
+ *
+ * Required Metal path:
+ *   GLSL source -> ShaderCompiler::CompileGLSLToSPIRV()
+ *                -> ShaderCompiler::TranslateSPIRVToMSL()
+ *                -> IRHIShader (Metal implementation creates MTLLibrary)
+ *
+ * Uniform handling:
+ *   glUniform1f/2f/3f/4f -> IRHIShader::SetUniform1f/2f/3f/4f
+ *   glUniform1i/2i/3i/4i -> IRHIShader::SetUniform1i/2i/3i/4i
+ *   glUniformMatrix4fv   -> IRHIShader::SetUniformMatrix4fv
+ *   glUniform1fv/1iv     -> IRHIShader::SetUniform*v
+ *
+ * See ShaderCompiler.h for the GLSL->MSL cross-compilation infrastructure.
+ */
 
 #include "LuaShaders.h"
+#include "LuaGLConstMappings.h"
 
 #include "lib/sol2/sol.hpp"
 

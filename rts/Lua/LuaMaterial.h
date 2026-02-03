@@ -3,6 +3,24 @@
 #ifndef LUA_MATERIAL_H
 #define LUA_MATERIAL_H
 
+/**
+ * RHI Migration Notes for LuaMaterial
+ * ====================================
+ * This file manages material bindings for Lua-controlled rendering.
+ *
+ * Key GL calls requiring migration:
+ * - glUseProgram -> IRHIContext::BindShader()
+ * - glUniform* -> IRHIShader::SetUniform*()
+ * - glGetUniformLocation -> IRHIShader reflection
+ * - glEnable/glDisable(GL_CULL_FACE), glCullFace -> IRHIContext::SetCullMode()
+ * - glActiveTexture + glBindTexture -> IRHIContext::BindTexture(unit, tex)
+ * - glCallList (display lists) -> DEPRECATED, remove
+ * - glPushMatrix/glPopMatrix/glLoadIdentity -> Use explicit matrix uniforms
+ *
+ * LuaMatShader::openglID stores GL program ID; needs IRHIShader* for RHI.
+ * Use LuaGLConstMappings.h for GL->RHI enum conversions.
+ */
+
 #include <cstring> // strcmp
 #include <string>
 #include <vector>
@@ -39,6 +57,7 @@ LuaObjectMaterialData (helper to choose the current LOD) //FIXME rename
 
 #include "LuaOpenGLUtils.h"
 #include "LuaObjectMaterial.h" // for LuaMatRef
+#include "LuaGLConstMappings.h"
 #include "Rendering/GL/myGL.h"
 #include "System/StringHash.h"
 #include "System/UnorderedMap.hpp"

@@ -1,4 +1,25 @@
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
+
+/**
+ * Lua VAO Implementation
+ *
+ * RHI Migration Status:
+ * - Draw calls use direct GL (glDrawArrays*, glDrawElements*, etc.)
+ * - Vertex attribute setup via glVertexAttribPointer/glVertexAttribDivisor
+ * - Primitive restart via glEnable/glPrimitiveRestartIndex
+ * - MultiDrawIndirect via glMultiDrawElementsIndirect
+ *
+ * For RHI migration:
+ * - glDrawArrays -> IRHIContext::Draw()
+ * - glDrawElements -> IRHIContext::DrawIndexed()
+ * - glDrawArraysInstanced -> IRHIContext::DrawInstanced()
+ * - glDrawElementsInstanced -> IRHIContext::DrawIndexedInstanced()
+ * - glMultiDrawElementsIndirect -> IRHIContext::DrawIndexedIndirect()
+ * - Vertex layout moves to pipeline descriptor (RHI::VertexLayout)
+ */
+
 #include "LuaVAOImpl.h"
+#include "LuaGLConstMappings.h"
 
 #include <algorithm>
 #include <type_traits>

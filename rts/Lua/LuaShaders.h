@@ -1,7 +1,35 @@
-/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
 
 #ifndef LUA_SHADERS_H
 #define LUA_SHADERS_H
+
+/**
+ * Lua Shader Management
+ *
+ * Handles shader creation from GLSL source provided by Lua scripts.
+ * This is the critical file for Metal backend support.
+ *
+ * RHI Migration - Critical Path for Metal:
+ * =========================================
+ * Lua scripts provide GLSL shader source at runtime:
+ *   local shader = gl.CreateShader({ vertex = "...", fragment = "..." })
+ *
+ * For Metal backend, CreateShader must:
+ * 1. Compile GLSL -> SPIR-V via glslang (ShaderCompiler::CompileGLSLToSPIRV)
+ * 2. Translate SPIR-V -> MSL via SPIRV-Cross (ShaderCompiler::TranslateSPIRVToMSL)
+ * 3. Create MTLLibrary from MSL source
+ * 4. Cache compiled shaders by content hash
+ *
+ * The ShaderCompiler class (Rendering/RHI/ShaderCompiler.h) provides this
+ * pipeline. CreateShader should detect backend and use appropriate path:
+ * - OpenGL: glCreateShader/glShaderSource/glCompileShader (current code)
+ * - Metal: ShaderCompiler GLSL->MSL pipeline
+ *
+ * Uniform handling:
+ * - glUniform* calls -> IRHIShader::SetUniform*()
+ * - glGetUniformLocation -> IRHIShader uniform name lookup
+ * - ActiveUniforms reflect into shader for both backends
+ */
 
 #include <string>
 #include <vector>

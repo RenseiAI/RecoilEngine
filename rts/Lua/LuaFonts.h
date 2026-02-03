@@ -3,6 +3,15 @@
 #ifndef LUA_FONTS_H
 #define LUA_FONTS_H
 
+/**
+ * RHI Migration Notes for LuaFonts
+ * =================================
+ * Thin wrapper around CglFont. Minimal direct GL calls here.
+ * - BindTexture(): glBindTexture + glEnable(GL_TEXTURE_2D)
+ *   -> IRHIContext::BindTexture(), remove FFP glEnable
+ * Main RHI work is in Rendering/Fonts/glFont.cpp.
+ */
+
 #include "Rendering/Fonts/glFont.h"
 
 struct lua_State;

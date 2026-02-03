@@ -1,4 +1,18 @@
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
+
+/**
+ * Lua VBO Implementation
+ *
+ * RHI Migration Status:
+ * - Uses VBO wrapper class for GL buffer operations
+ * - glClearBufferData used for buffer clearing
+ * - Buffer operations (map/unmap/upload) via VBO class
+ *
+ * The VBO class itself needs RHI migration to use IRHIBuffer.
+ */
+
 #include "LuaVBOImpl.h"
+#include "LuaGLConstMappings.h"
 
 #include <unordered_map>
 #include <algorithm>
