@@ -5,7 +5,9 @@
 
 #include <string>
 
-#include "Rendering/GL/myGL.h" //GLuint
+// TODO(RHI): myGL.h still needed by ShaderHandler.cpp for GL_VERTEX_SHADER etc.
+// Remove once CreateShaderObject/CreateProgramObject use RHI factory.
+#include "Rendering/GL/myGL.h"
 #include "System/UnorderedMap.hpp"
 
 namespace Shader {
@@ -50,7 +52,7 @@ public:
 		unsigned int Find(unsigned int hash) {
 			const auto it = cache.find(hash);
 
-			GLuint id = 0;
+			unsigned int id = 0;
 
 			if (it != cache.end()) {
 				id = it->second;
@@ -72,7 +74,7 @@ public:
 		}
 
 	private:
-		spring::unsynced_map<size_t, GLuint> cache;
+		spring::unsynced_map<size_t, unsigned int> cache;
 	};
 
 	const ShaderCache& GetShaderCache() const { return shaderCache; }
