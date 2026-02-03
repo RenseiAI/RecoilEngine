@@ -2,6 +2,7 @@
 
 #include "GeometryBuffer.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "System/Config/ConfigHandler.h"
 
 #include <algorithm>
