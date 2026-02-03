@@ -3,6 +3,12 @@
 #ifndef VERTEXARRAY_H
 #define VERTEXARRAY_H
 
+// DEPRECATED: CVertexArray is a legacy immediate-mode vertex array class that
+// uses fixed-function GL client state (glEnableClientState, glVertexPointer, etc.).
+// These calls have no equivalent in Metal or modern GL core profiles.
+// New code should use RenderBuffer or RHI::IRHIBuffer instead.
+// This file is only functional when the OpenGL backend is active.
+
 #include "myGL.h"
 #include "VertexArrayTypes.h"
 #include "System/Platform/errorhandler.h"
