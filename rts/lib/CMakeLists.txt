@@ -120,6 +120,7 @@ if(APPLE)
 	set(BUILD_TESTING           OFF CACHE BOOL "forced by Recoil build env" FORCE)
 	set(BUILD_SHARED_LIBS       OFF CACHE BOOL "forced by Recoil build env" FORCE)
 	set(SKIP_GLSLANG_INSTALL    ON  CACHE BOOL "forced by Recoil build env" FORCE)
+	set(ENABLE_OPT              OFF CACHE BOOL "forced by Recoil build env" FORCE)
 	ADD_SUBDIRECTORY(glslang)
 
 	# SPIRV-Cross: build only the core and MSL backends as static libraries
