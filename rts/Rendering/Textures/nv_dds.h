@@ -3,10 +3,29 @@
 // This software contains source code provided by NVIDIA Corporation.
 // License: http://developer.download.nvidia.com/licenses/general_license.txt
 
-// Modified DDS class from NVIDIA SDK.
-// CDDSImage stores GL format enum values (GL_COMPRESSED_*, GL_BGRA, etc.)
-// in m_format. The upload_texture* methods use direct GL calls.
-// TODO: RHI gap - m_format stores GL enum values; upload methods need RHI wrappers.
+/**
+ * nv_dds - NVIDIA DDS texture loader (modified from SDK).
+ *
+ * RHI Migration Status: NOT MIGRATED (Legacy GL-only)
+ * ===================================================
+ * This file is deeply tied to OpenGL:
+ * - m_format stores GL format enums (GL_COMPRESSED_RGBA_S3TC_DXT*, GL_BGRA, etc.)
+ * - upload_texture*() methods use direct GL calls (glTexImage*, glCompressedTexImage*)
+ * - Uses GL_TEXTURE_1D, GL_TEXTURE_2D, GL_TEXTURE_3D, GL_TEXTURE_CUBE_MAP targets
+ *
+ * Migration Path (Complex - Low Priority):
+ * 1. Map m_format to RHI::TextureFormat enum values
+ * 2. Replace upload_texture*() with RHI::IRHITexture::Upload() calls
+ * 3. For compressed textures, add RHI::TextureFormat::CompressedDXT1/3/5
+ * 4. The load/save/flip methods are pure CPU data manipulation - no changes needed
+ *
+ * Alternative Approach:
+ * - Keep nv_dds as data-only loader (load/save/flip)
+ * - Use Bitmap::CreateDDSTextureRHI() which wraps the data into RHI textures
+ * - This is already partially implemented in Bitmap.cpp
+ *
+ * See also: Bitmap.h CreateDDSTextureRHI() for the preferred RHI path
+ */
 
 #ifndef __NV_DDS_H__
 #define __NV_DDS_H__
