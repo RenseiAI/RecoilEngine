@@ -3,6 +3,13 @@
 #ifndef LUA_DISPLAY_LISTS_H
 #define LUA_DISPLAY_LISTS_H
 
+/**
+ * RHI Migration: DEPRECATED - Display lists do not exist in GL 3.3+ or Metal.
+ * Options: 1) Remove entirely (recommended), 2) Emulate with command recording,
+ * 3) Convert to VBO at compile time. For Metal: error with migration guidance.
+ * GL calls: glDeleteLists, glNewList, glEndList, glCallList (in LuaOpenGL.cpp)
+ */
+
 #include <vector>
 
 #include "Rendering/GL/MatrixStateTracker.h"
