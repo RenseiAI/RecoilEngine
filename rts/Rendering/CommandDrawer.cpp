@@ -10,22 +10,39 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIFactory.h"
 
-// RHI Migration Notes (CommandDrawer):
-// Mappable state calls in DrawLuaQueuedUnitSetCommands():
-//   glDisable(GL_DEPTH_TEST) -> RHI::DepthStencilState{depthTestEnabled=false}
-//   glEnable(GL_BLEND) + glBlendFunc -> RHI::BlendState{enabled=true, srcColor/dstColor}
-//   glLineWidth -> RHI::RasterizerState{lineWidth}
-//   glEnable(GL_DEPTH_TEST) -> restore pipeline state
-// Mappable calls in DrawQuedBuildingSquares():
-//   glPolygonMode -> RHI::RasterizerState{polygonMode=Line}
-//   glDrawArrays -> IRHIContext::Draw()
-// Non-mappable legacy FFP in DrawQuedBuildingSquares():
-//   glEnableClientState/glDisableClientState, glVertexPointer, glColorPointer
-//     -> requires conversion to IRHIBuffer vertex buffers
-//   glPushAttrib/glPopAttrib, glColor4f -> legacy FFP state stack
-// Non-mappable FFP:
-//   glDisable(GL_TEXTURE_2D) -> FFP texture unit enable (no RHI equivalent)
+/**
+ * RHI_MIGRATION_DOCS(CommandDrawer)
+ *
+ * Migration Status: PARTIAL - Pipeline state documented, client arrays need conversion
+ *
+ * Pipeline State Mapping (DrawLuaQueuedUnitSetCommands):
+ *   glDisable(GL_DEPTH_TEST) -> RHI::DepthStencilState{depthTestEnabled=false}
+ *   glEnable(GL_BLEND) + glBlendFunc -> RHI::BlendState{enabled=true, srcColor, dstColor}
+ *   glLineWidth(w) -> RHI::RasterizerState{lineWidth=w}
+ *   glEnable(GL_DEPTH_TEST) -> restore to default pipeline
+ *
+ * Pipeline State Mapping (DrawQuedBuildingSquares):
+ *   glPolygonMode(GL_FRONT_AND_BACK, GL_LINE) -> RHI::RasterizerState{polygonMode=Line}
+ *   glDrawArrays(GL_QUADS, 0, n) -> IRHIContext::Draw(PrimitiveType::Triangles, ...)
+ *     Note: GL_QUADS deprecated, should convert to triangles
+ *
+ * Legacy FFP (requires vertex buffer conversion):
+ *   - Client arrays: glEnableClientState, glVertexPointer, glColorPointer
+ *     -> TypedRenderBuffer<VA_TYPE_C> or IRHIBuffer
+ *   - State stack: glPushAttrib/glPopAttrib
+ *     -> RHI::ScopedPipeline
+ *   - FFP color: glColor4f
+ *     -> Per-vertex color in buffer or uniform
+ *   - FFP texture: glDisable(GL_TEXTURE_2D)
+ *     -> Shader-based (no texture binding)
+ *
+ * Completion Criteria:
+ *   [ ] Convert DrawQuedBuildingSquares to TypedRenderBuffer
+ *   [ ] Replace glPushAttrib/glPopAttrib with ScopedPipeline
+ *   [x] Document pipeline state mapping
+ */
 #include "Sim/Features/Feature.h"
 #include "Sim/Features/FeatureHandler.h"
 #include "Sim/Units/CommandAI/Command.h"
