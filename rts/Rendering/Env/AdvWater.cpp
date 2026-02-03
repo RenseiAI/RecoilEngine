@@ -1,5 +1,37 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+// RHI-GAP: AdvWater is heavily dependent on legacy GL features with no RHI equivalent:
+//
+// 1. ARB Fragment Programs (glBindProgramARB, glProgramEnvParameter4fARB, glEnable(GL_FRAGMENT_PROGRAM_ARB)):
+//    - Uses "ARB/water.fp" fragment program loaded via LoadFragmentProgram()
+//    - Metal port requires rewriting as GLSL shader, then cross-compiling to MSL
+//    - Program environment parameters need conversion to uniform buffers
+//
+// 2. Fixed-Function Texture Coordinate Generation (glTexGeni, glTexGenfv, GL_TEXTURE_GEN_S/T):
+//    - GL_EYE_LINEAR texgen computes tex coords in eye space
+//    - Must be moved to vertex shader: texCoord = dot(eyePos, planeEq)
+//    - Requires passing plane equations via uniforms
+//
+// 3. FFP Matrix Stack (glMatrixMode, glPushMatrix, glLoadIdentity, glOrtho):
+//    - Used in UpdateWater() for bump texture rendering
+//    - Replace with CMatrix44f operations and shader uniforms
+//    - See RHITypes.h for migration pattern
+//
+// 4. Immediate Mode Color (glColor3f):
+//    - Used for bump texture blending passes
+//    - Replace with vertex attribute or shader uniform
+//
+// 5. Legacy CVertexArray with GL_QUADS and GL_TRIANGLE_STRIP:
+//    - va->DrawArrayT(GL_QUADS) uses deprecated GL_QUADS primitive
+//    - Replace with TypedRenderBuffer using GL_TRIANGLES
+//
+// 6. Raw texture/FBO management (glGenTextures, glTexImage2D, FBO::Bind):
+//    - Should use IRHIDevice::CreateTexture() and IRHIFramebuffer
+//    - Current FBO class wraps GL but is not RHI-abstracted
+//
+// Migration priority: LOW - This water mode should be deprecated in favor of
+// BumpWater which uses GLSL shaders. ARB program translation is complex and
+// the visual quality of AdvWater doesn't justify the effort.
 
 #include "AdvWater.h"
 #include "ISky.h"
@@ -11,15 +43,10 @@
 #include "Map/ReadMap.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/VertexArray.h"
-#include "Rendering/GL/myGL.h" // ARB programs, texgen, fixed-function GL have no RHI equivalent
+#include "Rendering/GL/myGL.h" // retained: ARB programs, texgen, matrix stack, immediate mode (no RHI equivalent)
 #include "System/Exceptions.h"
 
 #include "System/Misc/TracyDefs.h"
-
-// RHI-GAP: AdvWater uses legacy ARB fragment programs (glBindProgramARB,
-// glProgramEnvParameter4fARB), fixed-function texture coordinate generation
-// (glTexGeni/glTexGenfv), and matrix stack ops. None have RHI equivalents.
-// Metal port requires replacing ARB programs with GLSL/MSL shaders.
 
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
@@ -33,6 +60,9 @@ void CAdvWater::InitResources(bool loadShader)
 
 	std::vector<unsigned char> scrap(512 * 512 * 4);
 
+	// RHI-GAP: Raw texture creation should use IRHIDevice::CreateTexture().
+	// These textures (reflectTexture, bumpTexture, rawBumpTexture[]) would
+	// become std::unique_ptr<IRHITexture> members.
 	glGenTextures(1, &reflectTexture);
 	glBindTexture(GL_TEXTURE_2D, reflectTexture);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -115,12 +145,15 @@ void CAdvWater::InitResources(bool loadShader)
 void CAdvWater::FreeResources()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI-GAP: glDeleteTextures -> IRHITexture destructor (RAII cleanup)
 	const auto DeleteTexture = [](GLuint& texID) { if (texID > 0) { glDeleteTextures(1, &texID); texID = 0; } };
 	DeleteTexture(reflectTexture);
 	DeleteTexture(bumpTexture);
 	for (auto& rbt : rawBumpTexture)
 		DeleteTexture(rbt);
 
+	// RHI-GAP: ARB program deletion has no RHI equivalent.
+	// ARB programs should be replaced with GLSL/IRHIShader.
 	glSafeDeleteProgram(waterFP);
 	waterFP = 0;
 }
@@ -158,15 +191,22 @@ void CAdvWater::Draw(bool useBlending)
 	col[1] = (unsigned char)(waterSurfaceColor.y * 255);
 	col[2] = (unsigned char)(waterSurfaceColor.z * 255);
 
+	// RHI-GAP: GL_ALPHA_TEST is deprecated FFP, no-op in core profile
 	glDisable(GL_ALPHA_TEST);
+	// RHI-GAP: glEnable(GL_BLEND) -> RHI::BlendState.enabled = true
 	if (useBlending) {
 		glEnable(GL_BLEND);
 	} else {
 		glDisable(GL_BLEND);
 	}
+	// RHI-GAP: glDepthMask -> RHI::DepthStencilState.depthWriteEnabled
 	glDepthMask(0);
 	glActiveTextureARB(GL_TEXTURE1_ARB);
 		glBindTexture(GL_TEXTURE_2D, bumpTexture);
+		// RHI-GAP: glTexGeni/glTexGenfv (GL_EYE_LINEAR texgen) has no RHI equivalent.
+		// Metal requires computing tex coords in vertex shader:
+		//   vec2 texCoord = vec2(dot(eyePos, planS), dot(eyePos, planT));
+		// The plane equations would be passed as shader uniforms.
 		GLfloat plan[] = {0.02f, 0, 0, 0};
 		glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_EYE_LINEAR);
 		glTexGenfv(GL_S, GL_EYE_PLANE, plan);
@@ -179,8 +219,11 @@ void CAdvWater::Draw(bool useBlending)
 	glActiveTextureARB(GL_TEXTURE0_ARB);
 	glBindTexture(GL_TEXTURE_2D, reflectTexture);
 
+	// RHI-GAP: ARB fragment programs have no RHI equivalent.
+	// Must be replaced with GLSL shaders (IRHIShader) for Metal support.
 	glBindProgramARB(GL_FRAGMENT_PROGRAM_ARB, waterFP);
 	glEnable(GL_FRAGMENT_PROGRAM_ARB);
+	// RHI-GAP: glPolygonMode -> RHI::RasterizerState.polygonMode
 	glPolygonMode(GL_FRONT_AND_BACK, wireFrameMode ? GL_LINE : GL_FILL);
 
 	forward.ANormalize2D();
@@ -261,24 +304,35 @@ void CAdvWater::UpdateWater(const CGame* game)
 	if (!waterRendering->forceRendering && !readMap->HasVisibleWater())
 		return;
 
+	// RHI-GAP: glPushAttrib/glPopAttrib -> RHI::ScopedPipeline
 	glPushAttrib(GL_FOG_BIT | GL_COLOR_BUFFER_BIT);
+	// RHI-GAP: GL_TEXTURE_2D enable is deprecated FFP, no-op in core profile
 	glEnable(GL_TEXTURE_2D);
+	// RHI-GAP: glBlendFunc -> RHI::BlendState with srcColor=One, dstColor=One
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_ONE, GL_ONE);
 
 	{
+		// RHI-GAP: FBO::Bind() -> IRHIContext::BeginRenderPass()
 		bumpFBO.Bind();
+		// RHI-GAP: glViewport -> IRHIContext::SetViewport()
 		glViewport(0, 0, 128, 128);
 
+		// RHI-GAP: glClearColor/glClear -> RHI::RenderPassDesc with LoadAction::Clear
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
+		// RHI-GAP: FFP matrix stack has no RHI equivalent.
+		// Replace with CMatrix44f::Ortho() and pass to shader as uniform.
+		// See RHITypes.h for migration pattern using MatrixStack helper.
 		glMatrixMode(GL_PROJECTION);
 		glLoadIdentity();
 		glOrtho(0, 1, 0, 1, -1, 1);
 		glMatrixMode(GL_MODELVIEW);
 		glLoadIdentity();
 
+		// RHI-GAP: glColor3f (immediate mode color) has no RHI equivalent.
+		// Replace with vertex attribute color or shader uniform.
 		glColor3f(0.2f, 0.2f, 0.2f);
 
 		CVertexArray* va = GetVertexArray();
