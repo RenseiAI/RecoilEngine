@@ -53,4 +53,24 @@ bool IsBackendAvailable(Backend backend) {
 	return false;
 }
 
+static std::unique_ptr<IRHIDevice> globalDevice;
+
+void InitDevice() {
+	if (globalDevice)
+		return;
+	globalDevice = CreateDevice(GetDefaultBackend());
+	if (!globalDevice)
+		LOG_L(L_ERROR, "[RHI] Failed to create global device");
+	else
+		LOG("[RHI] Global device initialized (backend=%s)", globalDevice->GetBackendName());
+}
+
+void KillDevice() {
+	globalDevice.reset();
+}
+
+IRHIDevice* GetDevice() {
+	return globalDevice.get();
+}
+
 } // namespace RHI
