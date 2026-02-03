@@ -3,6 +3,10 @@
 #include "ModernInfoTexture.h"
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/GL/myGL.h"  // transitional: GL types still needed by FBO/VAO
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIFactory.h"
 
 
 CModernInfoTexture::CModernInfoTexture(const std::string& _name)
@@ -24,11 +28,14 @@ bool CModernInfoTexture::CreateFBO(const char* fboName)
 
 void CModernInfoTexture::RunFullScreenPass()
 {
+	auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+	auto* ctx = device->GetContext();
+
 	fbo.Bind();
-	glViewport(0, 0, texSize.x, texSize.y);
+	ctx->SetViewport(RHI::Viewport{0.0f, 0.0f, static_cast<float>(texSize.x), static_cast<float>(texSize.y)});
 	shader->Enable();
 	vao.Bind();
-	glDrawArrays(GL_TRIANGLES, 0, 3); // full screen triangle
+	ctx->Draw(RHI::PrimitiveType::Triangles, 3, 0); // full screen triangle
 	vao.Unbind();
 	shader->Disable();
 	FBO::Unbind();
