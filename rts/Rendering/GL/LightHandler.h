@@ -1,8 +1,24 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
-// RHI Migration: LightHandler uses GL fixed-function lighting (glEnable(GL_LIGHT*),
-// glLightfv, glLightf) to communicate light properties via FFP. These calls have no
-// RHI equivalent. Future migration: replace with a UBO/SSBO containing light data,
-// uploaded via IRHIBuffer, and sampled in shaders. GL_MAX_LIGHTS query -> IRHIDevice.
+
+/**
+ * GL Light Handler - Dynamic Light Management
+ *
+ * RHI Migration Status: REQUIRES ARCHITECTURAL REDESIGN
+ * ------------------------------------------------------
+ * Uses OpenGL fixed-function pipeline lighting which has NO equivalent
+ * in Metal, Vulkan, or GL Core 3.2+.
+ *
+ * Current GL calls: glGetIntegerv(GL_MAX_LIGHTS), glEnable/glDisable(GL_LIGHT*),
+ * glLightfv(POSITION/AMBIENT/DIFFUSE/SPECULAR/SPOT_DIRECTION), glLightf(CUTOFF/ATTENUATION)
+ *
+ * Migration Strategy (NOT YET IMPLEMENTED):
+ *   1. Create uniform buffer with struct GPULightData[] + numActiveLights
+ *   2. Upload via IRHIBuffer::Upload() each frame
+ *   3. Bind UBO in shaders via IRHIContext::BindUniformBuffer()
+ *   4. Sample light data in fragment shaders instead of FFP
+ *
+ * Until migration: Only functions with OpenGL backend.
+ */
 
 #ifndef _GL_LIGHTHANDLER_H
 #define _GL_LIGHTHANDLER_H

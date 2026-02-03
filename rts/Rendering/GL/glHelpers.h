@@ -2,11 +2,25 @@
 
 #pragma once
 
-// NOTE: glHelpers.h contains OpenGL-specific state query/set helpers.
-// These use raw GL calls (glGetIntegerv, glGetBooleanv, glEnable, glDisable, etc.)
-// and are only valid for the OpenGL backend. For backend-agnostic code, use
-// RHI::PipelineDesc for state management and RHI::IRHIDevice for capability queries.
-// This header should only be included by OpenGL backend code and legacy GL/ files.
+/**
+ * OpenGL State Query/Set Helpers
+ *
+ * RHI Migration Status: NOT MIGRATED (OpenGL-backend-only)
+ * --------------------------------------------------------
+ * This header provides template utilities for GL state manipulation:
+ *   - glGetAny<T>(): Query GL state (glGetIntegerv, glGetBooleanv, etc.)
+ *   - GL::FetchEffectualStateAttribValue(): Single-value state query
+ *   - GL::FetchEffectualStateAttribValues(): Multi-value state query
+ *   - glSetAny<>(): Set GL attribute via glEnable/glDisable or dedicated func
+ *
+ * RHI Equivalents:
+ *   - State queries: Not needed - RHI uses immutable pipeline state objects.
+ *     Use RHI::PipelineDesc to specify state, RHI::IRHIPipeline::GetDesc() to query.
+ *   - Capability queries: IRHIDevice::GetMax*() / IRHIDevice::Support*()
+ *
+ * This header should ONLY be included by OpenGL backend or legacy GL/ files.
+ * For new code, use RHI::PipelineDesc for state configuration.
+ */
 
 #include "myGL.h"
 #include "System/TemplateUtils.hpp"
