@@ -30,9 +30,28 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/glExtra.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHITypes.h"
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
 #include "System/SpringMath.h"
 #include "System/StringUtil.h"
+
+// RHI Migration Notes (HAPFSPathDrawer):
+// Mappable pipeline state:
+//   glPushAttrib(GL_ENABLE_BIT) / glPopAttrib -> scoped RHI::PipelineDesc
+//   glDisable(GL_DEPTH_TEST) -> RHI::DepthStencilState{depthTestEnabled=false}  [implicit in Draw(PE)]
+//   glLineWidth(3) -> RHI::RasterizerState{lineWidth=3.0f}
+// Non-mappable legacy FFP in Draw() [paths]:
+//   glBegin(GL_LINE_STRIP)/glEnd, glColor4f, glVertexf3 -> immediate-mode
+//     requires conversion to vertex buffer with per-vertex color
+// Non-mappable legacy FFP in Draw(PE):
+//   glBegin(GL_LINES)/glEnd, glColor3f, glVertexf3 -> immediate-mode
+// Non-mappable legacy FFP in DrawInMiniMap():
+//   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity, glOrtho,
+//   glTranslatef3, glScalef -> matrix stack
+//   glColor4f, glRectf -> FFP immediate-mode
+//   glDisable/glEnable(GL_TEXTURE_2D) -> FFP texture unit
+// Non-mappable:
+//   glDisable(GL_TEXTURE_2D), glDisable(GL_LIGHTING) -> FFP state
 
 #define PE_EXTRA_DEBUG_OVERLAYS 1
 
