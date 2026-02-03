@@ -1,5 +1,24 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * 3DOTextureHandler.cpp - 3DO model texture atlas creation.
+ *
+ * RHI Migration Status: MOSTLY COMPLETE
+ * =====================================
+ * Init() already uses RHI for texture creation:
+ *   - RHI::GetDevice()->CreateTexture() for atlas textures
+ *   - RHI texture methods: SetMagFilter, SetMinFilter, SetWrap, Upload
+ *   - Extracts raw handle via GetNativeHandle(), then releases ownership
+ *
+ * Remaining GL Dependencies:
+ *   - RecoilBuildMipmaps() - used for mipmap generation (GL-only function)
+ *   - Kill() - uses glDeleteTextures for cleanup
+ *
+ * TODO: RHI gap - Full migration requires:
+ *   1. Keep unique_ptr<RHI::IRHITexture> ownership instead of releasing
+ *   2. Replace RecoilBuildMipmaps with RHI GenerateMipmaps (when available)
+ *   3. Remove glDeleteTextures in Kill() (automatic via destructor)
+ */
 
 #include <cctype>
 #include <sstream>
