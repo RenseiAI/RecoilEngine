@@ -30,6 +30,10 @@
 #include "Rendering/Common/ModelDrawerHelpers.h"
 #include "Rendering/Models/3DModelVAO.hpp"
 #include "Rendering/Models/ModelsMemStorage.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIPipeline.h"
+#include "Rendering/RHI/RHIFactory.h"
 
 #include "Sim/Features/Feature.h"
 #include "Sim/Misc/LosHandler.h"
@@ -54,6 +58,13 @@
 #include "System/Threading/ThreadPool.h"
 
 #include "System/Misc/TracyDefs.h"
+
+namespace {
+	RHI::IRHIDevice* GetRHIDevice() {
+		static auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+		return device.get();
+	}
+}
 
 CONFIG(int, UnitIconDist).defaultValue(200).headlessValue(0);
 CONFIG(float, UnitIconScaleUI).defaultValue(1.0f).minimumValue(0.1f).maximumValue(10.0f);
@@ -298,6 +309,7 @@ void CUnitDrawerGLSL::DrawUnitNoTrans(const CUnit* unit, uint32_t preList, uint3
 	const bool shadowPass = shadowHandler.InShadowPass();
 
 	if (preList != 0) {
+		// RHI_TODO: display lists (glCallList) are legacy GL with no RHI equivalent.
 		glCallList(preList);
 	}
 
@@ -329,6 +341,7 @@ void CUnitDrawerGLSL::DrawUnitNoTrans(const CUnit* unit, uint32_t preList, uint3
 void CUnitDrawerGLSL::DrawUnitTrans(const CUnit* unit, uint32_t preList, uint32_t postList, bool lodCall, bool noLuaCall) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: FFP matrix stack has no RHI equivalent. GL4 path uses uniform buffers.
 	glPushMatrix();
 	glMultMatrixf(unit->GetTransformMatrix());
 
@@ -864,6 +877,8 @@ void CUnitDrawerGLSL::DrawGhostedBuildings(int modelType) const
 	const auto& deadGhostedBuildings = modelDrawerData->GetDeadGhostBuildings(gu->myAllyTeam, modelType);
 	const auto& liveGhostedBuildings = modelDrawerData->GetLiveGhostBuildings(gu->myAllyTeam, modelType);
 
+	// RHI_TODO: glColor4f, glPushMatrix/glPopMatrix/glTranslatef3/glRotatef are FFP.
+	// GL4 path handles ghost rendering differently (inline, no FFP).
 	glColor4f(0.6f, 0.6f, 0.6f, IModelDrawerState::alphaValues.y);
 
 	// buildings that died while ghosted
@@ -1067,6 +1082,9 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLu
 		{0.0f,  0.0f, 0.0f,                                                           0.0f },
 	};
 
+	// RHI_TODO: glPushAttrib/glPopAttrib(GL_CURRENT_BIT) saves/restores current color.
+	// glClipPlane/GL_CLIP_PLANE0/1 are legacy FFP clip planes with no RHI equivalent.
+	// The GL4 path uses GL_CLIP_DISTANCE with shader uniforms instead.
 	glPushAttrib(GL_CURRENT_BIT);
 
 	glEnable(GL_CLIP_PLANE0);
@@ -1096,6 +1114,9 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLu
 void CUnitDrawerGLSL::DrawModelWireBuildStageShadow(const CUnit* unit, const double* upperPlane, const double* lowerPlane, bool noLuaCall) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: clip planes and FFP matrix stack are legacy GL with no RHI equivalent.
+	// glPolygonMode could use RHI PipelineDesc::rasterizer.polygonMode but is interleaved
+	// with clip plane state that must remain GL for now.
 	if (globalRendering->amdHacks) {
 		glDisable(GL_CLIP_PLANE0);
 		glDisable(GL_CLIP_PLANE1);
@@ -1169,6 +1190,8 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLu
 		{0.0f,  0.0f, 0.0f,                                                           0.0f },
 	};
 
+	// RHI_TODO: glPushAttrib/glPopAttrib(GL_CURRENT_BIT) and glClipPlane are legacy FFP.
+	// See DrawUnitModelBeingBuiltShadow note.
 	glPushAttrib(GL_CURRENT_BIT);
 	glEnable(GL_CLIP_PLANE0);
 	glEnable(GL_CLIP_PLANE1);
@@ -1249,9 +1272,15 @@ void CUnitDrawerGLSL::PushIndividualOpaqueState(const S3DModel* model, int teamI
 	// these are not handled by Setup*Drawing but CGame
 	// easier to assume they no longer have the correct
 	// values at this point
-	glPushAttrib(GL_DEPTH_BUFFER_BIT | GL_ENABLE_BIT);
-	glDepthMask(GL_TRUE);
-	glEnable(GL_DEPTH_TEST);
+	{
+		auto* device = GetRHIDevice();
+		auto* ctx = device->GetContext();
+		RHI::PipelineDesc desc;
+		desc.depthStencil.depthTestEnabled = true;
+		desc.depthStencil.depthWriteEnabled = true;
+		auto pipeline = device->CreatePipeline(desc);
+		ctx->BindPipeline(pipeline.get());
+	}
 
 	SetupOpaqueDrawing(deferredPass);
 	CModelDrawerHelper::PushModelRenderState(model);
@@ -1273,7 +1302,12 @@ void CUnitDrawerGLSL::PopIndividualOpaqueState(const S3DModel* model, int teamID
 	CModelDrawerHelper::PopModelRenderState(model);
 	ResetOpaqueDrawing(deferredPass);
 
-	glPopAttrib();
+	// Restore default pipeline state (replaces glPopAttrib)
+	auto* device = GetRHIDevice();
+	auto* ctx = device->GetContext();
+	RHI::PipelineDesc defaultDesc;
+	auto defaultPipeline = device->CreatePipeline(defaultDesc);
+	ctx->BindPipeline(defaultPipeline.get());
 }
 
 void CUnitDrawerGLSL::PopIndividualAlphaState(const S3DModel* model, int teamID, bool deferredPass) const
@@ -1368,9 +1402,20 @@ bool CUnitDrawerGLSL::ShowUnitBuildSquare(const BuildInfo& buildInfo, const std:
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	//TODO: make this a lua callin!
-	glDisable(GL_DEPTH_TEST);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	{
+		auto* device = GetRHIDevice();
+		auto* ctx = device->GetContext();
+		RHI::PipelineDesc desc;
+		desc.depthStencil.depthTestEnabled = false;
+		desc.blend.enabled = true;
+		desc.blend.srcColor = RHI::BlendFactor::SrcAlpha;
+		desc.blend.dstColor = RHI::BlendFactor::OneMinusSrcAlpha;
+		desc.blend.srcAlpha = RHI::BlendFactor::SrcAlpha;
+		desc.blend.dstAlpha = RHI::BlendFactor::OneMinusSrcAlpha;
+		auto pipeline = device->CreatePipeline(desc);
+		ctx->BindPipeline(pipeline.get());
+	}
+	// RHI_TODO: glDisable(GL_TEXTURE_2D) is legacy FFP state
 	glDisable(GL_TEXTURE_2D);
 	//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
@@ -1509,10 +1554,15 @@ bool CUnitDrawerGLSL::ShowUnitBuildSquare(const BuildInfo& buildInfo, const std:
 
 	sh.Disable();
 
-
-	glEnable(GL_DEPTH_TEST);
-	//glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	// glDisable(GL_BLEND);
+	{
+		// Restore depth test (replaces glEnable(GL_DEPTH_TEST))
+		auto* device = GetRHIDevice();
+		auto* ctx = device->GetContext();
+		RHI::PipelineDesc desc;
+		desc.depthStencil.depthTestEnabled = true;
+		auto pipeline = device->CreatePipeline(desc);
+		ctx->BindPipeline(pipeline.get());
+	}
 
 	return canBuild;
 }
@@ -1523,6 +1573,8 @@ void CUnitDrawerGLSL::DrawBuildIcons(const std::vector<CCursorIcons::BuildIcon>&
 	if (buildIcons.empty())
 		return;
 
+	// RHI_TODO: glEnable(GL_DEPTH_TEST) could use RHI pipeline, but glColor4f and
+	// FFP matrix stack (glPushMatrix/glTranslatef3/glRotatef/glPopMatrix) are legacy.
 	glEnable(GL_DEPTH_TEST);
 	glColor4f(1.0f, 1.0f, 1.0f, 0.3f);
 
@@ -1950,6 +2002,8 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLua
 	assert(po);
 	assert(po->IsBound());
 
+	// RHI_TODO: glPushAttrib(GL_POLYGON_BIT) saves polygon mode state. Could use
+	// RHI PipelineDesc for polygon mode but GL_CLIP_DISTANCE0/1 has no RHI equivalent.
 	glPushAttrib(GL_POLYGON_BIT);
 
 	glEnable(GL_CLIP_DISTANCE0);
@@ -2039,6 +2093,8 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLua
 		{0.0f,  0.0f, 0.0f,                                                           0.0f },
 	};
 
+	// RHI_TODO: glPushAttrib(GL_POLYGON_BIT), GL_CLIP_DISTANCE, and glPolygonOffset
+	// are GL state with no direct RHI equivalent. See shadow build stage notes.
 	glPushAttrib(GL_POLYGON_BIT);
 
 	glEnable(GL_CLIP_DISTANCE0);

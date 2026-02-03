@@ -9,16 +9,28 @@
 #include "3DModelPiece.hpp"
 #include "IModelParser.h"
 #include "Rendering/ModelsDataUploader.h"
+#include "Rendering/GL/myGL.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Units/UnitDef.h"
 #include "Sim/Features/Feature.h"
 
 #include "System/Misc/TracyDefs.h"
 
+// RHI_TODO: This file is the central model VAO/VBO system. It relies heavily on:
+// - VBO/VAO GL wrapper classes (not yet migrated to RHI IRHIBuffer)
+// - glVertexAttribPointer/glVertexAttribIPointer for vertex layout (needs RHI vertex input desc)
+// - glMultiDrawElementsIndirect for batched instanced rendering (not in RHI IRHIContext)
+// - glDrawElements for simple draw calls (maps to IRHIContext::DrawIndexed)
+// - Legacy FFP client state (glEnableClientState etc.) for backward compat
+// Full migration requires: IRHIBuffer to replace VBO, vertex input descriptions in
+// PipelineDesc, and indirect draw support in IRHIContext.
+
 
 void S3DModelVAO::EnableAttribs(bool inst) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: vertex attribute setup should become part of PipelineDesc vertex input layout
+	// once VBO/VAO are replaced with IRHIBuffer + vertex input descriptions.
 	if (!inst) {
 		for (int i = 0; i <= 5; ++i) {
 			glEnableVertexAttribArray(i);
@@ -232,6 +244,8 @@ void S3DModelVAO::Unbind() const
 void S3DModelVAO::BindLegacyVertexAttribsAndVBOs() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: Legacy FFP client state (glEnableClientState, glVertexPointer, etc.)
+	// has no RHI equivalent. This path should be removed once GL4 handles all rendering.
 	vertVBO.Bind();
 	indxVBO.Bind();
 
@@ -283,6 +297,8 @@ void S3DModelVAO::UnbindLegacyVertexAttribsAndVBOs() const
 void S3DModelVAO::DrawElements(GLenum prim, uint32_t vboIndxStart, uint32_t vboIndxCount) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: maps to IRHIContext::DrawIndexed once VBO replaced with IRHIBuffer.
+	// Need to convert GLenum prim to RHI::PrimitiveType.
 	glDrawElements(prim, vboIndxCount, GL_UNSIGNED_INT, indxVBO.GetPtr(vboIndxStart * sizeof(uint32_t)));
 }
 
@@ -405,6 +421,8 @@ void S3DModelVAO::Submit(GLenum mode, bool bindUnbind)
 	if (bindUnbind)
 		Bind();
 
+	// RHI_TODO: glMultiDrawElementsIndirect needs IRHIContext::DrawIndexedIndirect
+	// or multi-draw support added to the RHI interface.
 	glMultiDrawElementsIndirect(mode, GL_UNSIGNED_INT, submitCmds.data(), submitCmds.size(), sizeof(SDrawElementsIndirectCommand));
 
 	if (bindUnbind)
@@ -461,6 +479,7 @@ bool S3DModelVAO::SubmitImmediatelyImpl(const TObj* obj, uint32_t indexStart, ui
 	// can't use it either
 	// Revert to glMultiDrawElementsIndirect as it works reliably
 
+	// RHI_TODO: see Submit() note on glMultiDrawElementsIndirect
 	glMultiDrawElementsIndirect(mode, GL_UNSIGNED_INT, &scmd, 1u, sizeof(SDrawElementsIndirectCommand));
 
 	if (bindUnbind)

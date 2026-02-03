@@ -317,6 +317,7 @@ inline void CModelDrawerBase<TDrawerData, TDrawer>::DrawImpl(bool drawReflection
 	SCOPED_TIMER(zone_name.str);
 
 	if constexpr (legacy) {
+		// RHI_TODO: legacy FFP state (alpha test, fog). Only used in GLSL path.
 		glEnable(GL_ALPHA_TEST);
 		ISky::GetSky()->SetupFog();
 	}
@@ -333,6 +334,7 @@ inline void CModelDrawerBase<TDrawerData, TDrawer>::DrawImpl(bool drawReflection
 		DrawOpaquePass(false, drawReflection, drawRefraction);
 
 	if constexpr (legacy) {
+		// RHI_TODO: legacy FFP state. Only used in GLSL path.
 		glDisable(GL_FOG);
 		glDisable(GL_TEXTURE_2D);
 	}
@@ -406,6 +408,8 @@ inline void CModelDrawerBase<TDrawerData, TDrawer>::DrawShadowPassImpl() const
 	assert((CCameraHandler::GetActiveCamera())->GetCamType() == CCamera::CAMTYPE_SHADOW);
 
 	if constexpr (legacy) {
+		// RHI_TODO: legacy FFP state (color, polygon offset, alpha test).
+		// Only used in GLSL path. GL4 path sets these via shader uniforms.
 		glColor3f(1.0f, 1.0f, 1.0f);
 		glPolygonOffset(1.0f, 1.0f);
 		glEnable(GL_POLYGON_OFFSET_FILL);
@@ -443,6 +447,7 @@ inline void CModelDrawerBase<TDrawerData, TDrawer>::DrawShadowPassImpl() const
 	DrawShadowObjectsLua();
 
 	if constexpr (legacy) {
+		// RHI_TODO: legacy FFP state cleanup. Only used in GLSL path.
 		glDisable(GL_ALPHA_TEST);
 		glDisable(GL_POLYGON_OFFSET_FILL);
 	}

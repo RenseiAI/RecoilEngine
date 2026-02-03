@@ -6,7 +6,8 @@
 
 #include "System/UnorderedSet.hpp"
 #include "System/EventClient.h"
-#include "Rendering/GL/FBO.h"
+#include "Rendering/RHI/RHITexture.h"
+#include "Rendering/RHI/RHIFramebuffer.h"
 
 struct ScopedDepthBufferCopy;
 
@@ -29,7 +30,12 @@ public:
 	bool IsValid(bool ms) const;
 
 	void MakeDepthBufferCopy() const;
-	uint32_t GetDepthBufferTexture(bool ms) const { return depthTextures[ms]; }
+	uint32_t GetDepthBufferTexture(bool ms) const {
+		return depthTextures[ms] ? depthTextures[ms]->GetNativeHandle() : 0;
+	}
+	RHI::IRHITexture* GetDepthBufferRHITexture(bool ms) const {
+		return depthTextures[ms].get();
+	}
 private:
 	// to be accessed with ScopedDepthBufferCopy
 	void AddConsumer(bool ms);
@@ -43,8 +49,8 @@ private:
 	}
 
 	std::array<uint32_t, 2> consumersCount = {};
-	std::array<uint32_t, 2> depthTextures = {};
-	std::array<std::unique_ptr<FBO>, 2> depthFBOs = {};
+	std::array<std::unique_ptr<RHI::IRHITexture>, 2> depthTextures = {};
+	std::array<std::unique_ptr<RHI::IRHIFramebuffer>, 2> depthFBOs = {};
 };
 
 extern std::unique_ptr<DepthBufferCopy> depthBufferCopy;
