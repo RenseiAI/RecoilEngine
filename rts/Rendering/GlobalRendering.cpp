@@ -1,4 +1,16 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+// RHI Migration: Most GL calls here should move into the OpenGL backend (GLDevice).
+// Key function mappings:
+//   CreateGLContext(): -> RHI::CreateDevice(Backend::OpenGL) or backend factory
+//   CheckGLExtensions/SetGLSupportFlags(): -> GLDevice::Init() capability detection
+//   QueryGLMaxVals(): glGetIntegerv(GL_MAX_*) -> IRHIDevice capability queries
+//   InitGLState(): glDepthFunc/glClipControl/glClearColor -> PipelineDesc + IRHIContext
+//   SetGLTimeStamp/CalcGLDeltaTime(): glQueryCounter -> IRHIDevice GPU timing API
+//   SwapBuffers(): SDL_GL_SwapWindow stays, glClearErrors moves to backend
+//   LoadViewport(): glViewport -> IRHIContext::SetViewport()
+//   ToggleGLDebugOutput(): -> backend-specific debug layer configuration
+//   CheckShaderGL4(): test shader compilation -> IRHIDevice::CreateShader validation
+// SDL window management (CreateSDLWindow, window geometry, etc.) stays in GlobalRendering.
 
 #include <string>
 #include <sstream>
