@@ -16,6 +16,10 @@
 #include "Rendering/Common/ModelDrawerHelpers.h"
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Shaders/Shader.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIPipeline.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Sim/Misc/TeamHandler.h"
 #include "System/Matrix44f.h"
 #include "System/Config/ConfigHandler.h"
@@ -24,6 +28,12 @@
 
 #include "System/Misc/TracyDefs.h"
 
+namespace {
+	RHI::IRHIDevice* GetRHIDevice() {
+		static auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+		return device.get();
+	}
+}
 
 
 bool IModelDrawerState::SetTeamColor(int team, float alpha) const
@@ -43,13 +53,21 @@ bool IModelDrawerState::SetTeamColor(int team, float alpha) const
 void IModelDrawerState::SetupOpaqueDrawing(bool deferredPass) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glPushAttrib(GL_ENABLE_BIT | GL_POLYGON_BIT);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE * CModelDrawerConcept::WireFrameModeRef() + GL_FILL * (1 - CModelDrawerConcept::WireFrameModeRef()));
+	auto* device = GetRHIDevice();
+	auto* ctx = device->GetContext();
 
-	glCullFace(GL_BACK);
-	glEnable(GL_CULL_FACE);
+	RHI::PipelineDesc desc;
+	desc.rasterizer.polygonMode = CModelDrawerConcept::WireFrameModeRef() ? RHI::PolygonMode::Line : RHI::PolygonMode::Fill;
+	desc.rasterizer.cullMode = RHI::CullMode::Back;
+	desc.depthStencil.depthTestEnabled = true;
+	desc.depthStencil.depthWriteEnabled = true;
+	auto pipeline = device->CreatePipeline(desc);
+	ctx->BindPipeline(pipeline.get());
 
 	if (IsLegacy()) {
+		// RHI_TODO: alpha test is legacy FFP state.
+		// glAlphaFunc(GL_GREATER, 0.5f) has no direct RHI equivalent.
+		// Modern shaders handle alpha testing via discard.
 		glAlphaFunc(GL_GREATER, 0.5f);
 		glEnable(GL_ALPHA_TEST);
 	}
@@ -65,34 +83,53 @@ void IModelDrawerState::ResetOpaqueDrawing(bool deferredPass) const
 	if (IsLegacy())
 		glDisable(GL_ALPHA_TEST);
 
-	glPopAttrib();
+	// Restore default pipeline state
+	auto* device = GetRHIDevice();
+	auto* ctx = device->GetContext();
+	RHI::PipelineDesc defaultDesc;
+	defaultDesc.rasterizer.cullMode = RHI::CullMode::None;
+	auto defaultPipeline = device->CreatePipeline(defaultDesc);
+	ctx->BindPipeline(defaultPipeline.get());
 }
 
 void IModelDrawerState::SetupAlphaDrawing(bool deferredPass) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glPushAttrib(GL_ENABLE_BIT | GL_DEPTH_BUFFER_BIT | GL_POLYGON_BIT | (GL_COLOR_BUFFER_BIT * IsLegacy()));
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE * CModelDrawerConcept::WireFrameModeRef() + GL_FILL * (1 - CModelDrawerConcept::WireFrameModeRef()));
+	auto* device = GetRHIDevice();
+	auto* ctx = device->GetContext();
+
+	RHI::PipelineDesc desc;
+	desc.rasterizer.polygonMode = CModelDrawerConcept::WireFrameModeRef() ? RHI::PolygonMode::Line : RHI::PolygonMode::Fill;
+	desc.blend.enabled = true;
+	desc.blend.srcColor = RHI::BlendFactor::SrcAlpha;
+	desc.blend.dstColor = RHI::BlendFactor::OneMinusSrcAlpha;
+	desc.blend.srcAlpha = RHI::BlendFactor::SrcAlpha;
+	desc.blend.dstAlpha = RHI::BlendFactor::OneMinusSrcAlpha;
+	desc.depthStencil.depthTestEnabled = true;
+	desc.depthStencil.depthWriteEnabled = false;
+	auto pipeline = device->CreatePipeline(desc);
+	ctx->BindPipeline(pipeline.get());
 
 	Enable(/*deferredPass always false*/ false, true);
 
-	glEnable(GL_TEXTURE_2D);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
 	if (IsLegacy()) {
+		// RHI_TODO: alpha test is legacy FFP state.
 		glEnable(GL_ALPHA_TEST);
 		glAlphaFunc(GL_GREATER, 0.1f);
 	}
-
-	glDepthMask(GL_FALSE);
 }
 
 void IModelDrawerState::ResetAlphaDrawing(bool deferredPass) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	Disable(/*deferredPass*/ false);
-	glPopAttrib();
+
+	// Restore default pipeline state
+	auto* device = GetRHIDevice();
+	auto* ctx = device->GetContext();
+	RHI::PipelineDesc defaultDesc;
+	auto defaultPipeline = device->CreatePipeline(defaultDesc);
+	ctx->BindPipeline(defaultPipeline.get());
 }
 
 
@@ -313,6 +350,9 @@ void CModelDrawerStateGL4::Enable(bool deferredPass, bool alphaPass) const
 	switch (game->GetDrawMode())
 	{
 	case CGame::GameDrawMode::gameReflectionDraw: {
+		// RHI_TODO: GL_CLIP_DISTANCE is a per-shader feature, not pipeline state.
+		// The RHI would need a ClipDistance enable/disable on context or pipeline.
+		// Using GL fallback for now.
 		glEnable(GL_CLIP_DISTANCE2);
 		SetCameraMode(ShaderCameraModes::REFLCT_CAMERA);
 	} break;
