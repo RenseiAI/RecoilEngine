@@ -1,16 +1,33 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
-// RHI Migration: Most GL calls here should move into the OpenGL backend (GLDevice).
-// Key function mappings:
-//   CreateGLContext(): -> RHI::CreateDevice(Backend::OpenGL) or backend factory
-//   CheckGLExtensions/SetGLSupportFlags(): -> GLDevice::Init() capability detection
-//   QueryGLMaxVals(): glGetIntegerv(GL_MAX_*) -> IRHIDevice capability queries
-//   InitGLState(): glDepthFunc/glClipControl/glClearColor -> PipelineDesc + IRHIContext
-//   SetGLTimeStamp/CalcGLDeltaTime(): glQueryCounter -> IRHIDevice GPU timing API
-//   SwapBuffers(): SDL_GL_SwapWindow stays, glClearErrors moves to backend
-//   LoadViewport(): glViewport -> IRHIContext::SetViewport()
-//   ToggleGLDebugOutput(): -> backend-specific debug layer configuration
-//   CheckShaderGL4(): test shader compilation -> IRHIDevice::CreateShader validation
-// SDL window management (CreateSDLWindow, window geometry, etc.) stays in GlobalRendering.
+
+/**
+ * Global Rendering Context - Implementation
+ *
+ * RHI Migration Status: MOST ARCHITECTURALLY SIGNIFICANT TARGET
+ * See GlobalRendering.h for target architecture overview.
+ *
+ * Key Function Mappings:
+ * ---------------------
+ * Context/Device Creation:
+ *   - CreateGLContext() -> RHI::CreateDevice(Backend::OpenGL/Metal)
+ *
+ * Capability Detection (move to backend):
+ *   - CheckGLExtensions() -> GLDevice::Init() populates capabilities
+ *   - SetGLSupportFlags() -> IRHIDevice::Support*() queries
+ *   - QueryGLMaxVals() -> IRHIDevice::GetMax*() queries
+ *
+ * State Initialization:
+ *   - InitGLState() -> Default RHI::PipelineDesc or GLDevice::Init()
+ *
+ * GPU Timing:
+ *   - glGenQueries/glQueryCounter -> IRHIDevice timer API
+ *
+ * Viewport:
+ *   - glViewport() -> IRHIContext::SetViewport()
+ *
+ * SDL Window (stays here, platform-agnostic):
+ *   - CreateSDLWindow(), window geometry, SwapBuffers
+ */
 
 #include <string>
 #include <sstream>
