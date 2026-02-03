@@ -107,6 +107,36 @@ set(FASTGLTF_USE_64BIT_FLOAT OFF CACHE BOOL "forced by Recoil build env" FORCE)
 set(FASTGLTF_USE_CUSTOM_SMALLVECTOR OFF CACHE BOOL "forced by Recoil build env" FORCE)
 ADD_SUBDIRECTORY(fastgltf)
 
+# ---------------------------------------------------------------------------
+# Shader cross-compilation pipeline: GLSL -> SPIR-V -> MSL
+# glslang (GLSL to SPIR-V compiler) and SPIRV-Cross (SPIR-V to MSL translator)
+# ---------------------------------------------------------------------------
+if(APPLE)
+	# glslang: build as static library, disable tools/tests
+	set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "forced by Recoil build env" FORCE)
+	set(ENABLE_SPVREMAPPER      OFF CACHE BOOL "forced by Recoil build env" FORCE)
+	set(ENABLE_HLSL             OFF CACHE BOOL "forced by Recoil build env" FORCE)
+	set(ENABLE_CTEST            OFF CACHE BOOL "forced by Recoil build env" FORCE)
+	set(BUILD_TESTING           OFF CACHE BOOL "forced by Recoil build env" FORCE)
+	set(BUILD_SHARED_LIBS       OFF CACHE BOOL "forced by Recoil build env" FORCE)
+	set(SKIP_GLSLANG_INSTALL    ON  CACHE BOOL "forced by Recoil build env" FORCE)
+	ADD_SUBDIRECTORY(glslang)
+
+	# SPIRV-Cross: build only the core and MSL backends as static libraries
+	set(SPIRV_CROSS_STATIC          ON  CACHE BOOL "forced by Recoil build env" FORCE)
+	set(SPIRV_CROSS_SHARED          OFF CACHE BOOL "forced by Recoil build env" FORCE)
+	set(SPIRV_CROSS_CLI             OFF CACHE BOOL "forced by Recoil build env" FORCE)
+	set(SPIRV_CROSS_ENABLE_TESTS    OFF CACHE BOOL "forced by Recoil build env" FORCE)
+	set(SPIRV_CROSS_ENABLE_HLSL     OFF CACHE BOOL "forced by Recoil build env" FORCE)
+	set(SPIRV_CROSS_ENABLE_GLSL     ON  CACHE BOOL "forced by Recoil build env" FORCE)
+	set(SPIRV_CROSS_ENABLE_MSL      ON  CACHE BOOL "forced by Recoil build env" FORCE)
+	set(SPIRV_CROSS_ENABLE_CPP      OFF CACHE BOOL "forced by Recoil build env" FORCE)
+	set(SPIRV_CROSS_ENABLE_REFLECT  ON  CACHE BOOL "forced by Recoil build env" FORCE)
+	set(SPIRV_CROSS_ENABLE_C_API    OFF CACHE BOOL "forced by Recoil build env" FORCE)
+	set(SPIRV_CROSS_ENABLE_UTIL     OFF CACHE BOOL "forced by Recoil build env" FORCE)
+	ADD_SUBDIRECTORY(SPIRV-Cross)
+endif()
+
 ADD_SUBDIRECTORY(squish)
 ADD_SUBDIRECTORY(rg-etc1)
 
