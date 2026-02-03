@@ -1,4 +1,15 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+// RHI Migration: This is the core OpenGL include header. It should only be included
+// by OpenGL backend code. For backend-agnostic code:
+//   - glVertexf3/glColorf3/glTranslatef3: FFP helpers, no RHI equivalent (dead code path)
+//   - glOrtho/gluOrtho2D/glFrustum wrappers: use CMatrix44f projection matrices instead
+//   - TextureParameters/RecoilGetTexParams: use IRHITexture properties
+//   - RecoilTexStorage2D/3D: use IRHIDevice::CreateTexture()
+//   - RecoilBuildMipmaps: use IRHITexture::GenerateMipmaps()
+//   - glSpringBlitImages: use IRHIContext::BlitFramebuffer()
+//   - ClearScreen: use IRHIContext::ClearColor() + ClearDepth()
+//   - LoadVertex/FragmentProgram: legacy ARB programs, use IRHIShader
+//   - SDrawElementsIndirectCommand/SInstanceData: keep as-is (data structs, not GL calls)
 
 #ifndef _MY_GL_H
 #define _MY_GL_H

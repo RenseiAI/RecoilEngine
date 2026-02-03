@@ -1,4 +1,14 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+// RHI Migration: This file is OpenGL-backend-specific. Key mappings:
+//   - GetAvailableVideoRAM (glGetIntegerv NV/ATI/MESA): IRHIDevice capability query
+//   - WorkaroundATIPointSizeBug: OpenGL-only vendor workaround, not needed for Metal
+//   - RecoilGetTexParams/glSaveTexture: IRHITexture properties + readback
+//   - RecoilTexStorage2D/3D: IRHIDevice::CreateTexture()
+//   - RecoilBuildMipmaps: IRHITexture::Upload() + GenerateMipmaps()
+//   - glSpringBlitImages: IRHIContext::BlitFramebuffer() or IRHITexture copy
+//   - ClearScreen: IRHIContext::ClearColor()/ClearDepth() + projection via CMatrix44f
+//   - LoadVertex/FragmentProgram: legacy ARB programs, replace with IRHIShader (GLSL/MSL)
+//   - glClearErrors/glSafeDeleteProgram: OpenGL-only debug/cleanup utilities
 
 #include <array>
 #include <vector>
