@@ -1,5 +1,11 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+// NOTE(RHI): Entirely OpenGL-specific implementation. All functions use raw
+// GL calls (glGetProgramiv, glGetActiveUniform, glGetUniformLocation, etc.)
+// to introspect and copy program state. Not applicable to Metal backend.
+// Metal shader recompilation would use RHI::ShaderReflection to map uniform
+// names/types to Metal argument table indices. See GLSLCopyState.h for details.
+
 #include "GLSLCopyState.h"
 #include "Shader.h"
 #include "Rendering/GL/myGL.h"

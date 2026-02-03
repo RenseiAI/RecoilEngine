@@ -122,6 +122,10 @@ Shader::IProgramObject* CShaderHandler::CreateProgramObject(const std::string& p
 		programObjects[poClass] = ProgramObjMap();
 	}
 
+	// TODO(RHI): Use RHI::IRHIDevice::CreateShader() via RHI factory to select
+	// backend. For Metal, MetalProgramObject would wrap RHI::IRHIShader and use
+	// RHI::ShaderCompiler to translate GLSL->SPIR-V->MSL at link time.
+	// See rts/Rendering/RHI/RHIFactory.h and rts/Rendering/RHI/ShaderCompiler.h.
 	po = new Shader::GLSLProgramObject(poName);
 
 	if (po == Shader::nullProgramObject)
@@ -137,6 +141,10 @@ Shader::IShaderObject* CShaderHandler::CreateShaderObject(const std::string& soN
 	assert(!soName.empty());
 	Shader::IShaderObject* so = Shader::nullShaderObject;
 #ifndef HEADLESS
+	// TODO(RHI): For Metal backend, shader objects are compiled at link time
+	// via ShaderCompiler (GLSL->SPIR-V->MSL). Metal does not have separate
+	// compile-then-attach like GL. Consider a MetalShaderObject that defers
+	// compilation or a no-op that stores source for the program's Link() step.
 	so = new Shader::GLSLShaderObject(soType, soName, soDefs);
 
 	if (so == Shader::nullShaderObject) {
