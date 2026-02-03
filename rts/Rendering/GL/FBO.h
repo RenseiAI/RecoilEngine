@@ -8,6 +8,8 @@
 
 #include "myGL.h"
 #include "System/UnorderedMap.hpp"
+#include "Rendering/RHI/RHIFramebuffer.h"
+#include "Rendering/RHI/RHITypes.h"
 
 // TODO: add multisample buffers
 
@@ -15,6 +17,11 @@
  * @brief FBO
  *
  * Framebuffer Object class (EXT_framebuffer_object).
+ *
+ * RHI Migration Note:
+ *   The RHI OpenGL backend (GLFramebuffer) wraps this class. Higher-level
+ *   code should migrate to IRHIFramebuffer; use the helpers below to convert
+ *   GL enums to RHI equivalents during the transition.
  */
 class FBO
 {
@@ -156,6 +163,38 @@ public:
 	 * @brief GLContextReinit (pre atl-tab)
 	 */
 	static void GLContextReinit();
+
+	/// Convert a GL attachment enum to the RHI color index (0-7), or -1 for depth/stencil.
+	static int AttachmentToRHIColorIndex(GLenum attachment) {
+		if (attachment >= GL_COLOR_ATTACHMENT0_EXT && attachment <= GL_COLOR_ATTACHMENT7_EXT)
+			return static_cast<int>(attachment - GL_COLOR_ATTACHMENT0_EXT);
+		return -1; // depth, stencil, or unknown
+	}
+
+	/// Convert a GL internal format to the corresponding RHI::TextureFormat.
+	static RHI::TextureFormat FormatToRHI(GLenum format) {
+		switch (format) {
+		case GL_RGBA8:                 return RHI::TextureFormat::RGBA8;
+		case GL_RGB8:                  return RHI::TextureFormat::RGB8;
+		case GL_RG8:                   return RHI::TextureFormat::RG8;
+		case GL_R8:                    return RHI::TextureFormat::R8;
+		case GL_RGBA16F:               return RHI::TextureFormat::RGBA16F;
+		case GL_RGB16F:                return RHI::TextureFormat::RGB16F;
+		case GL_RG16F:                 return RHI::TextureFormat::RG16F;
+		case GL_R16F:                  return RHI::TextureFormat::R16F;
+		case GL_RGBA32F:               return RHI::TextureFormat::RGBA32F;
+		case GL_RGB32F:                return RHI::TextureFormat::RGB32F;
+		case GL_RG32F:                 return RHI::TextureFormat::RG32F;
+		case GL_R32F:                  return RHI::TextureFormat::R32F;
+		case GL_DEPTH_COMPONENT16:     return RHI::TextureFormat::Depth16;
+		case GL_DEPTH_COMPONENT24:     return RHI::TextureFormat::Depth24;
+		case GL_DEPTH_COMPONENT32F:    return RHI::TextureFormat::Depth32F;
+		case GL_DEPTH24_STENCIL8:      return RHI::TextureFormat::Depth24Stencil8;
+		case GL_DEPTH32F_STENCIL8:     return RHI::TextureFormat::Depth32FStencil8;
+		case GL_SRGB8_ALPHA8:          return RHI::TextureFormat::SRGB8Alpha8;
+		default:                       return RHI::TextureFormat::RGBA8;
+		}
+	}
 
 
 private:
