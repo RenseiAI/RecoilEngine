@@ -13,8 +13,11 @@
 #include "Rendering/Env/ISky.h"
 #include "Rendering/Env/SunLighting.h"
 #include "Rendering/Env/CubeMapHandler.h"
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h"  // transitional: GL types still needed for fixed-function
 #include "Rendering/GL/FBO.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Shaders/Shader.h"
@@ -243,6 +246,8 @@ CGrassDrawer::CGrassDrawer()
 		}
 		//grassBladeTexBM.Save("blade.png", false);
 		grassBladeTex = grassBladeTexBM.CreateMipMapTexture();
+		// TODO [RHI cross-cutting]: texture parameter setup uses raw GL calls;
+		// needs RHI sampler state or texture creation params
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	}
@@ -250,6 +255,8 @@ CGrassDrawer::CGrassDrawer()
 	// create shaders and finalize
 	grass.resize(blocksX * blocksY);
 	farnearVA.Initialize();
+	// TODO [RHI cross-cutting]: display lists (glGenLists/glNewList/glCallList)
+	// have no RHI equivalent; need vertex buffer + draw call replacement
 	grassDL = glGenLists(1);
 
 	ChangeDetail(detail);
@@ -392,6 +399,9 @@ static float3 GetTurfParams(GrassRNG& rng, const int x, const int y)
 
 
 
+// TODO [RHI cross-cutting]: DrawNear uses fixed-function GL pipeline
+// (glPushMatrix/glPopMatrix, glTranslatef3, glRotatef, glCallList).
+// Requires instanced rendering with per-turf transform data in a buffer.
 void CGrassDrawer::DrawNear(const std::vector<InviewNearGrass>& inviewGrass)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -558,6 +568,8 @@ void CGrassDrawer::Update()
 }
 
 
+// TODO [RHI cross-cutting]: Draw uses glPushAttrib/glPopAttrib (deprecated),
+// glColor4f (fixed-function), delegates to Setup/Reset state functions.
 void CGrassDrawer::Draw()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -639,6 +651,9 @@ void CGrassDrawer::DrawShadow()
 }
 
 
+// TODO [RHI cross-cutting]: SetupGlStateNear/ResetGlStateNear use raw GLuint textures
+// from multiple subsystems, fixed-function matrix stack, and legacy GL state
+// (glActiveTextureARB, glBindTexture, glMatrixMode, glPushMatrix, glMultMatrixf).
 void CGrassDrawer::SetupGlStateNear()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -705,6 +720,8 @@ void CGrassDrawer::ResetGlStateNear()
 }
 
 
+// TODO [RHI cross-cutting]: SetupGlStateFar/ResetGlStateFar use raw GLuint textures,
+// fixed-function matrix stack, blending state, and depth mask.
 void CGrassDrawer::SetupGlStateFar()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -841,6 +858,15 @@ void CGrassDrawer::CreateGrassBladeTex(unsigned char* buf)
 	}
 }
 
+// TODO [RHI cross-cutting]: CreateFarTex is heavily GL-dependent:
+// - glGenTextures/glBindTexture/glTexParameteri for far texture creation
+// - FBO operations for render-to-texture
+// - Fixed-function matrix stack (glPushMatrix/glLoadIdentity/glRotatef/glOrtho)
+// - glClipPlane (GL_CLIP_PLANE0) for clipping
+// - glBindFramebufferEXT/glBlitFramebufferEXT for MSAA resolve
+// - glGenerateMipmap for mipmap generation
+// - CVertexArray with glBegin/glEnd-style drawing
+// Viewport and clear operations have been migrated to RHI.
 void CGrassDrawer::CreateFarTex()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -894,16 +920,24 @@ void CGrassDrawer::CreateFarTex()
 	glDepthMask(GL_TRUE);
 	glColor4f(1,1,1,1);
 
-	glViewport(0,0,texSizeX*sizeMod, texSizeY*sizeMod);
-	glClearColor(mapInfo->grass.color.r,mapInfo->grass.color.g,mapInfo->grass.color.b,0.f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glClearColor(0.f,0.f,0.f,0.f);
+	{
+		auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+		auto* ctx = device->GetContext();
+		ctx->SetViewport(RHI::Viewport{0.0f, 0.0f, static_cast<float>(texSizeX * sizeMod), static_cast<float>(texSizeY * sizeMod)});
+		ctx->ClearColor(mapInfo->grass.color.r, mapInfo->grass.color.g, mapInfo->grass.color.b, 0.f);
+		ctx->ClearDepth(1.0f);
+		ctx->Clear(true, true, false);
+		ctx->ClearColor(0.f, 0.f, 0.f, 0.f);
+	}
 
 	static const GLdouble eq[4] = {0.f, 1.f, 0.f, 0.f};
 
+	auto rhiDevice = RHI::CreateDevice(RHI::GetDefaultBackend());
+	auto* rhiCtx = rhiDevice->GetContext();
+
 	// render turf from different vertical angles
 	for (int a=0;a<numAngles;++a) {
-		glViewport(a*billboardSize*sizeMod, 0, billboardSize*sizeMod, billboardSize*sizeMod);
+		rhiCtx->SetViewport(RHI::Viewport{static_cast<float>(a * billboardSize * sizeMod), 0.0f, static_cast<float>(billboardSize * sizeMod), static_cast<float>(billboardSize * sizeMod)});
 		glMatrixMode(GL_MODELVIEW);
 			glLoadIdentity();
 			glRotatef(a*90.f/(numAngles-1),1,0,0);
@@ -951,7 +985,7 @@ void CGrassDrawer::CreateFarTex()
 			fboTex.AttachTexture(farTex, GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0_EXT, mipLevel);
 			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_LOD, mipLevel + 1.f);
 			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_LOD, mipLevel + 1.f);
-			glViewport(0, 0, texSizeX>>mipLevel, texSizeY>>mipLevel);
+			rhiCtx->SetViewport(RHI::Viewport{0.0f, 0.0f, static_cast<float>(texSizeX >> mipLevel), static_cast<float>(texSizeY >> mipLevel)});
 
 			CVertexArray* va = GetVertexArray();
 			va->Initialize();
