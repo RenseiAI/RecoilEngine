@@ -1,5 +1,31 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * RHI Migration Status: PARTIAL
+ *
+ * This file is partially migrated to the RHI abstraction layer.
+ *
+ * Migrated patterns:
+ *   - RHI device/context access -> RHI::CreateDevice(), GetContext()
+ *   - Inherits pipeline state from ModelDrawerState via base class
+ *
+ * Remaining GL calls (with RHI_TODO comments):
+ *   - glCallList: Display lists are legacy GL with no RHI equivalent
+ *   - glPushMatrix/glPopMatrix/glMultMatrixf: FFP matrix stack (GL4 uses uniforms)
+ *   - glActiveTexture/glBindTexture: Icon textures use raw GL IDs
+ *   - glColor4f: Legacy FFP vertex color
+ *   - glPushAttrib/glPopAttrib: Legacy GL state save/restore
+ *   - glEnable/glDisable(GL_CLIP_PLANE*): Legacy clip planes (GL4 uses GL_CLIP_DISTANCE)
+ *   - glPolygonMode/glPolygonOffset: Rasterizer state (could use PipelineDesc)
+ *   - glEnable/glDisable(GL_DEPTH_TEST): Depth state (could use PipelineDesc)
+ *   - GL_TEXTURE_2D enable/disable: Legacy FFP texture state
+ *
+ * Dependencies blocking full migration:
+ *   - IconHandler needs to return IRHITexture* for icon atlases
+ *   - Display lists need replacement (used for Lua pre/post lists)
+ *   - FFP matrix stack is GLSL path only; GL4 uses uniform buffers
+ */
+
 #include "UnitDrawer.h"
 
 #include "Game/Camera.h"

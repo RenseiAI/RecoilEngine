@@ -1,9 +1,28 @@
+/**
+ * TextureCollection.cpp - Implementation of named texture collection.
+ *
+ * RHI Migration Status: PARTIAL
+ * ============================
+ * Uses glDeleteTextures for cleanup in:
+ *   - ~CTextureCollection() - bulk deletion
+ *   - DeleteTex() - single texture deletion
+ *   - Reload() - texture replacement error handling
+ *
+ * TODO: RHI gap - When migrating to RHI:
+ *   - Replace std::vector<uint32_t> textureIDs with
+ *     std::vector<std::unique_ptr<RHI::IRHITexture>> textures
+ *   - glDeleteTextures becomes automatic via unique_ptr destruction
+ *   - AddTexFromBitmap: Use bitmap.CreateTextureRHI() instead of CreateMipMapTexture()
+ *   - AddTexBlank: Use RHI::GetDevice()->CreateTexture() with initial data
+ *   - GetTextureID: Return texture->GetNativeHandle() for backward compatibility
+ */
+
 #include "TextureCollection.h"
 
 #include <algorithm>
 #include <iterator>
 
-#include "Rendering/GL/myGL.h" // needed for glDeleteTextures (raw texture handles from CBitmap)
+#include "Rendering/GL/myGL.h" // TODO: RHI gap - needed for glDeleteTextures (raw texture handles from CBitmap)
 
 #include "System/Misc/TracyDefs.h"
 

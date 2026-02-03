@@ -1,5 +1,28 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * RHI Migration Status: PARTIAL
+ *
+ * This file is partially migrated to the RHI abstraction layer.
+ * The existing RHI_TODO comments document the migration path.
+ *
+ * Migrated patterns:
+ *   - None yet - this is central model VAO/VBO infrastructure
+ *
+ * Remaining GL calls (with RHI_TODO comments):
+ *   - VBO/VAO classes: Need replacement with IRHIBuffer
+ *   - glVertexAttribPointer/glVertexAttribIPointer: Need vertex input descriptions
+ *   - glMultiDrawElementsIndirect: Need IRHIContext::DrawIndexedIndirect
+ *   - glDrawElements: Maps to IRHIContext::DrawIndexed (with GLenum->RHI::PrimitiveType)
+ *   - glEnableClientState/glVertexPointer/etc: Legacy FFP client state
+ *
+ * Dependencies blocking full migration:
+ *   - IRHIBuffer interface to replace VBO class
+ *   - Vertex input layout descriptions in PipelineDesc
+ *   - Multi-draw indirect support in IRHIContext
+ *   - Legacy FFP path should be removed once GL4 handles all rendering
+ */
+
 #include "3DModelVAO.hpp"
 
 #include <algorithm>
