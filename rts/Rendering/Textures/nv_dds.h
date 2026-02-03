@@ -4,6 +4,9 @@
 // License: http://developer.download.nvidia.com/licenses/general_license.txt
 
 // Modified DDS class from NVIDIA SDK.
+// CDDSImage stores GL format enum values (GL_COMPRESSED_*, GL_BGRA, etc.)
+// in m_format. The upload_texture* methods use direct GL calls.
+// TODO: RHI gap - m_format stores GL enum values; upload methods need RHI wrappers.
 
 #ifndef __NV_DDS_H__
 #define __NV_DDS_H__
