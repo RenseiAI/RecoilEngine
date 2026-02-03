@@ -7,18 +7,36 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/SubState.h"
 #include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIFactory.h"
 
-// RHI Migration Notes (HUDDrawer):
-// This file is dominated by legacy immediate-mode GL (glBegin/glEnd, glVertex,
-// glColor, matrix stack ops). These have no direct RHI equivalent and require
-// conversion to vertex buffer-based rendering before RHI migration can proceed.
-// GL::SubState usage maps conceptually to RHI::PipelineDesc (blend, depth state).
-// Mappable calls (deferred until vertex buffer conversion):
-//   GL::SubState DepthTest/Blending/BlendFunc -> RHI::DepthStencilState / RHI::BlendState
-// Non-mappable legacy FFP calls (require full rewrite):
-//   glPushMatrix/glPopMatrix, glMatrixMode, glLoadIdentity, glTranslatef,
-//   glScalef, glRotatef, glMultMatrixf, glBegin/glEnd, glVertex*, glColor*,
-//   glEnable/glDisable(GL_TEXTURE_2D) [FFP texturing]
+/**
+ * RHI_MIGRATION_DOCS(HUDDrawer)
+ *
+ * Migration Status: PARTIAL - Pipeline state abstracted, FFP requires rewrite
+ *
+ * GL::SubState to RHI Mapping (Draw function):
+ *   GL::SubState(DepthTest(GL_FALSE), Blending(GL_TRUE), BlendFunc(...))
+ *   Maps to:
+ *     RHI::PipelineDesc desc;
+ *     desc.depthStencil.depthTestEnabled = false;
+ *     desc.blend.enabled = true;
+ *     desc.blend.srcColor = RHI::BlendFactor::SrcAlpha;
+ *     desc.blend.dstColor = RHI::BlendFactor::OneMinusSrcAlpha;
+ *
+ * Legacy FFP (requires vertex buffer conversion before RHI migration):
+ *   - Matrix stack: glPushMatrix/glPopMatrix, glMatrixMode, glLoadIdentity,
+ *     glTranslatef, glScalef, glRotatef, glMultMatrixf
+ *     -> CMatrix44f + shader uniforms
+ *   - Immediate mode: glBegin/glEnd, glVertex*, glColor*
+ *     -> TypedRenderBuffer with VA_TYPE_C or VA_TYPE_TC
+ *   - FFP texturing: glEnable/glDisable(GL_TEXTURE_2D)
+ *     -> Shader-based texturing
+ *
+ * Completion Criteria:
+ *   [ ] Convert immediate-mode drawing to vertex buffers
+ *   [ ] Replace matrix stack with CMatrix44f uniforms
+ *   [x] Document GL::SubState -> RHI::PipelineDesc mapping
+ */
 #include "Game/Camera.h"
 #include "Game/GlobalUnsynced.h"
 #include "Game/Players/Player.h"

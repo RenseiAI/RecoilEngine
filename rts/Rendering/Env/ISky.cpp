@@ -1,5 +1,16 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * RHI Migration Status: COMPLETE
+ *
+ * This file contains the ISky base interface. No RHI draw calls are made here;
+ * derived classes (ModernSky, SkyBox) handle rendering.
+ *
+ * Retained GL calls (no RHI equivalent):
+ *   - glEnable(GL_FOG), glDisable(GL_FOG): FFP fog state
+ *   - glFogfv, glFogi, glFogf: FFP fog parameters
+ *   Modern rendering uses shader-based fog. These remain until fog system migration.
+ */
 
 #include "ISky.h"
 #include "NullSky.h"
@@ -10,7 +21,7 @@
 #include "Map/MapInfo.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/Env/DebugCubeMapTexture.h"
-#include "Rendering/GL/myGL.h"  // retained: SetupFog() uses FFP fog calls with no RHI equivalent
+#include "Rendering/GL/myGL.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/Exceptions.h"
 #include "System/SafeUtil.h"
