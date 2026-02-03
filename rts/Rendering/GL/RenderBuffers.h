@@ -11,6 +11,28 @@
 #include "System/FileSystem/FileHandler.h"
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/Shaders/ShaderHandler.h"
+#include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIBuffer.h"
+#include "Rendering/RHI/RHIPipeline.h"
+
+/*
+ * RHI Migration Note:
+ *   TypedRenderBuffer<T> is the primary draw dispatch mechanism. It combines:
+ *   - StreamBuffer (VBO/EBO) -> migrated, use SB_RHI strategy or IRHIBuffer
+ *   - VAO -> Metal has no VAO; vertex layout becomes part of PipelineDesc
+ *   - GLSL shader generation -> must be paired with MSL generation for Metal
+ *   - glDrawArrays/glDrawElements -> IRHIContext::Draw/DrawIndexed
+ *   - glVertexAttribPointer -> RHI::VertexLayout in PipelineDesc
+ *
+ *   The RenderBufferShader<T>::GetShader() generates GLSL at runtime from
+ *   vertex attribute metadata. For Metal, this needs a parallel path that
+ *   generates or loads pre-compiled MSL shaders via the shader pipeline.
+ *
+ *   RHI Gaps identified:
+ *   - IRHIShader has no runtime source compilation (needed for generated shaders)
+ *   - IRHIContext lacks DrawArrays with baseVertex offset
+ *   - No RHI equivalent for glVertexAttribDivisor (instancing)
+ */
 
 #include "fmt/format.h"
 #include "lib/fmt/printf.h"
@@ -628,6 +650,18 @@ public:
 	}
 
 	static Shader::IProgramObject& GetShader() { return shader.GetShader(); }
+
+	/// Build an RHI VertexLayout from this type's attribute definitions.
+	/// Caller owns the returned attributes array (allocated via new[]).
+	static RHI::VertexLayout GetRHIVertexLayout() {
+		RHI::VertexLayout layout{};
+		layout.attributeCount = static_cast<uint32_t>(T::attributeDefs.size());
+		layout.stride = (layout.attributeCount > 0) ? T::attributeDefs[0].stride : 0;
+		// Note: attributes pointer is set by caller using T::attributeDefs
+		// and VAO::FormatToRHI() for each attribute's format conversion.
+		return layout;
+	}
+
 private:
 	template<
 		typename TT = VertType,
