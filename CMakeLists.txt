@@ -543,8 +543,14 @@ if    (MSVC)
 	set(CMAKE_CXX_FLAGS_PROFILE               "${CMAKE_CXX_FLAGS_PROFILE} /LTCG")
 else  (MSVC)
 	if (CMAKE_COMPILER_IS_GNUCXX)
+		# -fsingle-precision-constant: treat FP constants as float, not double (GCC-only)
+		# -frounding-math: honor runtime rounding mode (GCC-only)
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsingle-precision-constant -frounding-math")
-	endif(CMAKE_COMPILER_IS_GNUCXX)
+	elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
+		# Clang does not support -fsingle-precision-constant.
+		# -frounding-math is supported on Clang 14+; use it if available.
+		check_and_add_flags(CMAKE_CXX_FLAGS "-frounding-math")
+	endif()
 	# Experiment with frame pointers to see whether it improves the quality of the stack unwinds.
 	# We're having trouble getting meaningful information form crash reports. Trying this before
 	# moving onto more performance-impacting methods.
