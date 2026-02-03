@@ -1,21 +1,9 @@
-/**
- * CTextureCollection Implementation
- *
- * RHI Migration Notes:
- * This file uses glDeleteTextures to clean up raw GL texture handles
- * returned by CBitmap::CreateTexture/CreateMipMapTexture. When the
- * migration to RHI::IRHITexture ownership is complete:
- * - Remove myGL.h include
- * - Replace glDeleteTextures with RHI destructor calls
- * - Store unique_ptr<RHI::IRHITexture> instead of uint32_t
- */
 #include "TextureCollection.h"
 
 #include <algorithm>
 #include <iterator>
 
-// TODO: RHI gap - needed for glDeleteTextures until we store RHI::IRHITexture
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h" // needed for glDeleteTextures (raw texture handles from CBitmap)
 
 #include "System/Misc/TracyDefs.h"
 

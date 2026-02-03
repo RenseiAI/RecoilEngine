@@ -1,21 +1,10 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-/**
- * DEPRECATED: CVertexArray - Legacy immediate-mode implementation.
- *
- * RHI Migration Status: NOT MIGRATED (legacy compatibility only)
- * -------------------------------------------------------------
- * This file contains ~56 direct GL calls using legacy fixed-function APIs:
- *   - glEnableClientState / glDisableClientState (GL_VERTEX_ARRAY, etc.)
- *   - glVertexPointer / glNormalPointer / glColorPointer / glTexCoordPointer
- *   - glClientActiveTexture (GL_TEXTURE0-6)
- *   - glDrawArrays
- *
- * These have no equivalent in RHI or modern graphics APIs.
- * Preserved for legacy Lua widget/gadget compatibility only.
- *
- * Replacement: Use TypedRenderBuffer<VA_TYPE_*> from RenderBuffers.h
- */
+// DEPRECATED: CVertexArray uses legacy fixed-function GL client state.
+// All Draw*() methods are wrapped with #if !defined(HEADLESS) guards since
+// they call GL functions (glEnableClientState, glVertexPointer, glDrawArrays, etc.)
+// that have no RHI equivalent. New rendering code should use RenderBuffer
+// or the RHI buffer/context interfaces instead.
 
 #include <cstring>
 

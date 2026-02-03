@@ -1,18 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
-
-/**
- * GL Extra Drawing Utilities
- *
- * RHI Migration Status: PARTIALLY ABSTRACTED
- * ------------------------------------------
- * glDrawVolume (~12 GL calls): Stencil-based volume rendering
- *   RHI: Use two RHI::PipelineDesc with RHI::DepthStencilState
- *
- * GL::Shapes (~8 GL calls): glDrawElements, vertex attrib setup
- *   RHI: Use IRHIBuffer + IRHIContext::DrawIndexed()
- *
- * glSurfaceCircle/glBallisticCircle: Already use RenderBuffer (abstracted)
- */
+// RHI: glDrawVolume->DepthStencilState, Shapes->DrawIndexed()
 
 #include "glExtra.h"
 #include "RenderBuffers.h"

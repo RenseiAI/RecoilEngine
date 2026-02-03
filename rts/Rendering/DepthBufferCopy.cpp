@@ -1,3 +1,21 @@
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
+
+/**
+ * RHI Migration Status: COMPLETE
+ *
+ * This file has been fully migrated to the RHI abstraction layer.
+ *
+ * Migrated patterns:
+ *   - FBO creation/management -> IRHIDevice::CreateFramebuffer()
+ *   - Texture creation        -> IRHIDevice::CreateTexture()
+ *   - Texture parameters      -> IRHITexture::Set{Min,Mag}Filter(), SetWrap{S,T}()
+ *   - Depth texture compare   -> IRHITexture::SetCompareMode()
+ *   - Framebuffer blit        -> IRHIContext::BlitFramebuffer()
+ *   - FBO attachment          -> IRHIFramebuffer::AttachDepth()
+ *
+ * No direct OpenGL calls remain in this file.
+ */
+
 #include "DepthBufferCopy.h"
 
 #include <array>
