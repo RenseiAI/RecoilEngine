@@ -4,9 +4,28 @@
 #define GEOMETRYBUFFER_H
 
 #include "Rendering/GL/FBO.h"
+#include "Rendering/RHI/RHIFramebuffer.h"
+#include "Rendering/RHI/RHITexture.h"
+#include "Rendering/RHI/RHITypes.h"
 #include "System/type2.h"
 
 namespace GL {
+	/**
+	 * RHI Migration Note:
+	 *   GeometryBuffer manages a G-buffer (deferred shading MRT).
+	 *   Migration path:
+	 *   - FBO buffer -> IRHIFramebuffer with multiple color attachments
+	 *   - GLuint bufferTextureIDs -> IRHITexture* array
+	 *   - glGenTextures/glTexImage2D -> device->CreateTexture()
+	 *   - glClear/glClearColor -> IRHIContext::ClearColor/ClearDepth
+	 *   - glViewport -> IRHIContext::SetViewport
+	 *   - DrawDebug uses legacy immediate mode (glBegin/glEnd) -> needs RenderBuffer
+	 *
+	 *   RHI Gaps:
+	 *   - IRHITexture has no glTexImage2DMultisample equivalent (MSAA textures)
+	 *   - IRHIFramebuffer has no glDrawBuffers equivalent (MRT output selection)
+	 *   - No RHI equivalent for GL_DEPTH_TEXTURE_MODE
+	 */
 	struct GeometryBuffer {
 	public:
 		enum {
@@ -41,6 +60,17 @@ namespace GL {
 		GLuint GetBufferTexture(unsigned int idx) const { return bufferTextureIDs[idx]; }
 		GLuint GetBufferAttachment(unsigned int idx) const { return bufferAttachments[idx]; }
 
+		/// Get the RHI texture type for this G-buffer's textures.
+		RHI::TextureType GetRHITextureType() const {
+			return msaa ? RHI::TextureType::Texture2DMS : RHI::TextureType::Texture2D;
+		}
+		/// Get the RHI texture format for the given attachment index.
+		RHI::TextureFormat GetRHIAttachmentFormat(unsigned int idx) const {
+			return (idx == ATTACHMENT_ZVALTEX)
+				? RHI::TextureFormat::Depth32F
+				: RHI::TextureFormat::RGBA8;
+		}
+
 		const FBO& GetObject() const { return buffer; }
 		      FBO& GetObject()       { return buffer; }
 
@@ -72,4 +102,3 @@ namespace GL {
 }
 
 #endif
-
