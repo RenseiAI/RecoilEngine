@@ -1,5 +1,92 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * RHI Migration Implementation Notes for LuaOpenGL.cpp
+ * ====================================================
+ *
+ * This is the largest Lua rendering file with ~146 direct GL calls.
+ * Migration requires careful categorization:
+ *
+ * CATEGORY 1: Render State (HIGH PRIORITY - direct RHI mapping)
+ * -------------------------------------------------------------
+ * These map directly to IRHIContext state methods:
+ *
+ * - glScissor -> IRHIContext::SetScissorRect()
+ * - glViewport -> IRHIContext::SetViewport()
+ * - glColorMask -> IRHIContext::SetColorWriteMask()
+ * - glDepthMask -> IRHIContext::SetDepthWriteEnabled()
+ * - glDepthFunc -> IRHIContext::SetDepthCompareOp()
+ * - glEnable/glDisable(GL_DEPTH_TEST) -> IRHIContext::SetDepthTestEnabled()
+ * - glEnable/glDisable(GL_DEPTH_CLAMP) -> Pipeline state
+ * - glCullFace, glEnable(GL_CULL_FACE) -> IRHIContext::SetCullMode()
+ * - glBlendFunc, glBlendFuncSeparate -> IRHIContext::SetBlendState()
+ * - glBlendEquation, glBlendEquationSeparate -> IRHIContext::SetBlendEquation()
+ * - glStencilFunc, glStencilOp, glStencilMask -> IRHIContext::SetStencilState()
+ * - glPolygonMode -> Pipeline state (Metal: MTLTriangleFillMode)
+ * - glPolygonOffset -> IRHIContext::SetDepthBias()
+ * - glLineWidth -> Limited support in Metal (1.0 only)
+ * - glPointSize -> Vertex shader output in Metal
+ * - glClear, glClearColor, glClearDepth -> IRHIContext::Clear*()
+ *
+ * Use LuaGLConstMappings.h for enum conversions:
+ * - GLBlendFactorToRHI(), GLCompareFuncToRHI(), GLCullModeToRHI(), etc.
+ *
+ * CATEGORY 2: Deprecated FFP (REMOVE or WARN)
+ * -------------------------------------------
+ * These have no RHI equivalent and should be removed:
+ *
+ * - glLight*, glMaterial* -> Use shader uniforms
+ * - glShadeModel -> Always smooth in modern rendering
+ * - glFog* -> Use shader-based fog
+ * - glAlphaFunc -> Use discard in fragment shader
+ * - glTexEnv*, glTexGen* -> Use shader texture sampling
+ * - glColor3f/4f -> Use vertex attributes or uniforms
+ * - glMatrixMode, glLoadIdentity, glLoadMatrix, glMultMatrix
+ * - glPushMatrix, glPopMatrix, glTranslate, glScale, glRotate
+ * - glOrtho, glFrustum -> Compute matrices CPU-side, pass as uniforms
+ * - glClipPlane -> Use gl_ClipDistance in vertex shader
+ *
+ * Migration: These should log deprecation warnings and either:
+ * a) No-op silently (for state that doesn't affect modern rendering)
+ * b) Error with migration guidance (for essential functionality)
+ *
+ * CATEGORY 3: Immediate Mode (CONVERT to VBO)
+ * -------------------------------------------
+ * - glBegin/glEnd, glVertex*, glNormal*, glTexCoord*, glColor*
+ * - These are used via BeginEnd() Lua function
+ *
+ * Migration strategy:
+ * 1. Buffer vertices during Begin/End block
+ * 2. Create temporary VBO and submit on End()
+ * 3. Or require Lua code to use VAO/VBO APIs instead
+ *
+ * CATEGORY 4: Display Lists (REMOVE)
+ * ----------------------------------
+ * - glNewList, glEndList, glCallList, glDeleteLists
+ * - No equivalent in OpenGL 3.3+ core or Metal
+ *
+ * Migration: Error with message to use VAO/VBO instead
+ *
+ * CATEGORY 5: Textures (migrate to IRHITexture)
+ * ---------------------------------------------
+ * - glBindTexture -> IRHIContext::BindTexture(unit, texture)
+ * - glActiveTexture -> Implicit in BindTexture
+ * - glTexImage2D, glTexSubImage2D -> IRHITexture::Upload()
+ * - glGenerateMipmap -> IRHITexture::GenerateMipmaps()
+ * - glCopyTexSubImage2D -> IRHIContext::CopyTexture()
+ * - glReadPixels -> IRHIContext::ReadbackTexture()
+ *
+ * CATEGORY 6: Queries
+ * -------------------
+ * - glGenQueries, glDeleteQueries, glBeginQuery, glEndQuery, glGetQueryObject
+ * - Map to IRHIQuery interface if needed for occlusion culling
+ *
+ * CATEGORY 7: Sync
+ * ----------------
+ * - glFlush -> IRHIContext::Flush()
+ * - glFinish -> IRHIContext::WaitIdle()
+ * - glMemoryBarrier -> IRHIContext::MemoryBarrier()
+ */
 
 // TODO:
 // - go back to counting matrix push/pops (just for modelview?)
@@ -23,6 +110,7 @@
 #include "LuaInclude.h"
 #include "LuaContextData.h"
 #include "LuaDisplayLists.h"
+#include "LuaGLConstMappings.h"
 #include "LuaFBOs.h"
 #include "LuaFonts.h"
 #include "LuaHandle.h"
