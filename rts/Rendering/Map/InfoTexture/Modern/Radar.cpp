@@ -7,6 +7,10 @@
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/GL/SubState.h"
+#include "Rendering/GL/myGL.h"  // transitional: GL types still needed
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Sim/Misc/LosHandler.h"
 #include "Sim/Misc/ModInfo.h"
 #include "System/Exceptions.h"
@@ -102,10 +106,13 @@ void CRadarTexture::Update()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (losHandler->GetGlobalLOS(gu->myAllyTeam)) {
+		auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+		auto* ctx = device->GetContext();
+
 		fbo.Bind();
-		glViewport(0, 0, texSize.x, texSize.y);
-		glClearColor(1.0f, 0.0f, 0.0f, 0.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
+		ctx->SetViewport(RHI::Viewport{0.0f, 0.0f, static_cast<float>(texSize.x), static_cast<float>(texSize.y)});
+		ctx->ClearColor(1.0f, 0.0f, 0.0f, 0.0f);
+		ctx->Clear(true, false, false);
 		globalRendering->LoadViewport();
 		FBO::Unbind();
 
@@ -130,6 +137,8 @@ void CRadarTexture::Update()
 	auto state = GL::SubState(
 		Blending(GL_FALSE)
 	);
+	// TODO [RHI cross-cutting]: infoTextureHandler->GetInfoTexture() returns raw GLuint;
+	// needs RHI texture wrapper before this can be migrated to ctx->BindTexture()
 	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, infoTextureHandler->GetInfoTexture("los")->GetTexture());
 	RunFullScreenPass();
