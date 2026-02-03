@@ -1,9 +1,18 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
-// RHI Migration: OpenGL-only debug state checker. All ~30 GL calls here
-// (glGetBooleanv, glGetFloatv, glGetIntegerv, glEnable, glDisable, glBlendFunc,
-// glBlendFuncSeparate, glColor3f/4f/4fv, glDepthMask, glDepthFunc, glColorMask)
-// are OpenGL-specific. For backend-agnostic validation, compare pipeline state
-// descriptors (RHI::BlendState, RHI::DepthStencilState, RHI::RasterizerState).
+
+/**
+ * GL State Debug Checker - Implementation
+ *
+ * RHI Migration Status: NOT MIGRATED (OpenGL-only debug utility)
+ * See glStateDebug.h for migration notes.
+ *
+ * ~30 GL calls for state verification and tracking:
+ *   - VERIFYGL macros use glGetBooleanv, glGetFloatv, glGetIntegerv
+ *   - _wrap_gl* functions track and apply state changes
+ *   - CGLStateChecker::VerifyState() checks ~20 GL state values on entry/exit
+ *
+ * RHI's immutable pipeline model makes most of this unnecessary.
+ */
 
 #if defined(DEBUG_GLSTATE)
 
