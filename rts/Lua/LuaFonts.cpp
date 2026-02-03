@@ -1,5 +1,9 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * RHI Migration: Minimal GL - only BindTexture() has direct GL calls.
+ * Font rendering delegated to CglFont which needs separate migration.
+ */
 
 #include "LuaFonts.h"
 
