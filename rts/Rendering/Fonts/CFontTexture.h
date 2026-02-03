@@ -10,6 +10,8 @@
 #include "Rendering/Textures/Bitmap.h"
 #include "Rendering/Textures/IAtlasAllocator.h"
 #include "Rendering/Textures/RowAtlasAlloc.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "System/UnorderedMap.hpp"
 #include "System/UnorderedSet.hpp"
 #include "System/Threading/WrappedSync.h"
@@ -131,7 +133,10 @@ public:
 	float GetOutlineWeight() const { return outlineWeight; }
 	float GetLineHeight() const { return lineHeight; }
 	float GetDescender() const { return fontDescender; }
-	int GetTexture() const { return glyphAtlasTextureID; }
+	/// Legacy accessor returning the native GL texture ID for backward compatibility.
+	int GetTexture() const { return glyphAtlasTexture ? static_cast<int>(glyphAtlasTexture->GetNativeHandle()) : 0; }
+	/// RHI accessor for the glyph atlas texture.
+	RHI::IRHITexture* GetAtlasTexture() const { return glyphAtlasTexture.get(); }
 
 	const std::string& GetFamily() const { return fontFamily; }
 	const std::string& GetStyle() const { return fontStyle; }
@@ -181,7 +186,7 @@ protected:
 	bool needsColor;
 	bool isColor;
 
-	unsigned int glyphAtlasTextureID = 0;
+	std::unique_ptr<RHI::IRHITexture> glyphAtlasTexture;
 
 	inline static bool needThreadSafety = true;
 

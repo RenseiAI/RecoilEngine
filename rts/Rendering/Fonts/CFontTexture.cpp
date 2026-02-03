@@ -19,6 +19,7 @@
 #endif // HEADLESS
 
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/Textures/Bitmap.h"
 #include "System/Config/ConfigHandler.h"
@@ -765,8 +766,7 @@ CFontTexture::~CFontTexture()
 	RECOIL_DETAILED_TRACY_ZONE;
 	CglFontRenderer::DeleteInstance(fontRenderer);
 #ifndef HEADLESS
-	glDeleteTextures(1, &glyphAtlasTextureID);
-	glyphAtlasTextureID = 0;
+	glyphAtlasTexture.reset();
 #endif
 }
 
@@ -1311,52 +1311,48 @@ void CFontTexture::CreateTexture(const int width, const int height, const bool i
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 #ifndef HEADLESS
-	if (init)
-		glGenTextures(1, &glyphAtlasTextureID);
-	glBindTexture(GL_TEXTURE_2D, glyphAtlasTextureID);
+	// Create (or recreate) the RHI texture.
+	// RHI textures use immutable storage, so we always create a new texture object.
+	const auto texFormat = needsColor ? RHI::TextureFormat::RGBA8 : RHI::TextureFormat::R8;
+	auto* device = RHI::GetDevice();
+	glyphAtlasTexture = device->CreateTexture(
+		RHI::TextureType::Texture2D, texFormat,
+		1, 1, // initial 1x1 size; real data uploaded in UploadGlyphAtlasTextureImpl
+		1, 1  // depthOrLayers=1, mipLevels=1
+	);
 
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	// Set sampling parameters via RHI
+	glyphAtlasTexture->SetMagFilter(RHI::TextureFilter::Linear);
+	glyphAtlasTexture->SetMinFilter(RHI::TextureFilter::Linear);
+	glyphAtlasTexture->SetWrapS(RHI::TextureWrap::ClampToBorder);
+	glyphAtlasTexture->SetWrapT(RHI::TextureWrap::ClampToBorder);
 
-	// no border to prevent artefacts in outlined text
-	constexpr GLfloat borderColor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+	// RHI GAP: Swizzle masks and border color are not yet in the RHI interface.
+	// Fall through to native GL handle for these legacy AMD-hack features.
+	{
+		const GLuint nativeTexId = glyphAtlasTexture->GetNativeHandle();
+		glBindTexture(GL_TEXTURE_2D, nativeTexId);
 
-	// NB:
-	// The modern and core formats like GL_R8 and GL_RED are intentionally replaced with
-	// deprecated GL_ALPHA, such that AMD-HACK users could enjoy no-shader fallback
-	// But why fallback? See: https://github.com/beyond-all-reason/spring/issues/383
-	// Remove the code under `#ifdef SUPPORT_AMD_HACKS_HERE` blocks throughout this file
-	// when all potatoes die.
+		// no border to prevent artefacts in outlined text
+		constexpr GLfloat borderColor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
 
 #ifdef SUPPORT_AMD_HACKS_HERE
-	constexpr GLint swizzleMaskF[] = { GL_ALPHA, GL_ALPHA, GL_ALPHA, GL_ALPHA };
-	constexpr GLint swizzleMaskD[] = { GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA };
-	if (needsColor)
-		glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMaskD);
-	else
-		glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMaskF);
+		constexpr GLint swizzleMaskF[] = { GL_ALPHA, GL_ALPHA, GL_ALPHA, GL_ALPHA };
+		constexpr GLint swizzleMaskD[] = { GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA };
+		if (needsColor)
+			glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMaskD);
+		else
+			glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMaskF);
 #endif
-	glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
 
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+		glBindTexture(GL_TEXTURE_2D, 0);
 
-	if (needsColor)
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_BGRA, GL_UNSIGNED_BYTE, nullptr);
-	else
 #ifdef SUPPORT_AMD_HACKS_HERE
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, 1, 1, 0, GL_ALPHA, GL_UNSIGNED_BYTE, nullptr);
-#else
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, 1, 1, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+		if (!needsColor)
+			glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMaskD);
 #endif
-
-	glBindTexture(GL_TEXTURE_2D, 0);
-#ifdef SUPPORT_AMD_HACKS_HERE
-	if (!needsColor)
-		glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMaskD);
-#endif
+	}
 
 	if (init) {
 		atlasUpdate = {};
@@ -1536,17 +1532,52 @@ void CFontTexture::UploadGlyphAtlasTextureImpl()
 		needsTextureUpload = true;
 	}
 
-	// update texture atlas
-	glBindTexture(GL_TEXTURE_2D, glyphAtlasTextureID);
-	if (needsColor)
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, texWidth, texHeight, 0, GL_BGRA,  GL_UNSIGNED_BYTE, atlasUpdate.GetRawMem());
-	else
-	#ifdef SUPPORT_AMD_HACKS_HERE
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, texWidth, texHeight, 0, GL_ALPHA, GL_UNSIGNED_BYTE, atlasUpdate.GetRawMem());
-	#else
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, texWidth, texHeight, 0, GL_RED, GL_UNSIGNED_BYTE, atlasUpdate.GetRawMem());
-	#endif
-	glBindTexture(GL_TEXTURE_2D, 0);
+	// RHI textures use immutable storage, so recreate when dimensions change.
+	const bool needsRecreate = !glyphAtlasTexture
+		|| glyphAtlasTexture->GetWidth()  != static_cast<uint32_t>(texWidth)
+		|| glyphAtlasTexture->GetHeight() != static_cast<uint32_t>(texHeight)
+		|| (needsColor && glyphAtlasTexture->GetFormat() != RHI::TextureFormat::RGBA8);
+
+	if (needsRecreate) {
+		const auto texFormat = needsColor ? RHI::TextureFormat::RGBA8 : RHI::TextureFormat::R8;
+		auto* device = RHI::GetDevice();
+		glyphAtlasTexture = device->CreateTexture(
+			RHI::TextureType::Texture2D, texFormat,
+			static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight),
+			1, 1  // depthOrLayers=1, mipLevels=1
+		);
+
+		// Re-apply sampling parameters
+		glyphAtlasTexture->SetMagFilter(RHI::TextureFilter::Linear);
+		glyphAtlasTexture->SetMinFilter(RHI::TextureFilter::Linear);
+		glyphAtlasTexture->SetWrapS(RHI::TextureWrap::ClampToBorder);
+		glyphAtlasTexture->SetWrapT(RHI::TextureWrap::ClampToBorder);
+
+		// RHI GAP: Re-apply swizzle masks and border color via native handle
+		{
+			const GLuint nativeTexId = glyphAtlasTexture->GetNativeHandle();
+			glBindTexture(GL_TEXTURE_2D, nativeTexId);
+
+			constexpr GLfloat borderColor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+			glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+
+#ifdef SUPPORT_AMD_HACKS_HERE
+			constexpr GLint swizzleMaskF[] = { GL_ALPHA, GL_ALPHA, GL_ALPHA, GL_ALPHA };
+			constexpr GLint swizzleMaskD[] = { GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA };
+			if (needsColor)
+				glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMaskD);
+			else
+				glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMaskF);
+#endif
+
+			glBindTexture(GL_TEXTURE_2D, 0);
+		}
+	}
+
+	// Upload atlas data via RHI
+	glyphAtlasTexture->Upload(0, 0, 0,
+		static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight),
+		atlasUpdate.GetRawMem());
 
 	needsTextureUpload = false;
 #endif
