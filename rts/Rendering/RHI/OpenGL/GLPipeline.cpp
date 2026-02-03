@@ -139,14 +139,29 @@ void GLPipeline::Bind() {
 	else
 		glDisable(GL_DEPTH_CLAMP);
 
-	if (rast.polygonOffsetFactor != 0.0f || rast.polygonOffsetUnits != 0.0f) {
-		glEnable(GL_POLYGON_OFFSET_FILL);
+	if (rast.polygonOffsetEnabled) {
+		// Enable based on polygon mode
+		if (rast.polygonMode == PolygonMode::Fill)
+			glEnable(GL_POLYGON_OFFSET_FILL);
+		else if (rast.polygonMode == PolygonMode::Line)
+			glEnable(GL_POLYGON_OFFSET_LINE);
+		else if (rast.polygonMode == PolygonMode::Point)
+			glEnable(GL_POLYGON_OFFSET_POINT);
 		glPolygonOffset(rast.polygonOffsetFactor, rast.polygonOffsetUnits);
 	} else {
 		glDisable(GL_POLYGON_OFFSET_FILL);
+		glDisable(GL_POLYGON_OFFSET_LINE);
+		glDisable(GL_POLYGON_OFFSET_POINT);
 	}
 
 	glLineWidth(rast.lineWidth);
+
+	if (rast.pointSize > 0.0f) {
+		glEnable(GL_PROGRAM_POINT_SIZE);
+		glPointSize(rast.pointSize);
+	} else {
+		glDisable(GL_PROGRAM_POINT_SIZE);
+	}
 }
 
 } // namespace RHI

@@ -29,8 +29,12 @@ public:
 	void DrawInstanced(PrimitiveType primitive, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) override;
 	void DrawIndexedInstanced(PrimitiveType primitive, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) override;
 
+	void DrawIndirect(PrimitiveType primitive, IRHIBuffer* buffer, size_t offset, uint32_t drawCount, uint32_t stride) override;
+	void DrawIndexedIndirect(PrimitiveType primitive, IRHIBuffer* buffer, size_t offset, uint32_t drawCount, uint32_t stride, IndexType indexType) override;
+
 	void SetViewport(const Viewport& viewport) override;
 	void SetScissor(const ScissorRect& rect) override;
+	void SetClipDistanceEnabled(uint32_t index, bool enabled) override;
 
 	void ClearColor(float r, float g, float b, float a) override;
 	void ClearDepth(float depth) override;

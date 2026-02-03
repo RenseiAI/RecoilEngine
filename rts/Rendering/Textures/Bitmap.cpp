@@ -1882,6 +1882,107 @@ uint32_t CBitmap::CreateMipMapTexture(float aniso, float lodBias, int32_t reqNum
 	return CreateTexture(tcp);
 }
 
+std::unique_ptr<RHI::IRHITexture> CBitmap::CreateTextureRHI(float aniso, float lodBias) const
+{
+	RECOIL_DETAILED_TRACY_ZONE;
+#ifndef HEADLESS
+	if (GetMemSize() == 0)
+		return nullptr;
+
+	auto* device = RHI::GetDevice();
+	if (!device)
+		return nullptr;
+
+	// Determine format based on channels
+	RHI::TextureFormat format = RHI::TextureFormat::RGBA8;
+	if (channels == 3)
+		format = RHI::TextureFormat::RGB8;
+	else if (channels == 1)
+		format = RHI::TextureFormat::R8;
+
+	// Calculate mip levels
+	const int32_t numLevels = GetReqNumLevels();
+
+	auto texture = device->CreateTexture(
+		RHI::TextureType::Texture2D,
+		format,
+		xsize, ysize,
+		1, numLevels, 1);
+
+	if (!texture)
+		return nullptr;
+
+	// Upload base level
+	texture->Upload(0, 0, 0, xsize, ysize, GetRawMem());
+
+	// Generate mipmaps
+	if (numLevels > 1)
+		texture->GenerateMipmaps();
+
+	// Set sampling parameters
+	texture->SetWrapS(RHI::TextureWrap::Repeat);
+	texture->SetWrapT(RHI::TextureWrap::Repeat);
+	texture->SetMinFilter(numLevels > 1 ? RHI::TextureFilter::LinearMipmapLinear : RHI::TextureFilter::Linear);
+	texture->SetMagFilter(RHI::TextureFilter::Linear);
+
+	if (aniso > 0.0f)
+		texture->SetAnisotropy(aniso);
+	if (lodBias != 0.0f)
+		texture->SetLodBias(lodBias);
+
+	return texture;
+#else
+	return nullptr;
+#endif
+}
+
+std::unique_ptr<RHI::IRHITexture> CBitmap::CreateDDSTextureRHI() const
+{
+	RECOIL_DETAILED_TRACY_ZONE;
+#ifndef HEADLESS
+	if (!compressed || !ddsimage.is_valid())
+		return nullptr;
+
+	auto* device = RHI::GetDevice();
+	if (!device)
+		return nullptr;
+
+	// Determine format
+	RHI::TextureFormat format = RHI::TextureFormat::CompressedDXT1;
+	if (ddsimage.get_type() == nv_dds::TextureType::TextureFlat) {
+		switch (ddsimage.get_format()) {
+			case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT: format = RHI::TextureFormat::CompressedDXT1; break;
+			case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT: format = RHI::TextureFormat::CompressedDXT5; break;
+			default: return nullptr; // Unsupported format
+		}
+	}
+
+	auto texture = device->CreateTexture(
+		RHI::TextureType::Texture2D,
+		format,
+		ddsimage.get_width(), ddsimage.get_height(),
+		1, ddsimage.get_num_mipmaps() + 1, 1);
+
+	if (!texture)
+		return nullptr;
+
+	// Upload compressed mip levels
+	for (uint32_t level = 0; level <= static_cast<uint32_t>(ddsimage.get_num_mipmaps()); ++level) {
+		const auto& mip = ddsimage.get_mipmap(level);
+		texture->UploadCompressed(level, 0, 0, mip.width, mip.height, mip.size, mip);
+	}
+
+	texture->SetWrapS(RHI::TextureWrap::Repeat);
+	texture->SetWrapT(RHI::TextureWrap::Repeat);
+	texture->SetMinFilter(RHI::TextureFilter::LinearMipmapLinear);
+	texture->SetMagFilter(RHI::TextureFilter::Linear);
+
+	return texture;
+#else
+	return nullptr;
+#endif
+}
+
 void CBitmap::CreateAlpha(uint8_t red, uint8_t green, uint8_t blue)
 {
 	RECOIL_DETAILED_TRACY_ZONE;

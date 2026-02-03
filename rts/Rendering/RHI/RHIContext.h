@@ -51,9 +51,23 @@ public:
 	virtual void DrawInstanced(PrimitiveType primitive, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex = 0, uint32_t firstInstance = 0) = 0;
 	virtual void DrawIndexedInstanced(PrimitiveType primitive, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex = 0, int32_t vertexOffset = 0, uint32_t firstInstance = 0) = 0;
 
+	/// Indirect draw commands (buffer contains DrawArraysIndirectCommand structs)
+	/// Maps to glMultiDrawArraysIndirect
+	virtual void DrawIndirect(PrimitiveType primitive, IRHIBuffer* buffer, size_t offset, uint32_t drawCount, uint32_t stride) = 0;
+
+	/// Indirect indexed draw commands (buffer contains DrawElementsIndirectCommand structs)
+	/// Maps to glMultiDrawElementsIndirect
+	virtual void DrawIndexedIndirect(PrimitiveType primitive, IRHIBuffer* buffer, size_t offset, uint32_t drawCount, uint32_t stride, IndexType indexType = IndexType::UInt32) = 0;
+
 	// --- Viewport / Scissor ---
 	virtual void SetViewport(const Viewport& viewport) = 0;
 	virtual void SetScissor(const ScissorRect& rect) = 0;
+
+	// --- Clip distances ---
+	/// Enable/disable a clip distance plane (GL_CLIP_DISTANCE0 + index)
+	/// Metal: handled via [[clip_distance]] in shader output; this is a no-op on Metal
+	virtual void SetClipDistanceEnabled(uint32_t index, bool enabled) = 0;
+	static constexpr uint32_t MaxClipDistances = 8;
 
 	// --- Clear ---
 	virtual void ClearColor(float r, float g, float b, float a) = 0;

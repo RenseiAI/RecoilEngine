@@ -21,6 +21,8 @@ public:
 	void Detach(uint32_t attachment) override;
 	void DetachAll() override;
 
+	void SetDrawBuffers(const uint32_t* attachments, uint32_t count) override;
+
 	bool IsComplete() const override;
 
 	void Bind() override;

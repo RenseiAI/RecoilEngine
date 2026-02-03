@@ -7,12 +7,15 @@
 #include <string>
 #include <span>
 #include <vector>
+#include <memory>
 #ifndef HEADLESS
 	#include "nv_dds.h"
 #endif // !HEADLESS
 #include "System/float3.h"
 #include "System/Color.h"
 #include "Rendering/Textures/TextureCreationParams.hpp"
+
+namespace RHI { class IRHITexture; }
 
 
 struct SDL_Surface;
@@ -77,6 +80,11 @@ public:
 	uint32_t CreateTexture(const GL::TextureCreationParams& tcp = GL::TextureCreationParams{}) const;
 	uint32_t CreateMipMapTexture(float aniso = 0.0f, float lodBias = 0.0f, int32_t reqNumLevels = 0, uint32_t texID = 0) const;
 	uint32_t CreateDDSTexture(const GL::TextureCreationParams& tcp = GL::TextureCreationParams{}) const;
+
+	/// Create an RHI texture with ownership - preferred for new code
+	std::unique_ptr<RHI::IRHITexture> CreateTextureRHI(float aniso = 0.0f, float lodBias = 0.0f) const;
+	/// Create an RHI texture from compressed DDS data
+	std::unique_ptr<RHI::IRHITexture> CreateDDSTextureRHI() const;
 
 	void CreateAlpha(uint8_t red, uint8_t green, uint8_t blue);
 	void ReplaceAlpha(float a = 1.0f);

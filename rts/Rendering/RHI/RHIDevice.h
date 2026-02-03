@@ -55,6 +55,19 @@ public:
 	virtual int GetMaxStorageBufferSize() const = 0;
 	virtual int GetDepthBufferBitDepth() const = 0;
 
+	// --- Additional capability queries ---
+	virtual bool SupportTimerQueries() const = 0;
+	virtual size_t GetAvailableVideoMemory() const = 0;  // Returns bytes, 0 if unavailable
+
+	// --- Timer queries ---
+	/// Create a timer query object. Returns native handle (GLuint on OpenGL).
+	virtual uint32_t CreateTimerQuery() = 0;
+	virtual void DeleteTimerQuery(uint32_t query) = 0;
+	virtual void BeginTimerQuery(uint32_t query) = 0;
+	virtual void EndTimerQuery(uint32_t query) = 0;
+	/// Returns elapsed time in nanoseconds, or 0 if not available yet
+	virtual uint64_t GetTimerQueryResult(uint32_t query, bool wait = true) = 0;
+
 	// --- Resource creation ---
 	virtual std::unique_ptr<IRHIBuffer> CreateBuffer(
 		BufferType type,
@@ -68,7 +81,8 @@ public:
 		uint32_t width,
 		uint32_t height,
 		uint32_t depthOrLayers = 1,
-		uint32_t mipLevels = 1) = 0;
+		uint32_t mipLevels = 1,
+		uint32_t sampleCount = 1) = 0;
 
 	virtual std::unique_ptr<IRHIShader> CreateShader(const std::string& name) = 0;
 

@@ -3,6 +3,7 @@
 #include "GLFramebuffer.h"
 #include "GLTexture.h"
 #include "Rendering/GL/myGL.h"
+#include <vector>
 
 namespace RHI {
 
@@ -61,6 +62,16 @@ void GLFramebuffer::DetachAll() {
 	fbo.DetachAll();
 	fbo.Unbind();
 	colorCount = 0;
+}
+
+void GLFramebuffer::SetDrawBuffers(const uint32_t* attachments, uint32_t count) {
+	fbo.Bind();
+	std::vector<GLenum> glAttachments(count);
+	for (uint32_t i = 0; i < count; ++i) {
+		glAttachments[i] = ToGLAttachment(attachments[i]);
+	}
+	glDrawBuffers(count, glAttachments.data());
+	fbo.Unbind();
 }
 
 bool GLFramebuffer::IsComplete() const {

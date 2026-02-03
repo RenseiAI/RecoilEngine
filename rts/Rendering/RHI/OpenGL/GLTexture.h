@@ -11,7 +11,7 @@ namespace RHI {
 /// Thin wrapper around raw GL texture calls.
 class GLTexture : public IRHITexture {
 public:
-	GLTexture(TextureType type, TextureFormat format, uint32_t width, uint32_t height, uint32_t depthOrLayers, uint32_t mipLevels);
+	GLTexture(TextureType type, TextureFormat format, uint32_t width, uint32_t height, uint32_t depthOrLayers, uint32_t mipLevels, uint32_t sampleCount = 1);
 	~GLTexture() override;
 
 	void Bind(uint32_t unit) override;
@@ -19,6 +19,7 @@ public:
 
 	void Upload(uint32_t level, uint32_t x, uint32_t y, uint32_t width, uint32_t height, const void* data) override;
 	void Upload3D(uint32_t level, uint32_t x, uint32_t y, uint32_t z, uint32_t width, uint32_t height, uint32_t depth, const void* data) override;
+	void UploadCompressed(uint32_t level, uint32_t x, uint32_t y, uint32_t width, uint32_t height, size_t dataSize, const void* data) override;
 
 	void SetMinFilter(TextureFilter filter) override;
 	void SetMagFilter(TextureFilter filter) override;
@@ -27,6 +28,10 @@ public:
 	void SetWrapR(TextureWrap wrap) override;
 	void SetAnisotropy(float level) override;
 	void SetCompareMode(bool enabled, CompareFunc func) override;
+
+	void SetSwizzle(uint8_t r, uint8_t g, uint8_t b, uint8_t a) override;
+	void SetBorderColor(float r, float g, float b, float a) override;
+	void SetLodBias(float bias) override;
 
 	void GenerateMipmaps() override;
 
@@ -55,6 +60,7 @@ private:
 	uint32_t    texHeight;
 	uint32_t    texDepthOrLayers;
 	uint32_t    texMipLevels;
+	uint32_t    texSampleCount;
 };
 
 } // namespace RHI

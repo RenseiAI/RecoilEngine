@@ -142,6 +142,18 @@ void GLContext::DrawIndexedInstanced(PrimitiveType primitive, uint32_t indexCoun
 	glDrawElementsInstancedBaseVertex(ToGLPrimitive(primitive), indexCount, glIdxType, offset, instanceCount, vertexOffset);
 }
 
+void GLContext::DrawIndirect(PrimitiveType primitive, IRHIBuffer* buffer, size_t offset, uint32_t drawCount, uint32_t stride) {
+	if (!buffer) return;
+	buffer->Bind();
+	glMultiDrawArraysIndirect(ToGLPrimitive(primitive), reinterpret_cast<const void*>(offset), drawCount, stride);
+}
+
+void GLContext::DrawIndexedIndirect(PrimitiveType primitive, IRHIBuffer* buffer, size_t offset, uint32_t drawCount, uint32_t stride, IndexType indexType) {
+	if (!buffer) return;
+	buffer->Bind();
+	glMultiDrawElementsIndirect(ToGLPrimitive(primitive), ToGLIndexType(indexType), reinterpret_cast<const void*>(offset), drawCount, stride);
+}
+
 // --- Viewport / Scissor ---
 
 void GLContext::SetViewport(const Viewport& vp) {
@@ -152,6 +164,14 @@ void GLContext::SetViewport(const Viewport& vp) {
 
 void GLContext::SetScissor(const ScissorRect& rect) {
 	glScissor(rect.x, rect.y, rect.width, rect.height);
+}
+
+void GLContext::SetClipDistanceEnabled(uint32_t index, bool enabled) {
+	if (index >= IRHIContext::MaxClipDistances) return;
+	if (enabled)
+		glEnable(GL_CLIP_DISTANCE0 + index);
+	else
+		glDisable(GL_CLIP_DISTANCE0 + index);
 }
 
 // --- Clear ---

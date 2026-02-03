@@ -47,6 +47,14 @@ public:
 		uint32_t width, uint32_t height, uint32_t depth,
 		const void* data) = 0;
 
+	/// Upload compressed texture data (maps to glCompressedTexSubImage2D)
+	virtual void UploadCompressed(
+		uint32_t level,
+		uint32_t x, uint32_t y,
+		uint32_t width, uint32_t height,
+		size_t dataSize,
+		const void* data) = 0;
+
 	// --- Sampling state ---
 	virtual void SetMinFilter(TextureFilter filter) = 0;
 	virtual void SetMagFilter(TextureFilter filter) = 0;
@@ -55,6 +63,17 @@ public:
 	virtual void SetWrapR(TextureWrap wrap) = 0;
 	virtual void SetAnisotropy(float level) = 0;
 	virtual void SetCompareMode(bool enabled, CompareFunc func = CompareFunc::LessEqual) = 0;
+
+	// --- Extended sampling state ---
+	/// Set texture swizzle mask (maps GL_TEXTURE_SWIZZLE_RGBA)
+	/// Components: 0=Red, 1=Green, 2=Blue, 3=Alpha, 4=Zero, 5=One
+	virtual void SetSwizzle(uint8_t r, uint8_t g, uint8_t b, uint8_t a) = 0;
+
+	/// Set border color for ClampToBorder wrap mode (maps GL_TEXTURE_BORDER_COLOR)
+	virtual void SetBorderColor(float r, float g, float b, float a) = 0;
+
+	/// Set LOD bias for mipmap selection (maps GL_TEXTURE_LOD_BIAS)
+	virtual void SetLodBias(float bias) = 0;
 
 	// --- Mipmap ---
 	virtual void GenerateMipmaps() = 0;

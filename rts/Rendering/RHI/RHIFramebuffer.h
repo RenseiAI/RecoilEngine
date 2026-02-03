@@ -41,6 +41,10 @@ public:
 	virtual void Detach(uint32_t attachment) = 0;
 	virtual void DetachAll() = 0;
 
+	/// Set which color attachments to draw into (MRT output selection)
+	/// Maps to glDrawBuffers
+	virtual void SetDrawBuffers(const uint32_t* attachments, uint32_t count) = 0;
+
 	// --- Validation ---
 	virtual bool IsComplete() const = 0;
 

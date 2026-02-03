@@ -15,6 +15,42 @@
  *   glEnable(GL_CULL_FACE) + glCullFace()      ->  RHICullMode
  *   GL pipeline state (mutable)                ->  RHIPipelineDesc (immutable descriptor)
  *   FBO bind/attach                            ->  RHIRenderPassDesc
+ *
+ * FFP Matrix Stack Migration Strategy:
+ * ------------------------------------
+ * The fixed-function pipeline (FFP) matrix stack (glMatrixMode, glPushMatrix,
+ * glPopMatrix, glLoadMatrixf, glMultMatrixf, glTranslatef, glRotatef, glScalef,
+ * glOrtho, glFrustum) has NO direct RHI equivalent. Instead:
+ *
+ * 1. Use CMatrix44f (from System/Matrix44f.h) for all matrix computations
+ * 2. Pass matrices to shaders via uniform buffers or SetUniformMatrix4fv
+ * 3. The GL4 path already uses uniform-based matrices; the legacy FFP path
+ *    should be migrated to match
+ *
+ * Example migration:
+ *   // Before (FFP):
+ *   glPushMatrix();
+ *   glTranslatef(x, y, z);
+ *   glRotatef(angle, 0, 1, 0);
+ *   // ... draw ...
+ *   glPopMatrix();
+ *
+ *   // After (RHI):
+ *   CMatrix44f savedMatrix = currentMatrix;
+ *   currentMatrix.Translate(x, y, z);
+ *   currentMatrix.RotateY(angle);
+ *   shader->SetUniformMatrix4fv("modelMatrix", false, currentMatrix);
+ *   // ... draw ...
+ *   currentMatrix = savedMatrix;
+ *   shader->SetUniformMatrix4fv("modelMatrix", false, currentMatrix);
+ *
+ * For common transform patterns, consider a helper class:
+ *   class MatrixStack {
+ *       std::stack<CMatrix44f> stack;
+ *       void Push() { stack.push(stack.top()); }
+ *       void Pop() { stack.pop(); }
+ *       CMatrix44f& Top() { return stack.top(); }
+ *   };
  */
 
 #include <cstdint>
@@ -96,6 +132,16 @@ enum class TextureWrap : uint8_t {
 	ClampToEdge,
 	ClampToBorder,
 	MirroredRepeat
+};
+
+/// Texture swizzle component sources (for SetSwizzle)
+enum class SwizzleComponent : uint8_t {
+	Red   = 0,
+	Green = 1,
+	Blue  = 2,
+	Alpha = 3,
+	Zero  = 4,
+	One   = 5
 };
 
 // --- Shader ---
@@ -256,9 +302,11 @@ struct RasterizerState {
 	PolygonMode polygonMode = PolygonMode::Fill;
 	bool        scissorEnabled    = false;
 	bool        depthClampEnabled = false;
+	bool        polygonOffsetEnabled = false;  // GL_POLYGON_OFFSET_FILL/LINE/POINT
 	float       polygonOffsetFactor = 0.0f;
 	float       polygonOffsetUnits  = 0.0f;
 	float       lineWidth           = 1.0f;
+	float       pointSize           = 1.0f;    // GL_PROGRAM_POINT_SIZE when > 0
 };
 
 // --- Pipeline descriptor ---

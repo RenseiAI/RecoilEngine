@@ -124,7 +124,7 @@ GLenum GLTexture::ToGLWrap(TextureWrap wrap) {
 
 // --- Constructor / Destructor ---
 
-GLTexture::GLTexture(TextureType type, TextureFormat format, uint32_t width, uint32_t height, uint32_t depthOrLayers, uint32_t mipLevels)
+GLTexture::GLTexture(TextureType type, TextureFormat format, uint32_t width, uint32_t height, uint32_t depthOrLayers, uint32_t mipLevels, uint32_t sampleCount)
 	: texId(0)
 	, glTarget(ToGLTarget(type))
 	, glInternalFormat(ToGLInternalFormat(format))
@@ -134,6 +134,7 @@ GLTexture::GLTexture(TextureType type, TextureFormat format, uint32_t width, uin
 	, texHeight(height)
 	, texDepthOrLayers(depthOrLayers)
 	, texMipLevels(mipLevels)
+	, texSampleCount(sampleCount)
 {
 	glGenTextures(1, &texId);
 	glBindTexture(glTarget, texId);
@@ -154,8 +155,12 @@ GLTexture::GLTexture(TextureType type, TextureFormat format, uint32_t width, uin
 		case TextureType::TextureCube:
 			glTexStorage2D(glTarget, mipLevels, glInternalFormat, width, height);
 			break;
+		case TextureType::Texture2DMS:
+			// MSAA texture - use glTexImage2DMultisample
+			glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, sampleCount, glInternalFormat, width, height, GL_TRUE);
+			break;
 		default:
-			// TextureBuffer, Texture2DMS, etc. handled separately
+			// TextureBuffer, etc. handled separately
 			break;
 	}
 
@@ -191,6 +196,11 @@ void GLTexture::Upload(uint32_t level, uint32_t x, uint32_t y, uint32_t w, uint3
 void GLTexture::Upload3D(uint32_t level, uint32_t x, uint32_t y, uint32_t z, uint32_t w, uint32_t h, uint32_t d, const void* data) {
 	glBindTexture(glTarget, texId);
 	glTexSubImage3D(glTarget, level, x, y, z, w, h, d, ToGLFormat(texFormat), ToGLDataType(texFormat), data);
+}
+
+void GLTexture::UploadCompressed(uint32_t level, uint32_t x, uint32_t y, uint32_t w, uint32_t h, size_t dataSize, const void* data) {
+	glBindTexture(glTarget, texId);
+	glCompressedTexSubImage2D(glTarget, level, x, y, w, h, glInternalFormat, static_cast<GLsizei>(dataSize), data);
 }
 
 // --- Sampling state ---
@@ -244,6 +254,34 @@ void GLTexture::SetCompareMode(bool enabled, CompareFunc func) {
 	} else {
 		glTexParameteri(glTarget, GL_TEXTURE_COMPARE_MODE, GL_NONE);
 	}
+}
+
+void GLTexture::SetSwizzle(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+	glBindTexture(glTarget, texId);
+	auto toGLSwizzle = [](uint8_t c) -> GLint {
+		switch (c) {
+			case 0: return GL_RED;
+			case 1: return GL_GREEN;
+			case 2: return GL_BLUE;
+			case 3: return GL_ALPHA;
+			case 4: return GL_ZERO;
+			case 5: return GL_ONE;
+			default: return GL_RED;
+		}
+	};
+	GLint swizzle[4] = { toGLSwizzle(r), toGLSwizzle(g), toGLSwizzle(b), toGLSwizzle(a) };
+	glTexParameteriv(glTarget, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
+}
+
+void GLTexture::SetBorderColor(float r, float g, float b, float a) {
+	glBindTexture(glTarget, texId);
+	GLfloat color[4] = { r, g, b, a };
+	glTexParameterfv(glTarget, GL_TEXTURE_BORDER_COLOR, color);
+}
+
+void GLTexture::SetLodBias(float bias) {
+	glBindTexture(glTarget, texId);
+	glTexParameterf(glTarget, GL_TEXTURE_LOD_BIAS, bias);
 }
 
 void GLTexture::GenerateMipmaps() {
