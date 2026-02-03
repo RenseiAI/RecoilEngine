@@ -27,6 +27,16 @@
 
 #include "System/Misc/TracyDefs.h"
 
+// RHI-GAP: DynWater is the most GL-heavy file (~170 direct GL calls):
+// - Raw FBOs (glGenFramebuffersEXT/glBindFramebufferEXT/glFramebufferTexture2DEXT)
+// - 12 ARB vertex/fragment programs (glBindProgramARB/glProgramEnvParameter4fARB)
+// - glBegin/glEnd immediate mode rendering
+// - Heavy glActiveTextureARB/glBindTexture multi-texturing (7+ texture units)
+// - Per-pass glBlendFunc/glEnable/glDisable state changes
+// - Fixed-function matrix stack (glMatrixMode/glOrtho/glLoadIdentity)
+// Metal port requires: all ARB programs -> GLSL/MSL, immediate mode -> VBOs,
+// raw FBO ops -> RHI framebuffer/render pass, matrix stack -> uniform matrices.
+
 #define LOG_SECTION_DYN_WATER "DynWater"
 LOG_REGISTER_SECTION_GLOBAL(LOG_SECTION_DYN_WATER)
 
@@ -335,7 +345,7 @@ void CDynWater::Draw()
 	glBindProgramARB(GL_VERTEX_PROGRAM_ARB, waterVP);
 	glEnable(GL_VERTEX_PROGRAM_ARB);
 
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE * wireFrameMode + GL_FILL * (1 - wireFrameMode));
+	glPolygonMode(GL_FRONT_AND_BACK, wireFrameMode ? GL_LINE : GL_FILL);
 
 	const float dx = float(globalRendering->viewSizeX) / globalRendering->viewSizeY * camera->GetTanHalfFov();
 	const float dy = float(globalRendering->viewSizeY) / globalRendering->viewSizeY * camera->GetTanHalfFov();
