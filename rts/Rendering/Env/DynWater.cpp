@@ -1,5 +1,74 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+// RHI-GAP: DynWater is the most GL-heavy water implementation (~170 direct GL calls).
+// It represents the most significant porting challenge for the Metal backend.
+//
+// CRITICAL LEGACY GL USAGE:
+// ========================
+//
+// 1. Raw FBO Management (glGenFramebuffersEXT, glBindFramebufferEXT, glFramebufferTexture2DEXT):
+//    - Uses frameBuffer for multi-pass wave simulation
+//    - Switches render targets multiple times per frame (waveTex1/2/3, waveHeight32)
+//    - Each pass renders to a different texture attachment
+//    - RHI migration: IRHIDevice::CreateFramebuffer() + IRHIContext::BeginRenderPass()
+//    - Metal requires explicit render pass boundaries for each attachment switch
+//
+// 2. ARB Vertex/Fragment Programs (12 total):
+//    - waterVP/waterFP: Main water rendering
+//    - waveVP/waveFP, waveVP2/waveFP2: Wave simulation passes
+//    - waveNormalVP/waveNormalFP: Normal map generation
+//    - waveCopyHeightVP/waveCopyHeightFP: Height texture update
+//    - dwDetailNormalVP/dwDetailNormalFP: Detail normal generation
+//    - dwAddSplashVP/dwAddSplashFP: Splash/wake effects
+//    - Each uses glProgramEnvParameter4fARB for parameters
+//    - RHI migration: Must be rewritten as GLSL shaders, then compiled to MSL
+//    - Parameters become uniform buffers or push constants
+//
+// 3. Immediate Mode Rendering (glBegin/glEnd with GL_QUADS):
+//    - DrawWaves(), DrawHeightTex(), DrawDetailNormalTex(): Full-screen quads
+//    - AddExplosions(), DrawUpdateSquare(): Dynamic geometry
+//    - RHI migration: Convert to TypedRenderBuffer or similar VBO abstraction
+//    - GL_QUADS must become GL_TRIANGLES (2 triangles per quad)
+//
+// 4. Legacy CVertexArray with GL_QUADS, GL_TRIANGLE_STRIP:
+//    - DrawWaterSurface(): Complex LOD geometry
+//    - AddShipWakes(), DrawOuterSurface(): Dynamic quads
+//    - va->DrawArrayTN(GL_QUADS) and similar calls
+//    - RHI migration: Replace with TypedRenderBuffer using GL_TRIANGLES
+//
+// 5. Heavy Multi-Texturing (7+ texture units):
+//    - Draw() binds textures to units 0-7 simultaneously
+//    - DrawWaves() rebinds multiple times per frame
+//    - RHI migration: Straightforward with IRHIContext::BindTexture(texture, unit)
+//
+// 6. FFP Matrix Stack (glMatrixMode, glOrtho, glLoadIdentity):
+//    - DrawWaves(), DrawHeightTex(), AddShipWakes(), AddExplosions()
+//    - Used for orthographic projection in render-to-texture passes
+//    - RHI migration: CMatrix44f::Ortho() passed as shader uniform
+//
+// 7. Per-Pass State Changes:
+//    - glPushAttrib/glPopAttrib for state save/restore
+//    - Frequent glEnable/glDisable for blend, depth, alpha test
+//    - glBlendFunc changes between passes
+//    - RHI migration: RHI::ScopedPipeline with proper PipelineDesc per pass
+//
+// 8. glFlush() calls after FBO operations:
+//    - Forces GPU synchronization
+//    - Metal handles this via command buffer completion handlers
+//
+// MIGRATION PRIORITY: LOW (or SKIP)
+// ---------------------------------
+// DynWater should be considered a candidate for deprecation rather than migration.
+// The complexity of porting 12 ARB programs plus the multi-pass FBO ping-pong
+// simulation does not justify the effort. BumpWater provides better visual
+// quality with modern GLSL shaders and is much easier to port.
+//
+// If migration is required, estimated effort:
+// - ARB->GLSL shader conversion: 2-3 weeks
+// - Immediate mode->VBO conversion: 1 week
+// - FBO->RHI framebuffer conversion: 1 week
+// - Testing and debugging: 1-2 weeks
+
 #include <bit>
 
 #include "DynWater.h"
@@ -26,16 +95,6 @@
 #include "System/Exceptions.h"
 
 #include "System/Misc/TracyDefs.h"
-
-// RHI-GAP: DynWater is the most GL-heavy file (~170 direct GL calls):
-// - Raw FBOs (glGenFramebuffersEXT/glBindFramebufferEXT/glFramebufferTexture2DEXT)
-// - 12 ARB vertex/fragment programs (glBindProgramARB/glProgramEnvParameter4fARB)
-// - glBegin/glEnd immediate mode rendering
-// - Heavy glActiveTextureARB/glBindTexture multi-texturing (7+ texture units)
-// - Per-pass glBlendFunc/glEnable/glDisable state changes
-// - Fixed-function matrix stack (glMatrixMode/glOrtho/glLoadIdentity)
-// Metal port requires: all ARB programs -> GLSL/MSL, immediate mode -> VBOs,
-// raw FBO ops -> RHI framebuffer/render pass, matrix stack -> uniform matrices.
 
 #define LOG_SECTION_DYN_WATER "DynWater"
 LOG_REGISTER_SECTION_GLOBAL(LOG_SECTION_DYN_WATER)
@@ -266,7 +325,9 @@ void CDynWater::InitResources(bool loadShader)
 void CDynWater::FreeResources()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI-GAP: glDeleteTextures -> IRHITexture destructor (RAII)
 	const auto DeleteTexture = [](GLuint& texID) { if (texID > 0) { glDeleteTextures(1, &texID); texID = 0; } };
+	// RHI-GAP: ARB program deletion has no RHI equivalent; would be shader object deletion
 	const auto DeleteProgram = [](GLuint& proID) { if (proID > 0) { glSafeDeleteProgram(proID); proID = 0; } };
 
 	DeleteTexture(reflectTexture);
@@ -286,6 +347,7 @@ void CDynWater::FreeResources()
 	DeleteTexture(zeroTex);
 	DeleteTexture(fixedUpTex);
 
+	// RHI-GAP: These 12 ARB programs would need to be GLSL/IRHIShader objects
 	DeleteProgram(waterFP);
 	DeleteProgram(waterVP);
 	DeleteProgram(waveFP);
@@ -301,6 +363,7 @@ void CDynWater::FreeResources()
 	DeleteProgram(dwAddSplashVP);
 	DeleteProgram(dwAddSplashFP);
 
+	// RHI-GAP: Raw FBO deletion -> IRHIFramebuffer destructor
 	if (frameBuffer) {
 		glDeleteFramebuffersEXT(1, &frameBuffer);
 		frameBuffer = 0;
@@ -313,8 +376,11 @@ void CDynWater::Draw()
 	if (!waterRendering->forceRendering && !readMap->HasVisibleWater())
 		return;
 
+	// RHI-GAP: glPushAttrib/glPopAttrib -> RHI::ScopedPipeline
 	glPushAttrib(GL_ENABLE_BIT);
+	// RHI-GAP: These state changes -> RHI::PipelineDesc settings
 	glEnable(GL_BLEND);
+	// RHI-GAP: GL_ALPHA_TEST is deprecated FFP, no-op in core profile
 	glDisable(GL_ALPHA_TEST);
 	glEnable(GL_FOG);
 
@@ -338,13 +404,17 @@ void CDynWater::Draw()
 	shadowHandler.SetupShadowTexSampler(GL_TEXTURE7);
 	glActiveTextureARB(GL_TEXTURE0_ARB);
 
+	// RHI-GAP: glColor4f is deprecated FFP, use shader uniform instead
 	glColor4f(1, 1, 1, 0.5f);
 
+	// RHI-GAP: ARB program binding -> IRHIContext::BindShader() with GLSL shader
+	// All glProgramEnvParameter4fARB calls below -> shader uniform buffer
 	glBindProgramARB(GL_FRAGMENT_PROGRAM_ARB, waterFP);
 	glEnable(GL_FRAGMENT_PROGRAM_ARB);
 	glBindProgramARB(GL_VERTEX_PROGRAM_ARB, waterVP);
 	glEnable(GL_VERTEX_PROGRAM_ARB);
 
+	// RHI-GAP: glPolygonMode -> RHI::RasterizerState.polygonMode
 	glPolygonMode(GL_FRONT_AND_BACK, wireFrameMode ? GL_LINE : GL_FILL);
 
 	const float dx = float(globalRendering->viewSizeX) / globalRendering->viewSizeY * camera->GetTanHalfFov();
@@ -539,6 +609,7 @@ void CDynWater::DrawWaves()
 	float dx = camPosBig.x - oldCamPosBig.x;
 	float dy = camPosBig.z - oldCamPosBig.z;
 
+	// RHI-GAP: FFP matrix stack -> CMatrix44f::Ortho() + shader uniform
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	glOrtho(0, 1, 0, 1, -1, 1);
@@ -578,9 +649,12 @@ void CDynWater::DrawWaves()
 
 	//////////////////////////////////////
 
+	// RHI-GAP: Raw FBO ops -> IRHIContext::BeginRenderPass() with waveTex3 attachment
+	// Metal requires explicit render pass begin/end for each attachment change
 	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, frameBuffer);
 	glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, waveTex3, 0);
 
+	// RHI-GAP: glViewport -> IRHIContext::SetViewport()
 	glViewport(0, 0, 1024, 1024);
 
 	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
@@ -687,6 +761,8 @@ void CDynWater::DrawWaves()
 	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB,0, 0, 0, W_SIZE*2, 0);
 	glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB,1, W_SIZE*2, 0, 0, 0);
 
+	// RHI-GAP: glBegin/glEnd immediate mode -> TypedRenderBuffer with GL_TRIANGLES
+	// GL_QUADS not available in core profile; must use 2 triangles per quad
 	//update normals pass
 	glBegin(GL_QUADS);
 	glTexCoord2f(start, start); glVertexf3(ZeroVector);

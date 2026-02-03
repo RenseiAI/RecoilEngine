@@ -4,6 +4,51 @@
  * @brief extended bump-mapping water shader
  */
 
+// RHI-GAP: BumpWater is the most RHI-ready water mode as it uses GLSL shaders.
+// However, it still has ~80 direct GL calls that need migration:
+//
+// 1. Texture Management (glGenTextures, glBindTexture, glTexImage2D, glDeleteTextures):
+//    - Many textures: reflectTexture, refractTexture, depthTexture, foamTexture,
+//      normalTexture, normalTexture2, coastTexture, coastUpdateTexture,
+//      waveRandTexture, caustTextures[]
+//    - Should use IRHIDevice::CreateTexture() returning std::unique_ptr<IRHITexture>
+//    - Texture parameters (glTexParameteri) -> IRHITexture::SetFilter/SetWrap
+//    - CBitmap::CreateMipMapTexture() needs RHI version
+//
+// 2. Screen Copy (glCopyTexSubImage2D):
+//    - Used for refraction (Draw) and depth copy
+//    - RHI equivalent: IRHIContext::BlitFramebuffer()
+//    - Or render to dedicated FBO first, avoiding screen copy entirely
+//
+// 3. FBO Operations (reflectFBO, refractFBO, coastFBO, dynWavesFBO):
+//    - FBO class wraps GL but is not RHI-abstracted
+//    - Should use IRHIDevice::CreateFramebuffer()
+//    - FBO::Bind() -> IRHIContext::BeginRenderPass()
+//    - FBO::Unbind() -> IRHIContext::EndRenderPass()
+//
+// 4. FFP Matrix Stack (glMatrixMode, glPushMatrix, glLoadIdentity, glOrtho):
+//    - Used in UpdateCoastmap() and UpdateDynWaves()
+//    - Replace with CMatrix44f operations and shader uniforms
+//    - See RHITypes.h for migration pattern
+//
+// 5. glPushAttrib/glPopAttrib:
+//    - Used in UpdateWater(), UpdateCoastmap(), UpdateDynWaves()
+//    - Replace with RHI::ScopedPipeline from RHIScopedState.h
+//
+// 6. Deprecated FFP State (GL_ALPHA_TEST, glEnable(GL_TEXTURE_2D)):
+//    - No-op in core profile, safe to remove
+//
+// 7. glViewport:
+//    - Should use IRHIContext::SetViewport()
+//
+// 8. glClear/glClearColor:
+//    - Should use RHI::RenderPassDesc with LoadAction::Clear
+//
+// 9. TypedRenderBuffer and shader system are already RHI-compatible.
+//
+// Migration priority: HIGH - This is the recommended water mode for Metal.
+// GLSL shaders can be cross-compiled to MSL via SPIRV-Cross.
+
 #include "BumpWater.h"
 
 #include "ISky.h"
@@ -35,9 +80,6 @@
 
 #include "System/Misc/TracyDefs.h"
 #include <bit>
-
-// RHI-GAP: BumpWater has ~80 direct GL calls. Uses GLSL shaders (RHI-ready).
-// Needs IRHIDevice::CreateTexture(), glCopyTexSubImage2D->blit, matrix stack removal.
 using std::string;
 using std::vector;
 using std::min;
@@ -519,6 +561,8 @@ void CBumpWater::InitResources(bool loadShader)
 void CBumpWater::FreeResources()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI-GAP: glDeleteTextures should be replaced with IRHITexture destructor (RAII).
+	// All textures would be std::unique_ptr<IRHITexture> members instead of GLuint.
 	const auto DeleteTexture = [](GLuint& texID) { if (texID > 0) { glDeleteTextures(1, &texID); texID = 0; } };
 
 	DeleteTexture(reflectTexture);
@@ -566,10 +610,12 @@ void CBumpWater::UpdateWater(const CGame* game)
 	if (!waterRendering->forceRendering && !readMap->HasVisibleWater())
 		return;
 
+	// RHI-GAP: glPushAttrib/glPopAttrib -> RHI::ScopedPipeline
 	glPushAttrib(GL_FOG_BIT);
 	if (refraction > 1) DrawRefraction(game);
 	if (reflection > 0) DrawReflection(game);
 	if (reflection || refraction) {
+		// RHI-GAP: FBO::Unbind() -> IRHIContext::EndRenderPass()
 		FBO::Unbind();
 		globalRendering->LoadViewport();
 	}
@@ -694,13 +740,17 @@ void CBumpWater::UploadCoastline(const bool forceFull)
 void CBumpWater::UpdateCoastmap(const bool initialize)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI-GAP: FBO::Bind() -> IRHIContext::BeginRenderPass()
 	coastFBO.Bind();
+	// RHI-GAP: glPushAttrib/glPopAttrib -> RHI::ScopedPipeline
 	glPushAttrib(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT | GL_ENABLE_BIT);
 
+	// RHI-GAP: These state changes -> RHI::PipelineDesc settings
 	glDisable(GL_BLEND);
 	glDepthMask(GL_FALSE);
 	glDisable(GL_DEPTH_TEST);
 
+	// RHI-GAP: glBindTexture -> IRHIContext::BindTexture()
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, coastUpdateTexture);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -710,6 +760,7 @@ void CBumpWater::UpdateCoastmap(const bool initialize)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 
+	// RHI-GAP: FFP matrix stack -> CMatrix44f operations + shader uniforms
 	glMatrixMode(GL_MODELVIEW);
 	glPushMatrix();
 	glLoadIdentity();
@@ -718,6 +769,7 @@ void CBumpWater::UpdateCoastmap(const bool initialize)
 	glLoadIdentity();
 	glOrtho(0, 1, 0, 1, -1, 1);
 
+	// RHI-GAP: glViewport -> IRHIContext::SetViewport()
 	glViewport(0, 0, mapDims.mapx, mapDims.mapy);
 	glDrawBuffer(GL_COLOR_ATTACHMENT0_EXT);
 	coastFBO.AttachTexture(coastTexture, GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0_EXT);
@@ -832,18 +884,26 @@ void CBumpWater::UpdateDynWaves(const bool initialize)
 		}
 	}
 
+	// RHI-GAP: FBO::Bind() -> IRHIContext::BeginRenderPass()
 	dynWavesFBO.Bind();
+	// RHI-GAP: glPushAttrib/glPopAttrib -> RHI::ScopedPipeline
 	glPushAttrib(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT | GL_ENABLE_BIT);
+	// RHI-GAP: glEnable(GL_TEXTURE_2D) is deprecated FFP, no-op in core profile
 	glEnable(GL_TEXTURE_2D);
+	// RHI-GAP: glBindTexture -> IRHIContext::BindTexture()
 	glBindTexture(GL_TEXTURE_2D, normalTexture2);
+	// RHI-GAP: glBlendFunc/glBlendColor -> RHI::BlendState with constantColor/Alpha
 	glBlendFunc(GL_CONSTANT_ALPHA, GL_ONE_MINUS_CONSTANT_ALPHA);
 	glBlendColor(1.0f, 1.0f, 1.0f, (initialize) ? 1.0f : (modFrameNum + 1)/600.0f );
 
+	// RHI-GAP: These state changes -> RHI::PipelineDesc settings
 	glEnable(GL_BLEND);
 	glDepthMask(GL_FALSE);
 	glDisable(GL_DEPTH_TEST);
 
+	// RHI-GAP: glViewport -> IRHIContext::SetViewport()
 	glViewport(0, 0, normalTextureX, normalTextureY);
+	// RHI-GAP: FFP matrix stack -> CMatrix44f operations + shader uniforms
 	glMatrixMode(GL_MODELVIEW);
 		glPushMatrix();
 		glLoadIdentity();
@@ -903,17 +963,22 @@ void CBumpWater::Draw()
 		return;
 
 	if (refraction == 1) {
+		// RHI-GAP: glCopyTexSubImage2D (screen capture) -> IRHIContext::BlitFramebuffer()
+		// Alternative: render scene to dedicated refraction FBO first
 		// _SCREENCOPY_ REFRACT TEXTURE
 		glBindTexture(target, refractTexture);
 		glCopyTexSubImage2D(target, 0, 0, 0, globalRendering->viewPosX, globalRendering->viewPosY, globalRendering->viewSizeX, globalRendering->viewSizeY);
 	}
 
 	if (depthCopy) {
+		// RHI-GAP: glCopyTexSubImage2D for depth -> needs special handling
+		// Metal may require explicit depth resolve or blit pass
 		// _SCREENCOPY_ DEPTH TEXTURE
 		glBindTexture(target, depthTexture);
 		glCopyTexSubImage2D(target, 0, 0, 0, globalRendering->viewPosX, globalRendering->viewPosY, globalRendering->viewSizeX, globalRendering->viewSizeY);
 	}
 
+	// RHI-GAP: GL_ALPHA_TEST is deprecated FFP, no-op in core profile
 	glDisable(GL_ALPHA_TEST);
 
 	if (refraction < 2)
