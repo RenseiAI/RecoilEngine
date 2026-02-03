@@ -43,3 +43,9 @@
 	path = rts/lib/nowide
 	url = https://github.com/boostorg/nowide
 	branch = standalone
+[submodule "rts/lib/glslang"]
+	path = rts/lib/glslang
+	url = https://github.com/KhronosGroup/glslang
+[submodule "rts/lib/SPIRV-Cross"]
+	path = rts/lib/SPIRV-Cross
+	url = https://github.com/KhronosGroup/SPIRV-Cross
