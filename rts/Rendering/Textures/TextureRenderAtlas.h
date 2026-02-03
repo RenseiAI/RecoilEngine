@@ -1,6 +1,25 @@
-// CTextureRenderAtlas uses GL::TextureBase (the GL backend texture class) for
-// atlas storage. When RHI texture types replace GL::TextureBase, atlasTex
-// should become std::unique_ptr<RHI::IRHITexture>.
+/**
+ * CTextureRenderAtlas - GPU-rendered texture atlas with mipmap generation.
+ *
+ * RHI Migration Status: PARTIAL
+ * ============================
+ * - Uses GL::TextureBase (GL backend) for atlas storage
+ * - Uses GL FBO for render-to-texture atlas creation
+ * - Uses glDeleteTextures for intermediate texture cleanup
+ *
+ * Migration Path:
+ * 1. Replace std::unique_ptr<GL::TextureBase> atlasTex with
+ *    std::unique_ptr<RHI::IRHITexture>
+ * 2. Replace FBO-based rendering with RHI::IRHIFramebuffer
+ * 3. Replace glTexParameteri calls with RHI texture SetFilter/SetWrap
+ * 4. filenameToTexID intermediate textures should use RHI texture objects
+ *
+ * Pattern mappings:
+ *   GL::Texture2D / GL::Texture2DArray  ->  RHI::IRHITexture (with TextureType)
+ *   FBO + glFramebufferTexture          ->  RHI::IRHIFramebuffer (future)
+ *   glDeleteTextures                    ->  unique_ptr destruction
+ *   glTexParameteri(filter/wrap)        ->  texture->SetMinFilter/SetMagFilter/SetWrap
+ */
 #pragma once
 
 #include <cstdint>
