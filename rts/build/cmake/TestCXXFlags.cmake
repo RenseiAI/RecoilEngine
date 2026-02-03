@@ -67,6 +67,22 @@ If    (NOT DEFINED IEEE_FP_FLAG)
 EndIf (NOT DEFINED IEEE_FP_FLAG)
 
 
+# FMA prevention for ARM64: fused multiply-add produces different FP results
+# from x86, causing multiplayer desyncs. -ffp-contract=off prevents this.
+If    (NOT DEFINED FP_CONTRACT_FLAG)
+	Set(FP_CONTRACT_FLAG "")
+	if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|armv8")
+		CHECK_CXX_ACCEPTS_FLAG("-ffp-contract=off" HAS_FP_CONTRACT_OFF)
+		if (HAS_FP_CONTRACT_OFF)
+			Set(FP_CONTRACT_FLAG "-ffp-contract=off")
+			Message(STATUS "ARM64: enabling -ffp-contract=off to prevent FMA desync")
+		else()
+			Message(WARNING "ARM64: compiler does not support -ffp-contract=off, multiplayer sync may be affected")
+		endif()
+	endif()
+EndIf (NOT DEFINED FP_CONTRACT_FLAG)
+
+
 If    (NOT DEFINED CXX17_FLAGS)
 	CHECK_AND_ADD_FLAGS(CXX17_FLAGS "-std=c++17")
 EndIf (NOT DEFINED CXX17_FLAGS)
