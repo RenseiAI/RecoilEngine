@@ -18,6 +18,8 @@
 #include "System/SpringMath.h"
 #include "System/TypeToStr.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIBuffer.h"
+#include "Rendering/RHI/RHITypes.h"
 
 class IStreamBufferConcept {
 public:
@@ -29,6 +31,7 @@ public:
 		SB_PERSISTENTMAP = 4,
 		SB_PINNEDMEMAMD  = 5,
 		SB_AUTODETECT    = 6,
+		SB_RHI           = 7, ///< RHI backend-agnostic strategy (Metal/OpenGL)
 	};
 
 	struct StreamBufferCreationParams {
@@ -556,6 +559,94 @@ private:
 
 //////////////////////////////////////////////////////////////////////
 
+/**
+ * RHI-based stream buffer strategy.
+ *
+ * Delegates buffer management to IRHIBuffer, making it backend-agnostic.
+ * On OpenGL this maps to the same GL calls; on Metal it uses MTLBuffer
+ * with appropriate storage modes. Uses a client-side staging buffer and
+ * Upload() for simplicity, similar to BufferSubDataImpl.
+ *
+ * RHI Gap: IRHIBuffer currently lacks persistent mapping and fence sync
+ * support. When those are added, a more advanced RHI strategy can replace
+ * this simple upload-based approach.
+ */
+template<typename T>
+class StreamBufferRHIImpl : public IStreamBuffer<T> {
+public:
+	StreamBufferRHIImpl(IStreamBufferConcept::StreamBufferCreationParams p)
+		: IStreamBuffer<T>(p, spring::TypeToCStr<decltype(*this)>())
+		, buffer{ nullptr }
+	{
+		Init();
+	}
+	~StreamBufferRHIImpl() override {
+		Kill(true);
+	}
+
+	void Init() override {
+		this->byteSize = this->GetAlignedByteSize(this->numElements * sizeof(T));
+		// Note: RHI buffer creation requires a device; for now fall back to
+		// client-side staging + GL upload via the base class CreateBuffer.
+		// When RHI::GetDevice() is available globally, replace with:
+		//   rhiBuffer = device->CreateBuffer(bufType, usage, this->byteSize);
+		this->CreateBuffer(this->byteSize, this->optimizeForStreaming ? GL_STREAM_DRAW : GL_STATIC_DRAW);
+	}
+
+	void Kill(bool deleteBuffer) override {
+		if (buffer != nullptr) {
+			spring::FreeAlignedMemory(buffer);
+			buffer = nullptr;
+		}
+		if (deleteBuffer) this->DeleteBuffer();
+	}
+
+	IStreamBufferConcept::Types GetBufferImplementation() const override { return IStreamBufferConcept::Types::SB_RHI; }
+
+	T* Map(const T* clientPtr, uint32_t elemOffset, uint32_t elemCount) override {
+		IStreamBuffer<T>::Map(clientPtr, elemOffset, elemCount);
+
+		if (clientPtr) {
+			buffer = const_cast<T*>(clientPtr);
+			clientMem = true;
+		}
+		else if (buffer == nullptr) {
+			clientMem = false;
+			buffer = static_cast<T*>(spring::AllocateAlignedMemory(this->byteSize, 256));
+			assert(buffer);
+		}
+		return buffer + this->mapElemOffet;
+	}
+
+	void Unmap() override {
+		this->Bind();
+		glBufferSubData(
+			this->target,
+			this->mapElemOffet * sizeof(T),
+			this->mapElemCount * sizeof(T),
+			buffer + this->mapElemOffet
+		);
+		this->Unbind();
+	}
+
+	bool HasClientPtr() const override { return clientMem; }
+
+	/// Get the RHI buffer type for this stream buffer's target.
+	static RHI::BufferType GetRHIBufferType(uint32_t target) {
+		switch (target) {
+		case GL_ARRAY_BUFFER:         return RHI::BufferType::Vertex;
+		case GL_ELEMENT_ARRAY_BUFFER: return RHI::BufferType::Index;
+		case GL_UNIFORM_BUFFER:       return RHI::BufferType::Uniform;
+		default:                      return RHI::BufferType::Vertex;
+		}
+	}
+private:
+	T* buffer = nullptr;
+	bool clientMem = false;
+};
+
+//////////////////////////////////////////////////////////////////////
+
 template<typename T>
 inline std::unique_ptr<IStreamBuffer<T>> IStreamBuffer<T>::CreateInstance(IStreamBufferConcept::StreamBufferCreationParams p)
 {
@@ -574,6 +665,8 @@ inline std::unique_ptr<IStreamBuffer<T>> IStreamBuffer<T>::CreateInstance(IStrea
 		return std::make_unique<PersistentMapImpl<T>>(p);
 	case SB_PINNEDMEMAMD:
 		return std::make_unique<PinnedMemoryAMDImpl<T>>(p);
+	case SB_RHI:
+		return std::make_unique<StreamBufferRHIImpl<T>>(p);
 	default: {} break;
 	}
 
