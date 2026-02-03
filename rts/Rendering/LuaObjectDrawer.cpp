@@ -13,6 +13,10 @@
 #include "Rendering/Common/ModelDrawerHelpers.h"
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/ShadowHandler.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIPipeline.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Sim/Misc/GlobalConstants.h" // MAX_TEAMS
 #include "Sim/Objects/SolidObject.h"
 #include "Sim/Features/Feature.h"
@@ -21,6 +25,13 @@
 #include "System/EventHandler.h"
 #include "System/SafeUtil.h"
 
+
+namespace {
+	RHI::IRHIDevice* GetRHIDevice() {
+		static auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+		return device.get();
+	}
+}
 
 // optimisation for team-color, but potentially breaks
 // the alpha-pass and matrices can not be bucket-sorted
@@ -161,6 +172,10 @@ static void ResetAlphaFeatureDrawState(unsigned int modelType, bool deferredPass
 // shadow-pass state management funcs
 // FIXME: setup face culling for S3O?
 static void SetupShadowUnitDrawState(unsigned int modelType, bool deferredPass) {
+	// RHI_TODO: glColor3f is legacy FFP. glDisable(GL_TEXTURE_2D) is legacy FFP.
+	// glPolygonOffset/GL_POLYGON_OFFSET_FILL has no direct RHI equivalent yet.
+	// These should be handled by the shadow pipeline state once RHI supports
+	// polygon offset in PipelineDesc::rasterizer.
 	glColor3f(1.0f, 1.0f, 1.0f);
 	glDisable(GL_TEXTURE_2D);
 
@@ -175,6 +190,7 @@ static void ResetShadowUnitDrawState(unsigned int modelType, bool deferredPass) 
 	Shader::IProgramObject* po = shadowHandler.GetShadowGenProg(CShadowHandler::SHADOWGEN_PROGRAM_MODEL);
 
 	po->Disable();
+	// RHI_TODO: see SetupShadowUnitDrawState note
 	glDisable(GL_POLYGON_OFFSET_FILL);
 }
 
@@ -339,14 +355,23 @@ void LuaObjectDrawer::DrawMaterialBins(LuaObjType objType, LuaMatType matType, b
 	inDrawPass = true;
 	inAlphaBin = (matType == LUAMAT_ALPHA || matType == LUAMAT_ALPHA_REFLECT);
 
-	glPushAttrib(GL_TEXTURE_BIT | GL_ENABLE_BIT | GL_TRANSFORM_BIT);
-
+	// Set up pipeline state via RHI (replaces glPushAttrib for blend/depth)
+	auto* device = GetRHIDevice();
+	auto* ctx = device->GetContext();
 	if (inAlphaBin) {
+		RHI::PipelineDesc desc;
+		desc.blend.enabled = true;
+		desc.blend.srcColor = RHI::BlendFactor::SrcAlpha;
+		desc.blend.dstColor = RHI::BlendFactor::OneMinusSrcAlpha;
+		desc.blend.srcAlpha = RHI::BlendFactor::SrcAlpha;
+		desc.blend.dstAlpha = RHI::BlendFactor::OneMinusSrcAlpha;
+		auto pipeline = device->CreatePipeline(desc);
+		ctx->BindPipeline(pipeline.get());
+		// RHI_TODO: alpha test (glAlphaFunc) is legacy FFP. Modern shaders use discard.
 		glEnable(GL_ALPHA_TEST);
 		glAlphaFunc(GL_GREATER, 0.1f);
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	} else {
+		// RHI_TODO: alpha test is legacy FFP
 		glEnable(GL_ALPHA_TEST);
 		glAlphaFunc(GL_GREATER, 0.5f);
 	}
@@ -362,7 +387,13 @@ void LuaObjectDrawer::DrawMaterialBins(LuaObjType objType, LuaMatType matType, b
 	LuaMaterial::defMat.Execute(*prevMat, deferredPass);
 	luaMatHandler.ClearBins(objType, matType);
 
-	glPopAttrib();
+	// Restore default pipeline state (replaces glPopAttrib)
+	{
+		RHI::PipelineDesc defaultDesc;
+		auto defaultPipeline = device->CreatePipeline(defaultDesc);
+		ctx->BindPipeline(defaultPipeline.get());
+	}
+	glDisable(GL_ALPHA_TEST);
 
 	inAlphaBin = false;
 	inDrawPass = false;
