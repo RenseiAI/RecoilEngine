@@ -1,7 +1,20 @@
-/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
 
 #ifndef LUA_RBOS_H
 #define LUA_RBOS_H
+
+/**
+ * Lua Render Buffer Objects (RBO) Management
+ *
+ * RBOs are used as depth/stencil attachments for FBOs when the attachment
+ * doesn't need to be sampled as a texture.
+ *
+ * RHI Migration Notes:
+ * - RBOs are an OpenGL concept without direct Metal equivalent
+ * - On Metal, use texture attachments with memoryless storage mode
+ * - The RHI IRHIFramebuffer::AttachRenderbuffer() handles this internally
+ * - For now, RBOs continue to use GL EXT renderbuffer functions
+ */
 
 #include <vector>
 

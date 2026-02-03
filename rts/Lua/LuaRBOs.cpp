@@ -1,7 +1,20 @@
-/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * Lua RBO Implementation
+ *
+ * RHI Migration Status:
+ * - Uses GL EXT renderbuffer functions
+ * - glGenRenderbuffersEXT / glDeleteRenderbuffersEXT
+ * - glRenderbufferStorageEXT / glRenderbufferStorageMultisampleEXT
+ *
+ * On Metal, renderbuffers don't exist - the RHI framebuffer will
+ * internally create memoryless textures for depth/stencil when
+ * AttachRenderbuffer() is called.
+ */
 
 #include "LuaRBOs.h"
+#include "LuaGLConstMappings.h"
 
 #include "LuaInclude.h"
 
