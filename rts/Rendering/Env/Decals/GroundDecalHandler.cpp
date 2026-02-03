@@ -22,11 +22,14 @@
 #include "Rendering/Env/ISky.h"
 #include "Rendering/Env/SunLighting.h"
 #include "Rendering/Env/WaterRendering.h"
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h"  // transitional: GL types still needed
 #include "Rendering/GL/FBO.h"
 #include "Rendering/GL/TexBind.h"
 #include "Rendering/GL/SubState.h"
 #include "Rendering/GL/glHelpers.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Shaders/Shader.h"
@@ -382,6 +385,9 @@ uint32_t CGroundDecalHandler::GetNextId()
 	return 0;
 }
 
+// TODO [RHI cross-cutting]: vertex attribute setup uses raw GL calls
+// (glEnableVertexAttribArray, glVertexAttribPointer, glVertexAttribDivisor).
+// Needs RHI vertex layout / input description abstraction.
 void CGroundDecalHandler::BindVertexAtrribs()
 {
 	for (int i = 0; i <= 8; ++i) {
@@ -492,6 +498,9 @@ bool CGroundDecalHandler::ReloadDecalShaders() {
 	return decalShader->Validate();
 }
 
+// TODO [RHI cross-cutting]: BindTextures/UnbindTextures use raw GLuint texture IDs
+// from multiple subsystems (atlas, SMF map, depth buffer, shadow handler, info texture).
+// All need RHI texture wrappers before migration to ctx->BindTexture().
 void CGroundDecalHandler::BindTextures()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -773,6 +782,8 @@ void CGroundDecalHandler::Draw()
 		vao.Bind();
 
 		instVBO.Bind();
+		// TODO [RHI cross-cutting]: VBO::New uses raw GL_STREAM_DRAW usage hint;
+		// needs RHI buffer usage enum
 		instVBO.New(decals.capacity() * sizeof(GroundDecal), GL_STREAM_DRAW);
 		BindVertexAtrribs();
 
@@ -836,7 +847,11 @@ void CGroundDecalHandler::Draw()
 		decalShader->SetUniformMatrix4x4("shadowMatrix", false, shadowHandler.GetShadowMatrixRaw());
 
 	vao.Bind();
-	glDrawArraysInstanced(GL_TRIANGLES, 0, 36, decals.size());
+	{
+		auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+		auto* ctx = device->GetContext();
+		ctx->DrawInstanced(RHI::PrimitiveType::Triangles, 36, 0, decals.size());
+	}
 	vao.Unbind();
 
 	decalShader->Disable();

@@ -18,6 +18,11 @@
 #include "System/Exceptions.h"
 #include "System/Threading/ThreadPool.h"
 #include "System/Log/ILog.h"
+#include "Rendering/GlobalRendering.h"
+#include "Rendering/GL/myGL.h"  // transitional: GL types still needed
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIFactory.h"
 
 #include "System/Misc/TracyDefs.h"
 
@@ -200,10 +205,12 @@ void CPathTexture::Update()
 	if (ud == nullptr && md == nullptr) {
 		isCleared = true;
 		updateProcess = 0;
+		auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+		auto* ctx = device->GetContext();
 		fbo.Bind();
-		glViewport(0, 0, texSize.x, texSize.y);
-		glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
+		ctx->SetViewport(RHI::Viewport{0.0f, 0.0f, static_cast<float>(texSize.x), static_cast<float>(texSize.y)});
+		ctx->ClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+		ctx->Clear(true, false, false);
 		FBO::Unbind();
 		globalRendering->LoadViewport();
 		return;

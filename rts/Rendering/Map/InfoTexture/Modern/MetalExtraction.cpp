@@ -9,6 +9,7 @@
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/GL/SubState.h"
+#include "Rendering/GL/myGL.h"  // transitional: GL types still needed
 #include "Sim/Misc/LosHandler.h"
 #include "System/Exceptions.h"
 #include "System/Log/ILog.h"
@@ -113,6 +114,8 @@ void CMetalExtractionTexture::Update()
 	);
 
 	// do post-processing on the gpu (los-checking & scaling)
+	// TODO [RHI cross-cutting]: infoTex->GetTexture() returns raw GLuint;
+	// needs RHI texture wrapper in CInfoTexture before migration to ctx->BindTexture()
 	glBindTexture(GL_TEXTURE_2D, infoTex->GetTexture());
 	RunFullScreenPass();
 	glBindTexture(GL_TEXTURE_2D, 0);
