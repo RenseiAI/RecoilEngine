@@ -24,6 +24,55 @@
 #include "Rendering/Textures/ColorMap.h"
 #include "Rendering/Textures/TextureAtlas.h"
 #include "Rendering/Common/ModelDrawerHelpers.h"
+#include "Rendering/RHI/RHITypes.h"
+
+// RHI Migration Notes (ProjectileDrawer):
+// This is the most GL-heavy file (44+ direct GL calls). Migration categories:
+//
+// 1. Texture lifecycle in Init()/Kill():
+//   glGenTextures(8, perlinBlendTex) -> 8x IRHIDevice::CreateTexture()
+//   glBindTexture + glTexParameteri + glTexImage2D -> IRHITexture setup
+//   glDeleteTextures(8, perlinBlendTex) -> IRHITexture destructors
+//   Requires: changing uint32_t perlinBlendTex[8] to unique_ptr<IRHITexture>[8]
+//
+// 2. Texture binding/update in various draw methods:
+//   glActiveTexture(GL_TEXTUREn) + glBindTexture -> IRHIContext::BindTexture(tex, n)
+//   glTexSubImage2D -> IRHITexture::Upload (sub-region)
+//
+// 3. Pipeline state (GL::SubState already abstracts some):
+//   GL::SubState Blending/DepthTest/DepthMask/BlendFunc/ClipDistance
+//     -> RHI::PipelineDesc (blend, depthStencil fields)
+//   glDepthMask, glEnable/glDisable(GL_BLEND/GL_DEPTH_TEST)
+//     -> RHI::DepthStencilState / RHI::BlendState
+//   glBlendFunc -> RHI::BlendState{srcColor, dstColor}
+//   glPolygonOffset + glEnable(GL_POLYGON_OFFSET_FILL)
+//     -> RHI::RasterizerState{polygonOffsetFactor, polygonOffsetUnits}
+//   glLineWidth -> RHI::RasterizerState{lineWidth}
+//
+// 4. Framebuffer:
+//   perlinFB (FBO) -> IRHIFramebuffer
+//   perlinFB.Bind/Unbind -> IRHIContext::BeginRenderPass/EndRenderPass
+//   perlinFB.AttachTexture -> IRHIFramebuffer::AttachColor
+//
+// 5. Viewport:
+//   glViewport -> IRHIContext::SetViewport()
+//
+// 6. Minimap state:
+//   glIsEnabled(GL_PROGRAM_POINT_SIZE) -> query not in RHI (add to IRHIDevice?)
+//   glDisable/glEnable(GL_PROGRAM_POINT_SIZE) -> no RHI equivalent yet
+//
+// 7. Non-mappable legacy FFP in DrawProjectileModel():
+//   glPushMatrix/glPopMatrix, glMultMatrixf, glTranslatef3, glRotatef
+//     -> matrix stack, requires uniform-based transform
+//
+// 8. Non-mappable legacy FFP in UpdatePerlin():
+//   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity, glLoadMatrixf
+//     -> matrix stack
+//
+// 9. FBO-related:
+//   Rendering/GL/FBO.h -> should eventually become IRHIFramebuffer
+//   perlinFB.Init/Kill/Bind/Unbind/AttachTexture/CheckStatus
+//     -> IRHIDevice::CreateFramebuffer + IRHIFramebuffer methods
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/LosHandler.h"
 #include "Sim/Misc/TeamHandler.h"
