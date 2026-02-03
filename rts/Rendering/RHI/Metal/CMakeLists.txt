@@ -1,0 +1,50 @@
+# Metal backend implementation for RHI (macOS only)
+
+if(NOT APPLE)
+	message(FATAL_ERROR "Metal backend is only available on macOS")
+endif()
+
+# Find required frameworks
+find_library(METAL_FRAMEWORK Metal REQUIRED)
+find_library(QUARTZCORE_FRAMEWORK QuartzCore REQUIRED)
+find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
+
+set(MTL_RHI_SOURCES
+	${CMAKE_CURRENT_SOURCE_DIR}/MTLDevice.mm
+	${CMAKE_CURRENT_SOURCE_DIR}/MTLContext.mm
+	${CMAKE_CURRENT_SOURCE_DIR}/MTLBuffer.mm
+	${CMAKE_CURRENT_SOURCE_DIR}/MTLTexture.mm
+	${CMAKE_CURRENT_SOURCE_DIR}/MTLShader.mm
+	${CMAKE_CURRENT_SOURCE_DIR}/MTLFramebuffer.mm
+	${CMAKE_CURRENT_SOURCE_DIR}/MTLPipeline.mm
+)
+
+set(MTL_RHI_HEADERS
+	${CMAKE_CURRENT_SOURCE_DIR}/MTLDevice.h
+	${CMAKE_CURRENT_SOURCE_DIR}/MTLContext.h
+	${CMAKE_CURRENT_SOURCE_DIR}/MTLBuffer.h
+	${CMAKE_CURRENT_SOURCE_DIR}/MTLTexture.h
+	${CMAKE_CURRENT_SOURCE_DIR}/MTLShader.h
+	${CMAKE_CURRENT_SOURCE_DIR}/MTLFramebuffer.h
+	${CMAKE_CURRENT_SOURCE_DIR}/MTLPipeline.h
+)
+
+# Objective-C++ compile flags for .mm files
+set_source_files_properties(${MTL_RHI_SOURCES} PROPERTIES
+	COMPILE_FLAGS "-fobjc-arc"
+)
+
+# Add to parent scope
+list(APPEND RHI_SOURCES ${MTL_RHI_SOURCES})
+list(APPEND RHI_HEADERS ${MTL_RHI_HEADERS})
+
+# Framework libraries to link
+list(APPEND RHI_FRAMEWORKS
+	${METAL_FRAMEWORK}
+	${QUARTZCORE_FRAMEWORK}
+	${FOUNDATION_FRAMEWORK}
+)
+
+set(RHI_SOURCES ${RHI_SOURCES} PARENT_SCOPE)
+set(RHI_HEADERS ${RHI_HEADERS} PARENT_SCOPE)
+set(RHI_FRAMEWORKS ${RHI_FRAMEWORKS} PARENT_SCOPE)
