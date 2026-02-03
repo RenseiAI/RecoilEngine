@@ -24,7 +24,7 @@ struct UnitDefImage
 
 	int imageSizeX;
 	int imageSizeY;
-	GLuint textureID;
+	uint32_t textureID;
 };
 
 #endif // UNIT_DEF_IMAGE
