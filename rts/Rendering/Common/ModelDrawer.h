@@ -1,3 +1,26 @@
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
+
+/**
+ * RHI Migration Status: PARTIAL
+ *
+ * This header template class is partially migrated to the RHI abstraction layer.
+ *
+ * Migrated patterns:
+ *   - Inherits RHI pipeline state management via ModelDrawerState
+ *   - Uses RHI-based setup/reset drawing methods
+ *
+ * Remaining GL calls (with RHI_TODO comments in implementation):
+ *   - glEnable/glDisable(GL_ALPHA_TEST): Legacy FFP alpha test
+ *   - glEnable/glDisable(GL_FOG): Legacy FFP fog state
+ *   - glDisable(GL_TEXTURE_2D): Legacy FFP texture state
+ *   - glColor3f: Legacy FFP vertex color
+ *   - glPolygonOffset/GL_POLYGON_OFFSET_FILL: Could use PipelineDesc rasterizer
+ *
+ * Dependencies blocking full migration:
+ *   - GLSL path uses legacy FFP; GL4 path is modern
+ *   - Legacy draw path kept for compatibility with old Lua scripts
+ */
+
 #pragma once
 
 #include <array>
