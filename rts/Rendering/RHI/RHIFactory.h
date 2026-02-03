@@ -32,16 +32,6 @@ Backend GetDefaultBackend();
 /// Query whether a backend is available on this platform.
 bool IsBackendAvailable(Backend backend);
 
-/// Initialize the global RHI device. Called once at startup.
-/// Uses the default backend for the current platform.
-void InitDevice();
-
-/// Shut down the global RHI device. Called at exit.
-void KillDevice();
-
-/// Get the global RHI device. Returns nullptr if not yet initialized.
-IRHIDevice* GetDevice();
-
 } // namespace RHI
 
 #endif // RHI_FACTORY_H
