@@ -1,8 +1,16 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
-// RHI Migration: All GL calls here are fixed-function pipeline lighting with no
-// RHI equivalent. glGetIntegerv(GL_MAX_LIGHTS) -> IRHIDevice capability query.
-// glEnable/glDisable(GL_LIGHT*), glLightfv, glLightf -> replace with a light data
-// UBO (IRHIBuffer with BufferType::Uniform) uploaded each frame and read by shaders.
+
+/**
+ * GL Light Handler - Implementation
+ *
+ * RHI Migration Status: REQUIRES ARCHITECTURAL REDESIGN
+ * See LightHandler.h for full migration notes.
+ *
+ * GL calls: Init() queries GL_MAX_LIGHTS and initializes FFP light slots.
+ * Update() per-frame per-light: glEnable(lightID), glLightfv for all properties,
+ * then glDisable(lightID). The code note says it "communicates properties via
+ * the FFP to save uniforms" - after RHI migration, pack into UBO instead.
+ */
 
 #include "myGL.h"
 #include "LightHandler.h"
