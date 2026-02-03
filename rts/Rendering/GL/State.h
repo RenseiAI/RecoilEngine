@@ -5,6 +5,8 @@
 #include "myGL.h"
 #include "glHelpers.h"
 #include "System/TemplateUtils.hpp"
+#include "Rendering/RHI/RHIPipeline.h"
+#include "Rendering/RHI/RHITypes.h"
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -255,4 +257,107 @@ namespace State {
 	#undef ATTRIBUTE_TYPE_DEFS
 	#undef CAPABILITY_ATTRIBUTE_TYPE_DEFS
 	#undef MULTI_CAPABILITY_ATTRIBUTE_TYPE_DEFS
+
+/// GL-to-RHI pipeline state conversion helpers.
+/// Used by higher-level code migrating from GL::SubState to RHI::PipelineDesc.
+namespace RHIConvert {
+	inline RHI::BlendFactor BlendFactorToRHI(GLenum f) {
+		switch (f) {
+		case GL_ZERO:                     return RHI::BlendFactor::Zero;
+		case GL_ONE:                      return RHI::BlendFactor::One;
+		case GL_SRC_COLOR:                return RHI::BlendFactor::SrcColor;
+		case GL_ONE_MINUS_SRC_COLOR:      return RHI::BlendFactor::OneMinusSrcColor;
+		case GL_DST_COLOR:                return RHI::BlendFactor::DstColor;
+		case GL_ONE_MINUS_DST_COLOR:      return RHI::BlendFactor::OneMinusDstColor;
+		case GL_SRC_ALPHA:                return RHI::BlendFactor::SrcAlpha;
+		case GL_ONE_MINUS_SRC_ALPHA:      return RHI::BlendFactor::OneMinusSrcAlpha;
+		case GL_DST_ALPHA:                return RHI::BlendFactor::DstAlpha;
+		case GL_ONE_MINUS_DST_ALPHA:      return RHI::BlendFactor::OneMinusDstAlpha;
+		case GL_CONSTANT_COLOR:           return RHI::BlendFactor::ConstantColor;
+		case GL_ONE_MINUS_CONSTANT_COLOR: return RHI::BlendFactor::OneMinusConstantColor;
+		case GL_CONSTANT_ALPHA:           return RHI::BlendFactor::ConstantAlpha;
+		case GL_ONE_MINUS_CONSTANT_ALPHA: return RHI::BlendFactor::OneMinusConstantAlpha;
+		case GL_SRC_ALPHA_SATURATE:       return RHI::BlendFactor::SrcAlphaSaturate;
+		default:                          return RHI::BlendFactor::One;
+		}
+	}
+
+	inline RHI::CompareFunc CompareFuncToRHI(GLenum f) {
+		switch (f) {
+		case GL_NEVER:    return RHI::CompareFunc::Never;
+		case GL_LESS:     return RHI::CompareFunc::Less;
+		case GL_LEQUAL:   return RHI::CompareFunc::LessEqual;
+		case GL_EQUAL:    return RHI::CompareFunc::Equal;
+		case GL_NOTEQUAL: return RHI::CompareFunc::NotEqual;
+		case GL_GEQUAL:   return RHI::CompareFunc::GreaterEqual;
+		case GL_GREATER:  return RHI::CompareFunc::Greater;
+		case GL_ALWAYS:   return RHI::CompareFunc::Always;
+		default:          return RHI::CompareFunc::Always;
+		}
+	}
+
+	inline RHI::CullMode CullModeToRHI(GLenum mode) {
+		switch (mode) {
+		case GL_FRONT:          return RHI::CullMode::Front;
+		case GL_BACK:           return RHI::CullMode::Back;
+		case GL_FRONT_AND_BACK: return RHI::CullMode::None; // no direct equivalent
+		default:                return RHI::CullMode::None;
+		}
+	}
+
+	inline RHI::FrontFace FrontFaceToRHI(GLenum ff) {
+		switch (ff) {
+		case GL_CCW: return RHI::FrontFace::CounterClockwise;
+		case GL_CW:  return RHI::FrontFace::Clockwise;
+		default:     return RHI::FrontFace::CounterClockwise;
+		}
+	}
+
+	inline RHI::PolygonMode PolygonModeToRHI(GLenum m) {
+		switch (m) {
+		case GL_FILL:  return RHI::PolygonMode::Fill;
+		case GL_LINE:  return RHI::PolygonMode::Line;
+		case GL_POINT: return RHI::PolygonMode::Point;
+		default:       return RHI::PolygonMode::Fill;
+		}
+	}
+
+	inline RHI::PrimitiveType PrimitiveTypeToRHI(GLenum mode) {
+		switch (mode) {
+		case GL_POINTS:         return RHI::PrimitiveType::Points;
+		case GL_LINES:          return RHI::PrimitiveType::Lines;
+		case GL_LINE_STRIP:     return RHI::PrimitiveType::LineStrip;
+		case GL_TRIANGLES:      return RHI::PrimitiveType::Triangles;
+		case GL_TRIANGLE_STRIP: return RHI::PrimitiveType::TriangleStrip;
+		case GL_TRIANGLE_FAN:   return RHI::PrimitiveType::TriangleFan;
+		default:                return RHI::PrimitiveType::Triangles;
+		}
+	}
+
+	inline RHI::StencilOp StencilOpToRHI(GLenum op) {
+		switch (op) {
+		case GL_KEEP:      return RHI::StencilOp::Keep;
+		case GL_ZERO:      return RHI::StencilOp::Zero;
+		case GL_REPLACE:   return RHI::StencilOp::Replace;
+		case GL_INCR:      return RHI::StencilOp::IncrClamp;
+		case GL_DECR:      return RHI::StencilOp::DecrClamp;
+		case GL_INVERT:    return RHI::StencilOp::Invert;
+		case GL_INCR_WRAP: return RHI::StencilOp::IncrWrap;
+		case GL_DECR_WRAP: return RHI::StencilOp::DecrWrap;
+		default:           return RHI::StencilOp::Keep;
+		}
+	}
+
+	inline RHI::BlendOp BlendOpToRHI(GLenum op) {
+		switch (op) {
+		case GL_FUNC_ADD:              return RHI::BlendOp::Add;
+		case GL_FUNC_SUBTRACT:         return RHI::BlendOp::Subtract;
+		case GL_FUNC_REVERSE_SUBTRACT: return RHI::BlendOp::ReverseSubtract;
+		case GL_MIN:                   return RHI::BlendOp::Min;
+		case GL_MAX:                   return RHI::BlendOp::Max;
+		default:                       return RHI::BlendOp::Add;
+		}
+	}
+} // namespace RHIConvert
+
 }
