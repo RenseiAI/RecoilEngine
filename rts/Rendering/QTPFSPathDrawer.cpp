@@ -29,8 +29,27 @@
 #include "Rendering/GL/glExtra.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHITypes.h"
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
 #include "System/StringUtil.h"
+
+// RHI Migration Notes (QTPFSPathDrawer):
+// Mappable pipeline state in DrawAll():
+//   glPushAttrib(GL_ENABLE_BIT | GL_POLYGON_BIT) / glPopAttrib
+//     -> replace with scoped RHI::PipelineDesc save/restore
+//   glDisable(GL_DEPTH_TEST) -> RHI::DepthStencilState{depthTestEnabled=false}
+//   glEnable(GL_BLEND) -> RHI::BlendState{enabled=true}
+// Mappable state in DrawNodes():
+//   glLineWidth(2.0f) -> RHI::RasterizerState{lineWidth=2.0f}
+//   glPolygonMode(GL_FRONT_AND_BACK, GL_LINE) -> RHI::RasterizerState{polygonMode=Line}
+// Mappable state in DrawPaths()/DrawSearchIteration():
+//   glLineWidth(4.0f/2.0f) -> RHI::RasterizerState{lineWidth}
+// Non-mappable legacy FFP in DrawInMiniMap():
+//   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity, glOrtho,
+//   glTranslatef3, glScalef -> matrix stack (no RHI equivalent)
+//   glColor4f -> FFP per-vertex color
+//   glRectf -> FFP immediate-mode rectangle
+//   glDisable/glEnable(GL_TEXTURE_2D) -> FFP texture unit
 
 static std::vector<const QTPFS::QTNode*> visibleNodes;
 
