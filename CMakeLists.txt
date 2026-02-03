@@ -477,7 +477,7 @@ if (CMAKE_COMPILER_IS_GNUCXX)
 	if (NOT MARCH_FLAG STREQUAL "generic")
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${MARCH_FLAG} -mtune=${MARCH_FLAG}") #march/mtune define SSE flags
 	elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|armv8")
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+simd -ffp-contract=off")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+simd ${FP_CONTRACT_FLAG}")
 	else (NOT MARCH_FLAG STREQUAL "generic")
 		set(FALLBACK_SSE_FLAGS "-msse")
 		#set(FALLBACK_SSE_FLAGS "${FALLBACK_SSE_FLAGS} -mmmx")
@@ -510,7 +510,7 @@ elseif (MSVC)
 elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
 	# Clang on ARM64: no SSE flags needed, use armv8-a with NEON SIMD
 	if (IS_ARM64_BUILD)
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffp-contract=off")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${FP_CONTRACT_FLAG}")
 	else()
 		# Clang on x86_64: use SSE like GCC
 		if (NOT MARCH_FLAG OR MARCH_FLAG STREQUAL "" OR MARCH_FLAG STREQUAL "generic")
