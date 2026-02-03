@@ -115,6 +115,14 @@ else  (CMAKE_SIZEOF_VOID_P EQUAL 8)
 	message(FATAL_ERROR "RecoilEngine does not support 32 bits." )
 endif (CMAKE_SIZEOF_VOID_P EQUAL 8)
 
+# Detect ARM64 architecture
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|armv8")
+	set(IS_ARM64_BUILD TRUE)
+	message(STATUS "Detected ARM64 architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+else()
+	set(IS_ARM64_BUILD FALSE)
+endif()
+
 message(STATUS "Building Spring on ${MARCH_BITS}bit environment")
 set(BUILD_BITS "${MARCH_BITS}" CACHE STRING "Target arch machine type")
 message(STATUS "Targetting ${BUILD_BITS}bit")
