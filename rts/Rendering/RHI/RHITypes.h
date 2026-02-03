@@ -1,0 +1,330 @@
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
+
+#ifndef RHI_TYPES_H
+#define RHI_TYPES_H
+
+/**
+ * RHI Type Definitions
+ *
+ * Maps OpenGL concepts to backend-agnostic enums and structs:
+ *   GL_ARRAY_BUFFER / GL_ELEMENT_ARRAY_BUFFER  ->  RHIBufferType::Vertex / Index
+ *   GL_STREAM_DRAW / GL_STATIC_DRAW            ->  RHIBufferUsage::Stream / Static
+ *   GL_TEXTURE_2D / GL_TEXTURE_CUBE_MAP        ->  RHITextureType::Texture2D / TextureCube
+ *   glEnable(GL_DEPTH_TEST) + glDepthFunc()    ->  RHIDepthStencilState
+ *   glEnable(GL_BLEND) + glBlendFunc()         ->  RHIBlendState
+ *   glEnable(GL_CULL_FACE) + glCullFace()      ->  RHICullMode
+ *   GL pipeline state (mutable)                ->  RHIPipelineDesc (immutable descriptor)
+ *   FBO bind/attach                            ->  RHIRenderPassDesc
+ */
+
+#include <cstdint>
+#include <vector>
+
+namespace RHI {
+
+enum class Backend : uint8_t {
+	OpenGL,
+	Metal
+};
+
+// --- Buffer ---
+
+enum class BufferType : uint8_t {
+	Vertex,       // GL_ARRAY_BUFFER
+	Index,        // GL_ELEMENT_ARRAY_BUFFER
+	Uniform,      // GL_UNIFORM_BUFFER
+	Storage,      // GL_SHADER_STORAGE_BUFFER
+	PixelPack,    // GL_PIXEL_PACK_BUFFER
+	PixelUnpack   // GL_PIXEL_UNPACK_BUFFER
+};
+
+enum class BufferUsage : uint8_t {
+	Static,   // GL_STATIC_DRAW  - written once, read many
+	Dynamic,  // GL_DYNAMIC_DRAW - written frequently, read many
+	Stream    // GL_STREAM_DRAW  - written every frame
+};
+
+// --- Texture ---
+
+enum class TextureFormat : uint8_t {
+	RGBA8,
+	RGB8,
+	RG8,
+	R8,
+	RGBA16F,
+	RGB16F,
+	RG16F,
+	R16F,
+	RGBA32F,
+	RGB32F,
+	RG32F,
+	R32F,
+	R32I,
+	Depth16,
+	Depth24,
+	Depth32F,
+	Depth24Stencil8,
+	Depth32FStencil8,
+	SRGB8Alpha8,
+	CompressedDXT1,
+	CompressedDXT5
+};
+
+enum class TextureType : uint8_t {
+	Texture1D,
+	Texture2D,
+	Texture3D,
+	Texture1DArray,
+	Texture2DArray,
+	TextureCube,
+	TextureRect,
+	TextureBuffer,
+	Texture2DMS
+};
+
+enum class TextureFilter : uint8_t {
+	Nearest,
+	Linear,
+	NearestMipmapNearest,
+	LinearMipmapNearest,
+	NearestMipmapLinear,
+	LinearMipmapLinear
+};
+
+enum class TextureWrap : uint8_t {
+	Repeat,
+	ClampToEdge,
+	ClampToBorder,
+	MirroredRepeat
+};
+
+// --- Shader ---
+
+enum class ShaderStage : uint8_t {
+	Vertex,
+	Fragment,
+	Geometry,
+	Compute
+};
+
+// --- Pipeline state ---
+
+enum class BlendFactor : uint8_t {
+	Zero,
+	One,
+	SrcColor,
+	OneMinusSrcColor,
+	DstColor,
+	OneMinusDstColor,
+	SrcAlpha,
+	OneMinusSrcAlpha,
+	DstAlpha,
+	OneMinusDstAlpha,
+	ConstantColor,
+	OneMinusConstantColor,
+	ConstantAlpha,
+	OneMinusConstantAlpha,
+	SrcAlphaSaturate
+};
+
+enum class BlendOp : uint8_t {
+	Add,
+	Subtract,
+	ReverseSubtract,
+	Min,
+	Max
+};
+
+enum class CompareFunc : uint8_t {
+	Never,
+	Less,
+	LessEqual,
+	Equal,
+	NotEqual,
+	GreaterEqual,
+	Greater,
+	Always
+};
+
+enum class StencilOp : uint8_t {
+	Keep,
+	Zero,
+	Replace,
+	IncrClamp,
+	DecrClamp,
+	Invert,
+	IncrWrap,
+	DecrWrap
+};
+
+enum class CullMode : uint8_t {
+	None,
+	Front,
+	Back
+};
+
+enum class FrontFace : uint8_t {
+	CounterClockwise,  // GL_CCW (OpenGL default)
+	Clockwise          // GL_CW
+};
+
+enum class PrimitiveType : uint8_t {
+	Points,
+	Lines,
+	LineStrip,
+	Triangles,
+	TriangleStrip,
+	TriangleFan
+};
+
+enum class PolygonMode : uint8_t {
+	Fill,
+	Line,
+	Point
+};
+
+enum class IndexType : uint8_t {
+	UInt16,
+	UInt32
+};
+
+// --- Vertex layout ---
+
+enum class VertexFormat : uint8_t {
+	Float1,
+	Float2,
+	Float3,
+	Float4,
+	UByte4,
+	UByte4Norm,
+	Short2,
+	Short2Norm,
+	Short4,
+	Short4Norm,
+	Int1,
+	Int2,
+	Int3,
+	Int4
+};
+
+struct VertexAttribute {
+	uint32_t     location;
+	uint32_t     offset;
+	VertexFormat  format;
+};
+
+struct VertexLayout {
+	VertexAttribute* attributes;
+	uint32_t         attributeCount;
+	uint32_t         stride;
+};
+
+// --- Blend state ---
+
+struct BlendState {
+	bool        enabled      = false;
+	BlendFactor srcColor     = BlendFactor::One;
+	BlendFactor dstColor     = BlendFactor::Zero;
+	BlendOp     colorOp      = BlendOp::Add;
+	BlendFactor srcAlpha     = BlendFactor::One;
+	BlendFactor dstAlpha     = BlendFactor::Zero;
+	BlendOp     alphaOp      = BlendOp::Add;
+	bool        colorMask[4] = {true, true, true, true};
+};
+
+// --- Depth/Stencil state ---
+
+struct DepthStencilState {
+	bool        depthTestEnabled  = true;
+	bool        depthWriteEnabled = true;
+	CompareFunc depthFunc         = CompareFunc::Less;
+	bool        stencilEnabled    = false;
+	CompareFunc stencilFunc       = CompareFunc::Always;
+	uint32_t    stencilRef        = 0;
+	uint32_t    stencilReadMask   = 0xFF;
+	uint32_t    stencilWriteMask  = 0xFF;
+	StencilOp   stencilFailOp     = StencilOp::Keep;
+	StencilOp   stencilDepthFailOp = StencilOp::Keep;
+	StencilOp   stencilPassOp     = StencilOp::Keep;
+};
+
+// --- Rasterizer state ---
+
+struct RasterizerState {
+	CullMode    cullMode    = CullMode::Back;
+	FrontFace   frontFace   = FrontFace::CounterClockwise;
+	PolygonMode polygonMode = PolygonMode::Fill;
+	bool        scissorEnabled    = false;
+	bool        depthClampEnabled = false;
+	float       polygonOffsetFactor = 0.0f;
+	float       polygonOffsetUnits  = 0.0f;
+	float       lineWidth           = 1.0f;
+};
+
+// --- Pipeline descriptor ---
+
+struct PipelineDesc {
+	BlendState        blend;
+	DepthStencilState depthStencil;
+	RasterizerState   rasterizer;
+	// Shader and vertex layout are set separately when binding
+};
+
+// --- Render pass ---
+
+enum class LoadAction : uint8_t {
+	Load,      // preserve existing contents
+	Clear,     // clear to a specified value
+	DontCare   // contents undefined (performance hint)
+};
+
+enum class StoreAction : uint8_t {
+	Store,     // write results to attachment
+	DontCare   // contents may be discarded
+};
+
+struct ClearColor {
+	float r = 0.0f, g = 0.0f, b = 0.0f, a = 0.0f;
+};
+
+struct ColorAttachment {
+	LoadAction  loadAction  = LoadAction::Load;
+	StoreAction storeAction = StoreAction::Store;
+	ClearColor  clearColor;
+	// Texture handle set by backend
+};
+
+struct DepthAttachment {
+	LoadAction  loadAction  = LoadAction::Load;
+	StoreAction storeAction = StoreAction::Store;
+	float       clearDepth  = 1.0f;
+};
+
+struct RenderPassDesc {
+	ColorAttachment  colorAttachments[8];
+	uint32_t         colorAttachmentCount = 0;
+	DepthAttachment  depthAttachment;
+	bool             hasDepth = false;
+};
+
+// --- Viewport / Scissor ---
+
+struct Viewport {
+	float x      = 0.0f;
+	float y      = 0.0f;
+	float width  = 0.0f;
+	float height = 0.0f;
+	float minDepth = 0.0f;
+	float maxDepth = 1.0f;
+};
+
+struct ScissorRect {
+	int32_t  x      = 0;
+	int32_t  y      = 0;
+	uint32_t width  = 0;
+	uint32_t height = 0;
+};
+
+} // namespace RHI
+
+#endif // RHI_TYPES_H
