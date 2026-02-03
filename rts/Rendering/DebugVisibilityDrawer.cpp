@@ -7,8 +7,23 @@
 #include "Map/Ground.h"
 #include "Rendering/GL/glExtra.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHITypes.h"
 #include "System/Color.h"
 #include "Sim/Misc/QuadField.h"
+
+// RHI Migration Notes (DebugVisibilityDrawer):
+// All GL calls in this file are pipeline state and are directly mappable:
+// DrawWorld():
+//   glEnable(GL_BLEND) -> RHI::BlendState{enabled=true}
+//   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+//     -> RHI::BlendState{srcColor=SrcAlpha, dstColor=OneMinusSrcAlpha}
+//   glDepthMask(GL_FALSE) -> RHI::DepthStencilState{depthWriteEnabled=false}
+//   glDepthMask(GL_TRUE)  -> RHI::DepthStencilState{depthWriteEnabled=true}
+//   glDisable(GL_BLEND)   -> restore pipeline state
+// DrawMinimap():
+//   Same blend/depth state pattern as DrawWorld()
+// These calls should be bundled into a RHI::PipelineDesc and bound via
+// IRHIContext::BindPipeline() when the RHI pipeline state system is integrated.
 
 static constexpr float4 PASS_QUAD_COLOR = float4(0.00f, 0.75f, 0.00f, 0.45f);
 static constexpr float4 CULL_QUAD_COLOR = float4(0.75f, 0.00f, 0.00f, 0.45f);
