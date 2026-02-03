@@ -1,5 +1,25 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * RHI Migration Status: PARTIAL
+ *
+ * This file is partially migrated to the RHI abstraction layer.
+ *
+ * Migrated patterns:
+ *   - Pipeline state (blend, alpha) -> RHI::PipelineDesc + ctx->BindPipeline()
+ *   - RHI device/context access     -> RHI::CreateDevice(), GetContext()
+ *
+ * Remaining GL calls (with RHI_TODO comments):
+ *   - glAlphaFunc()/GL_ALPHA_TEST: Legacy FFP alpha test (shaders use discard)
+ *   - glColor3f: Legacy FFP vertex color
+ *   - glDisable(GL_TEXTURE_2D): Legacy FFP texture state
+ *   - glPolygonOffset/GL_POLYGON_OFFSET_FILL: Could use PipelineDesc rasterizer
+ *
+ * Dependencies blocking full migration:
+ *   - Alpha test is legacy FFP; modern shaders handle via discard
+ *   - Shadow pass state management depends on external shader setup
+ */
+
 #include "LuaObjectDrawer.h"
 #include "Features/FeatureDrawer.h"
 #include "Common/ModelDrawerHelpers.h"
