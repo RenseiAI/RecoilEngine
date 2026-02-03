@@ -1,5 +1,14 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * RHI Migration Notes for LuaMaterial.cpp
+ * ========================================
+ * GL calls: glUseProgram, glUniform*, glGetUniformLocation,
+ * glCallList, glActiveTexture, glPushMatrix/PopMatrix/LoadIdentity,
+ * glEnable/glDisable(GL_CULL_FACE), glCullFace, glGetProgramiv, glGetActiveUniform
+ *
+ * See LuaMaterial.h for detailed migration strategy.
+ */
 
 #include "LuaMaterial.h"
 
