@@ -1,3 +1,7 @@
+// GL::Texture2D and GL::Texture2DArray are the OpenGL texture wrapper classes.
+// They are analogous to RHI::GLTexture and form part of the GL backend.
+// Code that uses these classes should eventually migrate to RHI::IRHITexture.
+// This file intentionally uses direct GL calls as it IS the GL implementation.
 #include "Texture.hpp"
 
 #include <bit>
