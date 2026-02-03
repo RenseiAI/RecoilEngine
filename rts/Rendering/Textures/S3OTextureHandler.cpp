@@ -1,7 +1,25 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * S3OTextureHandler.cpp - S3O model texture loading and caching.
+ *
+ * RHI Migration Status: PARTIAL
+ * ============================
+ * Uses glDeleteTextures in:
+ *   - Kill() - bulk deletion of all cached textures
+ *
+ * Uses CBitmap::CreateMipMapTexture() for texture creation in:
+ *   - LoadAndCacheTexture() - initial texture creation from bitmap
+ *   - Reload() - texture reload with existing texture ID
+ *
+ * TODO: RHI gap - When migrating:
+ *   - Replace textureCache[textureName].texID storage with RHI texture ownership
+ *   - Use bitmap.CreateTextureRHI() instead of CreateMipMapTexture()
+ *   - glDeleteTextures becomes automatic via unique_ptr destruction
+ *   - InsertTextureMat() would extract native handles for backward compatibility
+ */
 
-#include "Rendering/GL/myGL.h" // needed for glDeleteTextures (raw texture handles from CBitmap)
+#include "Rendering/GL/myGL.h" // TODO: RHI gap - needed for glDeleteTextures (raw texture handles from CBitmap)
 #include "S3OTextureHandler.h"
 
 #include "System/FileSystem/FileHandler.h"
