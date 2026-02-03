@@ -3,6 +3,17 @@
 #ifndef _GLSL_COPY_STATE_H
 #define _GLSL_COPY_STATE_H
 
+// NOTE(RHI): This file is OpenGL-specific. It directly queries GL program
+// state (uniforms, UBOs, SSBOs, attributes, transform feedback, geometry
+// shader params) via glGetProgramiv/glGetActiveUniform/etc. and copies it
+// between GL program objects during hot-reload/recompilation.
+//
+// Metal equivalent: For the Metal backend, shader state transfer during
+// recompilation would use RHI::ShaderReflection data (extracted from
+// SPIR-V via SPIRV-Cross) rather than runtime GL queries. The reflection
+// data provides uniform names, types, and Metal buffer/texture indices.
+// See rts/Rendering/RHI/ShaderReflection.h.
+
 #include "System/UnorderedMap.hpp"
 #include "Shader.h"
 #include "ShaderStates.h"
