@@ -10,6 +10,16 @@
 
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHITypes.h"
+
+// RHI Migration Notes (IconHandler):
+// Texture lifecycle calls are mappable to RHI:
+//   glDeleteTextures -> IRHITexture destructor (requires refactoring
+//     atlasTextureIDs from raw uint32_t to std::unique_ptr<IRHITexture>)
+//   GL_RGBA8 enum -> RHI::TextureFormat::RGBA8
+// glSaveTexture is a debug/utility function with no RHI equivalent.
+// CBitmap::CreateMipMapTexture() returns raw GL texture ID; needs RHI wrapper.
+// CTextureRenderAtlas::DisownTexture() returns raw GL ID; needs RHI wrapper.
 #include "System/Log/ILog.h"
 #include "System/UnorderedSet.hpp"
 #include "System/UnorderedMap.hpp"
