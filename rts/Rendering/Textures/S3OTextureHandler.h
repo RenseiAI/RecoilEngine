@@ -1,5 +1,23 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * CS3OTextureHandler - Manages S3O model textures (diffuse + secondary).
+ *
+ * RHI Migration Status: PARTIAL
+ * ============================
+ * - Stores raw GLuint texture IDs in S3OTexMat and CachedS3OTex structs
+ * - Uses glDeleteTextures in Kill() for cleanup
+ * - Texture creation via CBitmap::CreateMipMapTexture() (returns raw GLuint)
+ *
+ * Migration Path:
+ * 1. Replace uint32_t tex1/tex2 in S3OTexMat with RHI texture references
+ * 2. Replace uint32_t texID in CachedS3OTex with std::unique_ptr<RHI::IRHITexture>
+ * 3. Use CBitmap::CreateTextureRHI() instead of CreateMipMapTexture()
+ * 4. glDeleteTextures in Kill() becomes automatic via unique_ptr destruction
+ *
+ * Note: S3O models use two-texture material (tex1=diffuse+teamcolor, tex2=glow+reflect)
+ */
+
 #ifndef S3O_TEXTURE_HANDLER_H
 #define S3O_TEXTURE_HANDLER_H
 
