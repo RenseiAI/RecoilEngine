@@ -507,7 +507,19 @@ elseif (MSVC)
 	set(MSVC_CXX_FLAGS "/arch:SSE2") #default, but still set explicitly
 	# silence warnings
 	add_definitions(-D_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS)
-else   (MSVC)
+elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
+	# Clang on ARM64: no SSE flags needed, use armv8-a with NEON SIMD
+	if (IS_ARM64_BUILD)
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffp-contract=off")
+	else()
+		# Clang on x86_64: use SSE like GCC
+		if (NOT MARCH_FLAG OR MARCH_FLAG STREQUAL "" OR MARCH_FLAG STREQUAL "generic")
+			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse -mfpmath=sse")
+		else()
+			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${MARCH_FLAG} -mtune=${MARCH_FLAG}")
+		endif()
+	endif()
+else()
 	message(WARNING "unknown compiler")
 endif (CMAKE_COMPILER_IS_GNUCXX)
 
