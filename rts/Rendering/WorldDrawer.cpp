@@ -1,4 +1,12 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+// RHI Migration: Top-level draw coordinator. GL calls to migrate:
+//   Draw(): glClearColor/glClear -> IRHIContext::ClearColor/ClearDepth/ClearStencil
+//           glDepthMask/glEnable(GL_DEPTH_TEST)/glBlendFunc -> PipelineDesc state
+//   ResetMVPMatrices(): glMatrixMode/glLoadIdentity/gluOrtho2D -> CMatrix44f ortho
+//   DrawAlphaObjects(): glClipPlane/GL_CLIP_PLANE3 -> shader clip distances (no RHI yet)
+//                       glPushMatrix/glPopMatrix/glLoadIdentity -> CMatrix44f stack
+//   DrawBelowWaterOverlay(): glEnableClientState/glVertexPointer/glDrawArrays -> IRHIBuffer
+//                            glColor4f -> per-vertex color or push constant
 
 #include "Rendering/GL/myGL.h"
 
