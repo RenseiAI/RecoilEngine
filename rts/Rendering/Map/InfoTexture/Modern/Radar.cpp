@@ -130,6 +130,8 @@ void CRadarTexture::Update()
 	auto state = GL::SubState(
 		Blending(GL_FALSE)
 	);
+	// TODO [RHI cross-cutting]: infoTextureHandler->GetInfoTexture() returns raw GLuint;
+	// needs RHI texture wrapper before this can be migrated to ctx->BindTexture()
 	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, infoTextureHandler->GetInfoTexture("los")->GetTexture());
 	RunFullScreenPass();

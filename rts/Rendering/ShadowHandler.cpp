@@ -1,4 +1,28 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+
+/**
+ * RHI Migration Status: PARTIAL
+ *
+ * This file is partially migrated to the RHI abstraction layer.
+ *
+ * Migrated patterns:
+ *   - FBO creation/management    -> IRHIDevice::CreateFramebuffer()
+ *   - Depth texture creation     -> IRHIDevice::CreateTexture(Depth format)
+ *   - Texture parameters         -> IRHITexture::Set{Min,Mag}Filter(), SetWrap{S,T}()
+ *   - Depth texture compare mode -> IRHITexture::SetCompareMode()
+ *   - RHI device/context access  -> RHI::CreateDevice(), GetContext()
+ *
+ * Remaining GL calls (with RHI_TODO comments):
+ *   - glColorMask(): Color write mask not yet in RHI PipelineDesc
+ *   - GL_TEXTURE_SWIZZLE_*: Texture swizzle mask not in RHI interface
+ *   - GL_DEPTH_TEXTURE_MODE: Legacy FFP, no RHI equivalent
+ *   - Line width: RasterizerState::lineWidth not yet implemented
+ *
+ * Dependencies blocking full migration:
+ *   - RHI needs color write mask support in PipelineDesc::blend
+ *   - RHI needs texture swizzle support in IRHITexture
+ */
+
 #include <cfloat>
 
 #include "ShadowHandler.h"
