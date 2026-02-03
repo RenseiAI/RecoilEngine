@@ -1,12 +1,33 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
-// RHI Migration: Top-level draw coordinator. GL calls to migrate:
-//   Draw(): glClearColor/glClear -> IRHIContext::ClearColor/ClearDepth/ClearStencil
-//           glDepthMask/glEnable(GL_DEPTH_TEST)/glBlendFunc -> PipelineDesc state
-//   ResetMVPMatrices(): glMatrixMode/glLoadIdentity/gluOrtho2D -> CMatrix44f ortho
-//   DrawAlphaObjects(): glClipPlane/GL_CLIP_PLANE3 -> shader clip distances (no RHI yet)
-//                       glPushMatrix/glPopMatrix/glLoadIdentity -> CMatrix44f stack
-//   DrawBelowWaterOverlay(): glEnableClientState/glVertexPointer/glDrawArrays -> IRHIBuffer
-//                            glColor4f -> per-vertex color or push constant
+
+/**
+ * World Drawer - Implementation
+ *
+ * RHI Migration Status: NEEDS MIGRATION (~26 GL calls)
+ * ----------------------------------------------------
+ * GL calls by function:
+ *
+ * Draw(): ~6 calls
+ *   - glClearColor(sky->fogColor...) + glClear(COLOR|DEPTH|STENCIL)
+ *     -> IRHIContext::ClearColor() + Clear(true, true, true)
+ *   - glDepthMask(GL_TRUE), glEnable(GL_DEPTH_TEST), glDisable(GL_BLEND)
+ *     -> RHI::DepthStencilState{depthTestEnabled=true, depthWriteEnabled=true}
+ *   - glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+ *     -> RHI::BlendState{srcColor=SrcAlpha, dstColor=OneMinusSrcAlpha}
+ *   - glDisable(GL_FOG) -> fog should be shader-based, not FFP
+ *
+ * ResetMVPMatrices(): ~5 calls (FFP matrix stack)
+ *   -> Use CMatrix44f::OrthoProj() and update uniform buffer
+ *
+ * DrawAlphaObjects(): ~8 calls (clip planes + matrix stack)
+ *   - glClipPlane/glEnable(GL_CLIP_PLANE3)
+ *     -> IRHIContext::SetClipDistanceEnabled() or shader-based clipping
+ *
+ * DrawBelowWaterOverlay(): ~7 calls (immediate mode rendering)
+ *   - glEnableClientState/glVertexPointer/glDrawArrays
+ *     -> IRHIBuffer + IRHIContext::Draw()
+ *   - glColor4f -> per-vertex color attribute or uniform
+ */
 
 #include "Rendering/GL/myGL.h"
 
