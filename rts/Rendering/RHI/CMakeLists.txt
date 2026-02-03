@@ -24,8 +24,7 @@ endif()
 
 # Metal backend (macOS only)
 if(APPLE)
-	# Metal backend added in Tier 4
-	# add_subdirectory(Metal)
+	add_subdirectory(Metal)
 endif()
 
 # Shader compilation pipeline (macOS only, for GLSL->MSL)
@@ -42,3 +41,6 @@ endif()
 
 set(RHI_SOURCES ${RHI_SOURCES} PARENT_SCOPE)
 set(RHI_HEADERS ${RHI_HEADERS} PARENT_SCOPE)
+if(RHI_FRAMEWORKS)
+	set(RHI_FRAMEWORKS ${RHI_FRAMEWORKS} PARENT_SCOPE)
+endif()

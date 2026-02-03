@@ -5,7 +5,9 @@
 
 // Backend includes
 #include "OpenGL/GLDevice.h"
-// #include "Metal/MetalDevice.h"  // Tier 4
+#ifdef __APPLE__
+#include "Metal/MTLDevice.h"
+#endif
 
 namespace RHI {
 
@@ -17,9 +19,8 @@ std::unique_ptr<IRHIDevice> CreateDevice(Backend backend) {
 
 		case Backend::Metal:
 #ifdef __APPLE__
-			// Metal backend will be implemented in Tier 4
-			LOG_L(L_ERROR, "[RHI] Metal backend not yet implemented");
-			return nullptr;
+			LOG("[RHI] Creating Metal device");
+			return std::make_unique<MTLDevice>();
 #else
 			LOG_L(L_ERROR, "[RHI] Metal backend not available on this platform");
 			return nullptr;
@@ -31,9 +32,8 @@ std::unique_ptr<IRHIDevice> CreateDevice(Backend backend) {
 
 Backend GetDefaultBackend() {
 #if defined(__APPLE__) && defined(__aarch64__)
-	// Metal is preferred on Apple Silicon, but not yet implemented
-	// return Backend::Metal;
-	return Backend::OpenGL;
+	// Metal is preferred on Apple Silicon
+	return Backend::Metal;
 #else
 	return Backend::OpenGL;
 #endif
@@ -45,7 +45,7 @@ bool IsBackendAvailable(Backend backend) {
 			return true;
 		case Backend::Metal:
 #ifdef __APPLE__
-			return false; // will be true after Tier 4
+			return true;
 #else
 			return false;
 #endif
