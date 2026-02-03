@@ -1,5 +1,23 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * C3DOTextureHandler - Manages 3DO (Total Annihilation) model texture atlases.
+ *
+ * RHI Migration Status: MOSTLY COMPLETE
+ * =====================================
+ * - Init() already uses RHI::GetDevice()->CreateTexture() for atlas creation
+ * - Stores raw GLuint handles (atlas3do1, atlas3do2) extracted via GetNativeHandle()
+ * - Kill() still uses glDeleteTextures for cleanup
+ *
+ * Remaining Migration Work:
+ * 1. Store std::unique_ptr<RHI::IRHITexture> instead of raw handles
+ *    (currently ownership is released after GetNativeHandle())
+ * 2. Replace glDeleteTextures in Kill() with unique_ptr destruction
+ * 3. GetAtlasTex1ID/GetAtlasTex2ID would return GetNativeHandle() for compat
+ *
+ * Note: Still depends on GL for RecoilBuildMipmaps() - see 3DOTextureHandler.cpp
+ */
+
 #ifndef _3DO_TEXTURE_HANDLER_H
 #define _3DO_TEXTURE_HANDLER_H
 
