@@ -1,5 +1,6 @@
 #include "glFontRenderer.h"
 
+#include "CFontTexture.h"
 #include "glFont.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/Shaders/Shader.h"
@@ -221,6 +222,9 @@ void CglShaderFontRenderer::HandleTextureUpdate(CFontTexture& fnt, bool onlyUplo
 void CglShaderFontRenderer::PushGLState(const CglFont& fnt)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI GAP: glPushAttrib/glPopAttrib state save/restore has no RHI equivalent.
+	// These mutable GL state calls would map to RHI pipeline state objects, but the
+	// font renderer currently relies on push/pop semantics not available in RHI.
 	glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT);
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_ALPHA_TEST); //just in case
@@ -228,7 +232,9 @@ void CglShaderFontRenderer::PushGLState(const CglFont& fnt)
 	if (!userDefinedBlending)
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	glBindTexture(GL_TEXTURE_2D, fnt.GetTexture());
+	// Bind font atlas texture via RHI
+	if (auto* tex = fnt.GetAtlasTexture())
+		tex->Bind(0);
 
 	glGetIntegerv(GL_CURRENT_PROGRAM, &currProgID);
 
@@ -250,7 +256,9 @@ void CglShaderFontRenderer::PopGLState(const CglFont& fnt)
 	if (currProgID > 0)
 		glUseProgram(currProgID);
 
-	glBindTexture(GL_TEXTURE_2D, 0);
+	// Unbind font atlas texture via RHI
+	if (auto* tex = fnt.GetAtlasTexture())
+		tex->Unbind(0);
 
 	glPopAttrib();
 }
@@ -366,6 +374,9 @@ void CglNoShaderFontRenderer::HandleTextureUpdate(CFontTexture& fnt, bool onlyUp
 void CglNoShaderFontRenderer::PushGLState(const CglFont& fnt)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// NOTE: This entire legacy (no-shader) renderer uses fixed-function pipeline
+	// features (display lists, matrix stack, client state) that have no RHI equivalent.
+	// Only the texture bind is migrated to RHI; the rest stays as raw GL.
 	glPushAttrib(GL_ENABLE_BIT | GL_CURRENT_BIT);
 	glDisable(GL_LIGHTING);
 	glDisable(GL_DEPTH_TEST);
@@ -383,13 +394,17 @@ void CglNoShaderFontRenderer::PushGLState(const CglFont& fnt)
 	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 	glEnableClientState(GL_COLOR_ARRAY);
 
-	glBindTexture(GL_TEXTURE_2D, fnt.GetTexture());
+	// Bind font atlas texture via RHI
+	if (auto* tex = fnt.GetAtlasTexture())
+		tex->Bind(0);
 }
 
 void CglNoShaderFontRenderer::PopGLState(const CglFont& fnt)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glBindTexture(GL_TEXTURE_2D, 0);
+	// Unbind font atlas texture via RHI
+	if (auto* tex = fnt.GetAtlasTexture())
+		tex->Unbind(0);
 
 	glDisableClientState(GL_VERTEX_ARRAY);
 	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
