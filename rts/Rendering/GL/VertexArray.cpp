@@ -1,5 +1,11 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+// DEPRECATED: CVertexArray uses legacy fixed-function GL client state.
+// All Draw*() methods are wrapped with #if !defined(HEADLESS) guards since
+// they call GL functions (glEnableClientState, glVertexPointer, glDrawArrays, etc.)
+// that have no RHI equivalent. New rendering code should use RenderBuffer
+// or the RHI buffer/context interfaces instead.
+
 #include <cstring>
 
 #include "VertexArray.h"

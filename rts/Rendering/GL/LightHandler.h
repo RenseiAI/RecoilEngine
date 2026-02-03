@@ -1,4 +1,8 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+// RHI Migration: LightHandler uses GL fixed-function lighting (glEnable(GL_LIGHT*),
+// glLightfv, glLightf) to communicate light properties via FFP. These calls have no
+// RHI equivalent. Future migration: replace with a UBO/SSBO containing light data,
+// uploaded via IRHIBuffer, and sampled in shaders. GL_MAX_LIGHTS query -> IRHIDevice.
 
 #ifndef _GL_LIGHTHANDLER_H
 #define _GL_LIGHTHANDLER_H

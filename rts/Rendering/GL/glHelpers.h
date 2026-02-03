@@ -2,6 +2,12 @@
 
 #pragma once
 
+// NOTE: glHelpers.h contains OpenGL-specific state query/set helpers.
+// These use raw GL calls (glGetIntegerv, glGetBooleanv, glEnable, glDisable, etc.)
+// and are only valid for the OpenGL backend. For backend-agnostic code, use
+// RHI::PipelineDesc for state management and RHI::IRHIDevice for capability queries.
+// This header should only be included by OpenGL backend code and legacy GL/ files.
+
 #include "myGL.h"
 #include "System/TemplateUtils.hpp"
 #include "Rendering/Textures/TextureFormat.h"

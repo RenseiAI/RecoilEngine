@@ -4,7 +4,7 @@
 #define ADV_WATER_H
 
 #include "Rendering/GL/FBO.h"
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h" // needed for GLuint; RHI-TODO: replace with RHI texture handles
 #include "IWater.h"
 
 class CAdvWater : public IWater

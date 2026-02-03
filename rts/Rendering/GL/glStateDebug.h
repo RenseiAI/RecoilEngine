@@ -1,4 +1,9 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+// RHI Migration: This is an OpenGL-only debug utility. All GL state queries
+// (glGetBooleanv, glGetFloatv, glGetIntegerv) and wrapped calls (glEnable,
+// glDisable, glBlendFunc, glDepthMask, etc.) are OpenGL-specific.
+// For RHI, pipeline state validation would be done via IRHIPipeline::GetDesc()
+// comparisons against expected RHI::PipelineDesc values.
 
 #ifndef _GL_STATE_CHECKER_H
 #define _GL_STATE_CHECKER_H

@@ -150,8 +150,8 @@ int2 CInfoTextureHandler::GetCurrentInfoTextureSize() const
 void CInfoTextureHandler::Update()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glActiveTexture(GL_TEXTURE0);
-	glEnable(GL_TEXTURE_2D);
+	// RHI: removed glActiveTexture(GL_TEXTURE0) - active unit managed by Bind() calls
+	// RHI: removed glEnable(GL_TEXTURE_2D) - legacy fixed-function, no-op with shaders
 
 	for (auto& [name, tex] : infoTextures) {
 		// force first update except for combiner; hides visible uninitialized texmem

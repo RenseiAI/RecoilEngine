@@ -1,4 +1,17 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+// RHI Migration: CGlobalRendering is the most architecturally significant migration target.
+// It currently owns SDL window + GL context and queries GL capabilities directly.
+// Target architecture: CGlobalRendering should become backend-agnostic by:
+//   1. Owning an IRHIDevice* (created via RHI::CreateDevice) instead of raw GL context
+//   2. Moving GL capability queries (QueryGLMaxVals, CheckGLExtensions, SetGLSupportFlags)
+//      into GLDevice, exposed via IRHIDevice interface (HaveGL4, SupportPersistentMapping, etc.)
+//   3. Moving InitGLState (glDepthFunc, glClipControl, glClearColor, etc.) into GLDevice::Init
+//      or expressed as initial PipelineDesc + IRHIContext state setup
+//   4. Keeping SDL window management here (platform-agnostic), but context creation
+//      should delegate to IRHIDevice::CreateContext or backend factory
+//   5. Timer queries (SetGLTimeStamp, CalcGLDeltaTime) -> IRHIDevice GPU timing API
+//   6. SwapBuffers stays here (SDL), but error clearing moves to backend
+// Fields like haveGL4, supportPersistentMapping, glslMax* become IRHIDevice queries.
 
 #ifndef _GLOBAL_RENDERING_H
 #define _GLOBAL_RENDERING_H
