@@ -2,6 +2,11 @@
 add_subdirectory(unitsync)
 add_subdirectory(DemoTool)
 
+# ShaderTranslator - GLSL to Metal shader compiler (Apple only)
+if(APPLE)
+	add_subdirectory(ShaderTranslator)
+endif()
+
 if    (NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/pr-downloader/CMakeLists.txt")
 	message(FATAL_ERROR "${CMAKE_CURRENT_SOURCE_DIR}/pr-downloader/ is missing, please run\n git submodule update --init --recursive")
 endif ()
