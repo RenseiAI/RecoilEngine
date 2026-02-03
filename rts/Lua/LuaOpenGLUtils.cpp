@@ -1,8 +1,22 @@
-/* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
+
+/**
+ * Lua OpenGL Utilities Implementation
+ *
+ * RHI Migration Status:
+ * - GetTextureID/GetTextureTarget: Returns GL handles (unchanged)
+ * - Bind/Unbind: Legacy FFP path with glEnable/glDisable
+ * - BindToUnit/UnbindFromUnit: RHI-compatible path (shader-only)
+ *
+ * The RHI-compatible methods avoid FFP texture enable state since modern
+ * shaders don't need glEnable(GL_TEXTURE_2D) - they just sample from bound
+ * texture units directly.
+ */
 
 #include <cctype>
 
 #include "LuaOpenGLUtils.h"
+#include "LuaGLConstMappings.h"
 
 #include "LuaHandle.h"
 #include "LuaTextures.h"
@@ -33,6 +47,7 @@
 #include "System/Matrix44f.h"
 #include "System/StringUtil.h"
 #include "System/Log/ILog.h"
+#include "Rendering/GL/myGL.h"
 
 
 
@@ -834,6 +849,39 @@ void LuaMatTexture::Unbind() const
 		case GL_TEXTURE_CUBE_MAP:     {   glDisable(GL_TEXTURE_CUBE_MAP);       } break;
 		default:                      {                                         } break;
 	}
+}
+
+
+void LuaMatTexture::BindToUnit(uint32_t unit) const
+{
+	// RHI-compatible texture binding: no FFP enable state, just bind to unit
+	// This is the preferred path for shader-based rendering
+	const GLuint texID = GetTextureID();
+	const GLuint texType = GetTextureTarget();
+
+	if (texID == 0)
+		return;
+
+	glActiveTexture(GL_TEXTURE0 + unit);
+	glBindTexture(texType, texID);
+
+	if (type == LUATEX_SHADOWMAP)
+		shadowHandler.SetupShadowTexSamplerRaw();
+}
+
+
+void LuaMatTexture::UnbindFromUnit(uint32_t unit) const
+{
+	if (type == LUATEX_NONE)
+		return;
+
+	if (type == LUATEX_SHADOWMAP)
+		shadowHandler.ResetShadowTexSamplerRaw();
+
+	const GLuint texType = GetTextureTarget();
+
+	glActiveTexture(GL_TEXTURE0 + unit);
+	glBindTexture(texType, 0);
 }
 
 
