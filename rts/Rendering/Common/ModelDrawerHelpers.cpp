@@ -1,3 +1,28 @@
+/* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
+
+/**
+ * RHI Migration Status: PARTIAL
+ *
+ * This file is partially migrated to the RHI abstraction layer.
+ *
+ * Migrated patterns:
+ *   - Pipeline state (cull mode) -> RHI::PipelineDesc + ctx->BindPipeline()
+ *   - RHI device/context access  -> RHI::CreateDevice(), GetContext()
+ *
+ * Remaining GL calls (with RHI_TODO comments):
+ *   - glActiveTexture/glBindTexture: Texture handlers (textureHandler3DO,
+ *     textureHandlerS3O, cubeMapHandler) return raw GL IDs, not RHI objects
+ *   - glEnable/glDisable(GL_TEXTURE_2D/GL_TEXTURE_CUBE_MAP): Legacy FFP
+ *   - glMatrixMode/glPushMatrix/glPopMatrix: Legacy FFP matrix stack
+ *   - glGetIntegerv(GL_MATRIX_MODE): Legacy FFP state query
+ *
+ * Dependencies blocking full migration:
+ *   - textureHandler3DO needs to return IRHITexture*
+ *   - textureHandlerS3O needs to return IRHITexture*
+ *   - cubeMapHandler needs to return IRHITexture*
+ *   - FFP matrix stack used by GLSL path; GL4 path uses uniform buffers
+ */
+
 #include "ModelDrawerHelpers.h"
 #include "ModelDrawer.h"
 #include "System/float3.h"
