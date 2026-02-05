@@ -7,35 +7,80 @@
 #include "GLShader.h"
 #include "GLFramebuffer.h"
 #include "GLPipeline.h"
-#include "Rendering/GlobalRendering.h"
+#include "Rendering/GL/myGL.h"
 
 namespace RHI {
 
 GLDevice::GLDevice()
 	: context(std::make_unique<GLContext>())
 {
+	InitCapabilities();
 }
 
-// --- Capability queries: thin wrappers around globalRendering fields ---
+void GLDevice::InitCapabilities()
+{
+	// Feature support flags - query GLAD extension booleans directly.
+	// GLAD is already loaded before RHI::InitDevice() is called
+	// (gladLoadGL happens in GlobalRendering::CreateWindowAndContext).
+	// In headless builds, all GLAD extension flags are 0 (false).
+	caps_haveGL4 = GLAD_GL_ARB_multi_draw_indirect
+	            && GLAD_GL_ARB_uniform_buffer_object
+	            && GLAD_GL_ARB_shader_storage_buffer_object;
 
-bool GLDevice::HaveGL4() const { return globalRendering->haveGL4; }
-bool GLDevice::SupportPersistentMapping() const { return globalRendering->supportPersistentMapping; }
-bool GLDevice::SupportClipSpaceControl() const { return globalRendering->supportClipSpaceControl; }
-bool GLDevice::SupportSeamlessCubeMaps() const { return globalRendering->supportSeamlessCubeMaps; }
-bool GLDevice::SupportMSAAFrameBuffer() const { return globalRendering->supportMSAAFrameBuffer; }
-bool GLDevice::SupportExplicitAttribLoc() const { return globalRendering->supportExplicitAttribLoc; }
-bool GLDevice::SupportFragDepthLayout() const { return globalRendering->supportFragDepthLayout; }
-bool GLDevice::SupportRestartPrimitive() const { return globalRendering->supportRestartPrimitive; }
+	caps_supportPersistentMapping = GLAD_GL_ARB_buffer_storage;
+	caps_supportExplicitAttribLoc = GLAD_GL_ARB_explicit_attrib_location;
+	caps_supportRestartPrimitive  = GLAD_GL_NV_primitive_restart;
+	caps_supportClipSpaceControl  = GLAD_GL_ARB_clip_control;
+	caps_supportSeamlessCubeMaps  = GLAD_GL_ARB_seamless_cube_map;
+	caps_supportFragDepthLayout   = GLAD_GL_ARB_conservative_depth;
+	caps_supportMSAAFrameBuffer   = GLAD_GL_EXT_framebuffer_multisample;
 
-int GLDevice::GetMaxTextureSize() const { return globalRendering->maxTextureSize; }
-int GLDevice::GetMaxTextureSlots() const { return globalRendering->maxTexSlots; }
-float GLDevice::GetMaxTexAnisotropy() const { return globalRendering->maxTexAnisoLvl; }
-int GLDevice::GetMaxDrawBuffers() const { return globalRendering->glslMaxDrawBuffers; }
-int GLDevice::GetMaxUniformBufferBindings() const { return globalRendering->glslMaxUniformBufferBindings; }
-int GLDevice::GetMaxUniformBufferSize() const { return globalRendering->glslMaxUniformBufferSize; }
-int GLDevice::GetMaxStorageBufferBindings() const { return globalRendering->glslMaxStorageBufferBindings; }
-int GLDevice::GetMaxStorageBufferSize() const { return globalRendering->glslMaxStorageBufferSize; }
-int GLDevice::GetDepthBufferBitDepth() const { return globalRendering->supportDepthBufferBitDepth; }
+	// Resource limits - query GL directly.
+	// In headless builds, glGetIntegerv is a no-op stub that leaves values at 0.
+	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &caps_maxTextureSize);
+	glGetIntegerv(GL_MAX_TEXTURE_COORDS, &caps_maxTexSlots);
+
+	if (GLAD_GL_EXT_texture_filter_anisotropic)
+		glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &caps_maxTexAnisoLvl);
+
+	if (GLAD_GL_ARB_uniform_buffer_object) {
+		glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &caps_glslMaxUniformBufferBindings);
+		glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE,      &caps_glslMaxUniformBufferSize);
+	}
+
+	if (GLAD_GL_ARB_shader_storage_buffer_object) {
+		glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &caps_glslMaxStorageBufferBindings);
+		glGetIntegerv(GL_MAX_SHADER_STORAGE_BLOCK_SIZE,      &caps_glslMaxStorageBufferSize);
+	}
+
+	glGetIntegerv(GL_MAX_DRAW_BUFFERS, &caps_glslMaxDrawBuffers);
+
+	// Depth buffer bit depth is probed via FBO in GlobalRendering::SetGLSupportFlags().
+	// We can't easily replicate that probe here without FBO infrastructure, so default
+	// to 24 bits which is the most common and safe default.
+	caps_supportDepthBufferBitDepth = 24;
+}
+
+// --- Capability queries: read from own fields ---
+
+bool GLDevice::HaveGL4() const { return caps_haveGL4; }
+bool GLDevice::SupportPersistentMapping() const { return caps_supportPersistentMapping; }
+bool GLDevice::SupportClipSpaceControl() const { return caps_supportClipSpaceControl; }
+bool GLDevice::SupportSeamlessCubeMaps() const { return caps_supportSeamlessCubeMaps; }
+bool GLDevice::SupportMSAAFrameBuffer() const { return caps_supportMSAAFrameBuffer; }
+bool GLDevice::SupportExplicitAttribLoc() const { return caps_supportExplicitAttribLoc; }
+bool GLDevice::SupportFragDepthLayout() const { return caps_supportFragDepthLayout; }
+bool GLDevice::SupportRestartPrimitive() const { return caps_supportRestartPrimitive; }
+
+int GLDevice::GetMaxTextureSize() const { return caps_maxTextureSize; }
+int GLDevice::GetMaxTextureSlots() const { return caps_maxTexSlots; }
+float GLDevice::GetMaxTexAnisotropy() const { return caps_maxTexAnisoLvl; }
+int GLDevice::GetMaxDrawBuffers() const { return caps_glslMaxDrawBuffers; }
+int GLDevice::GetMaxUniformBufferBindings() const { return caps_glslMaxUniformBufferBindings; }
+int GLDevice::GetMaxUniformBufferSize() const { return caps_glslMaxUniformBufferSize; }
+int GLDevice::GetMaxStorageBufferBindings() const { return caps_glslMaxStorageBufferBindings; }
+int GLDevice::GetMaxStorageBufferSize() const { return caps_glslMaxStorageBufferSize; }
+int GLDevice::GetDepthBufferBitDepth() const { return caps_supportDepthBufferBitDepth; }
 
 bool GLDevice::SupportTimerQueries() const { return GLAD_GL_ARB_timer_query; }
 

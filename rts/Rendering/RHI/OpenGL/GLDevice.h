@@ -16,7 +16,7 @@ public:
 	Backend GetBackend() const override { return Backend::OpenGL; }
 	const char* GetBackendName() const override { return "OpenGL"; }
 
-	// Capability queries - delegate to globalRendering
+	// Capability queries - read from own fields populated by InitCapabilities()
 	bool HaveGL4() const override;
 	bool SupportPersistentMapping() const override;
 	bool SupportClipSpaceControl() const override;
@@ -55,7 +55,31 @@ public:
 	IRHIContext* GetContext() override;
 
 private:
+	/// Query GL capabilities directly via GLAD. Called once at construction.
+	void InitCapabilities();
+
 	std::unique_ptr<IRHIContext> context;
+
+	// Capability flags (populated by InitCapabilities)
+	bool caps_haveGL4 = false;
+	bool caps_supportPersistentMapping = false;
+	bool caps_supportClipSpaceControl = false;
+	bool caps_supportSeamlessCubeMaps = false;
+	bool caps_supportMSAAFrameBuffer = false;
+	bool caps_supportExplicitAttribLoc = false;
+	bool caps_supportFragDepthLayout = false;
+	bool caps_supportRestartPrimitive = false;
+
+	// Resource limits (populated by InitCapabilities)
+	int caps_maxTextureSize = 0;
+	int caps_maxTexSlots = 0;
+	float caps_maxTexAnisoLvl = 0.0f;
+	int caps_glslMaxDrawBuffers = 0;
+	int caps_glslMaxUniformBufferBindings = 0;
+	int caps_glslMaxUniformBufferSize = 0;
+	int caps_glslMaxStorageBufferBindings = 0;
+	int caps_glslMaxStorageBufferSize = 0;
+	int caps_supportDepthBufferBitDepth = 0;
 };
 
 } // namespace RHI
