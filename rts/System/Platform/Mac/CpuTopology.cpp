@@ -36,17 +36,17 @@ namespace cpu_topology {
 // ---------------------------------------------------------------------------
 
 /// Query an integer value via sysctlbyname. Returns true on success.
-static bool SysctlInt(const char* name, int& out) {
-	size_t size = sizeof(out);
-	if (sysctlbyname(name, &out, &size, nullptr, 0) != 0)
+static bool SysctlInt(const char* name, int* out) {
+	size_t size = sizeof(*out);
+	if (sysctlbyname(name, out, &size, nullptr, 0) != 0)
 		return false;
 	return true;
 }
 
 /// Query a 64-bit value via sysctlbyname. Returns true on success.
-static bool SysctlInt64(const char* name, int64_t& out) {
-	size_t size = sizeof(out);
-	if (sysctlbyname(name, &out, &size, nullptr, 0) != 0)
+static bool SysctlInt64(const char* name, int64_t* out) {
+	size_t size = sizeof(*out);
+	if (sysctlbyname(name, out, &size, nullptr, 0) != 0)
 		return false;
 	return true;
 }

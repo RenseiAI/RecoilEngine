@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <assimp/material.h>
 #include <list>
+#include <cmath>
 
 struct aiNode;
 struct aiMaterial;
@@ -121,19 +122,19 @@ struct STransformVecInfo : public aiUVTransform
         // We use a small epsilon here
         const static float epsilon = 0.05f;
 
-        if (math::fabs( mTranslation.x - other.mTranslation.x ) > epsilon ||
-            math::fabs( mTranslation.y - other.mTranslation.y ) > epsilon)
+        if (std::fabs(static_cast<double>(mTranslation.x - other.mTranslation.x)) > epsilon ||
+            std::fabs(static_cast<double>(mTranslation.y - other.mTranslation.y)) > epsilon)
         {
             return false;
         }
 
-        if (math::fabs( mScaling.x - other.mScaling.x ) > epsilon ||
-            math::fabs( mScaling.y - other.mScaling.y ) > epsilon)
+        if (std::fabs(static_cast<double>(mScaling.x - other.mScaling.x)) > epsilon ||
+            std::fabs(static_cast<double>(mScaling.y - other.mScaling.y)) > epsilon)
         {
             return false;
         }
 
-        if (math::fabs( mRotation - other.mRotation) > epsilon)
+        if (std::fabs(static_cast<double>(mRotation - other.mRotation)) > epsilon)
         {
             return false;
         }
@@ -173,8 +174,8 @@ struct STransformVecInfo : public aiUVTransform
         if (mRotation)
         {
             aiMatrix3x3 mRot;
-            mRot.a1 = mRot.b2 = math::cos(mRotation);
-            mRot.a2 = mRot.b1 = math::sin(mRotation);
+            mRot.a1 = mRot.b2 = static_cast<ai_real>(std::cos(static_cast<double>(mRotation)));
+            mRot.a2 = mRot.b1 = static_cast<ai_real>(std::sin(static_cast<double>(mRotation)));
             mRot.a2 = -mRot.a2;
             mOut *= mRot;
         }

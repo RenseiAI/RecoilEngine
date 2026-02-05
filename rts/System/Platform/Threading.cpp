@@ -507,8 +507,11 @@ namespace Threading {
 		tracy::SetThreadName(newname.c_str());
 	#endif
 	#ifndef _WIN32
-		//alternative: pthread_setname_np(pthread_self(), newname.c_str());
+	#ifdef __APPLE__
+		pthread_setname_np(newname.c_str());
+	#else
 		prctl(PR_SET_NAME, newname.c_str(), 0, 0, 0);
+	#endif
 	#else
 		// adapted from SDL2 code
 		DllLib k32Lib("kernel32.dll");
