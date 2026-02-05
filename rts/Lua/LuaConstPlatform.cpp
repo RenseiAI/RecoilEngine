@@ -6,6 +6,7 @@
 #include "System/Platform/Misc.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GlobalRenderingInfo.h"
+#include "Rendering/RHI/RHIFactory.h"
 
 /******************************************************************************
  * Platform constants
@@ -95,9 +96,9 @@ bool LuaConstPlatform::PushEntries(lua_State* L)
 	/*** @field Platform.glSupportNonPowerOfTwoTex boolean */
 	LuaPushNamedBool(L, "glSupportNonPowerOfTwoTex", true);
 	/*** @field Platform.glSupportTextureQueryLOD boolean */
-	LuaPushNamedBool(L, "glSupportTextureQueryLOD" , globalRendering->supportTextureQueryLOD);
+	LuaPushNamedBool(L, "glSupportTextureQueryLOD" , RHI::GetDevice()->SupportTextureQueryLOD());
 	/*** @field Platform.glSupportMSAAFrameBuffer boolean */
-	LuaPushNamedBool(L, "glSupportMSAAFrameBuffer" , globalRendering->supportMSAAFrameBuffer);
+	LuaPushNamedBool(L, "glSupportMSAAFrameBuffer" , RHI::GetDevice()->SupportMSAAFrameBuffer());
 
 	/*** @field Platform.glHaveAMD boolean */
 	LuaPushNamedBool(L, "glHaveAMD", globalRendering->haveAMD);
@@ -109,19 +110,19 @@ bool LuaConstPlatform::PushEntries(lua_State* L)
 	/*** @field Platform.glHaveGLSL boolean */
 	LuaPushNamedBool(L, "glHaveGLSL", true);
 	/*** @field Platform.glHaveGL4 boolean */
-	LuaPushNamedBool(L, "glHaveGL4", globalRendering->haveGL4);
+	LuaPushNamedBool(L, "glHaveGL4", RHI::GetDevice()->HaveGL4());
 
 	/*** @field Platform.glSupportDepthBufferBitDepth number */
-	LuaPushNamedNumber(L, "glSupportDepthBufferBitDepth", globalRendering->supportDepthBufferBitDepth);
+	LuaPushNamedNumber(L, "glSupportDepthBufferBitDepth", RHI::GetDevice()->GetDepthBufferBitDepth());
 
 	/*** @field Platform.glSupportRestartPrimitive boolean */
-	LuaPushNamedBool(L, "glSupportRestartPrimitive", globalRendering->supportRestartPrimitive);
+	LuaPushNamedBool(L, "glSupportRestartPrimitive", RHI::GetDevice()->SupportRestartPrimitive());
 	/*** @field Platform.glSupportClipSpaceControl boolean */
-	LuaPushNamedBool(L, "glSupportClipSpaceControl", globalRendering->supportClipSpaceControl);
+	LuaPushNamedBool(L, "glSupportClipSpaceControl", RHI::GetDevice()->SupportClipSpaceControl());
 	/*** @field Platform.glSupportFragDepthLayout boolean */
-	LuaPushNamedBool(L, "glSupportFragDepthLayout" , globalRendering->supportFragDepthLayout);
+	LuaPushNamedBool(L, "glSupportFragDepthLayout" , RHI::GetDevice()->SupportFragDepthLayout());
 	/*** @field Platform.glSupportSeamlessCubeMaps boolean */
-	LuaPushNamedBool(L, "glSupportSeamlessCubeMaps", globalRendering->supportSeamlessCubeMaps);
+	LuaPushNamedBool(L, "glSupportSeamlessCubeMaps", RHI::GetDevice()->SupportSeamlessCubeMaps());
 
 	/*** @field Platform.osName string full name of the OS */
 	LuaPushNamedString(L, "osName", Platform::GetOSNameStr());

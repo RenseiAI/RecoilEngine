@@ -332,7 +332,7 @@ CModelDrawerStateGL4::~CModelDrawerStateGL4()
 	shaderHandler->ReleaseProgramObjects(PO_CLASS);
 }
 
-bool CModelDrawerStateGL4::CanEnable() const { return globalRendering->haveGL4; }
+bool CModelDrawerStateGL4::CanEnable() const { return RHI::GetDevice()->HaveGL4(); }
 bool CModelDrawerStateGL4::CanDrawDeferred() const { return CModelDrawerConcept::DeferredAllowed(); }
 
 bool CModelDrawerStateGL4::SetTeamColor(int team, float alpha) const

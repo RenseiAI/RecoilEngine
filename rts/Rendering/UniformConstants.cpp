@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/ShadowHandler.h"
 #include "Rendering/Env/ISky.h"
 #include "Rendering/Env/SunLighting.h"
@@ -215,7 +216,7 @@ void UniformConstants::UpdateParamsImpl(UniformParamsBuffer* updateBuffer)
 	updateBuffer->rndVec3 = guRNG.NextVector();
 	//TODO add something else
 	updateBuffer->renderCaps =
-		globalRendering->supportClipSpaceControl << 0;
+		RHI::GetDevice()->SupportClipSpaceControl() << 0;
 
 	updateBuffer->timeInfo = float4{(float)gs->frameNum, spring_tomsecs(globalRendering->grTime) * 0.001f, (gs->GetLuaSimFrame() + globalRendering->timeOffset) / GAME_SPEED, globalRendering->timeOffset}; //gameFrame, drawSeconds, interpolated(unsynced)GameSeconds(synced), frameTimeOffset
 	updateBuffer->viewGeometry = float4{(float)globalRendering->viewSizeX, (float)globalRendering->viewSizeY, (float)globalRendering->viewPosX, (float)globalRendering->viewPosY}; //vsx, vsy, vpx, vpy

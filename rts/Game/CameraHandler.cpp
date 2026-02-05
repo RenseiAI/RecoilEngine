@@ -21,6 +21,7 @@
 #include "System/MathConstants.h"
 #include "UI/UnitTracker.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "System/SpringMath.h"
 #include "System/SafeUtil.h"
 #include "System/StringHash.h"
@@ -103,7 +104,7 @@ void CCameraHandler::InitStatic() {
 	for (unsigned int i = CCamera::CAMTYPE_PLAYER; i < CCamera::CAMTYPE_COUNT; i++) {
 		cameras[i].SetCamType(i);
 		cameras[i].SetProjType((i == CCamera::CAMTYPE_SHADOW)? CCamera::PROJTYPE_ORTHO: CCamera::PROJTYPE_PERSP);
-		cameras[i].SetClipCtrlMatrix(CMatrix44f::ClipControl(globalRendering->supportClipSpaceControl));
+		cameras[i].SetClipCtrlMatrix(CMatrix44f::ClipControl(RHI::GetDevice()->SupportClipSpaceControl()));
 	    cameras[i].InitConfigNotify();
 	}
 

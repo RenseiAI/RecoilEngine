@@ -5,6 +5,7 @@
 #include "System/SpringMath.h"
 #ifndef UNIT_TEST
 	#include "Rendering/GlobalRendering.h"
+	#include "Rendering/RHI/RHIFactory.h"
 #endif
 
 #include <memory.h>
@@ -828,7 +829,7 @@ CMatrix44f CMatrix44f::OrthoProj(float l, float r, float b, float t, float zn, f
 CMatrix44f CMatrix44f::ClipOrthoProj01()
 {
 #ifndef UNIT_TEST
-	return ClipOrthoProj01(globalRendering->supportClipSpaceControl * 1.0f);
+	return ClipOrthoProj01(RHI::GetDevice()->SupportClipSpaceControl() * 1.0f);
 #else
 	return ClipOrthoProj01(0.0f);
 #endif

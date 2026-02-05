@@ -8,6 +8,7 @@
 #include "CommandColors.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/Textures/Bitmap.h"
 #include "MouseCursor.h"
@@ -344,7 +345,7 @@ void CMouseCursor::Draw(int x, int y, float scale) const
 
 	glMatrixMode(GL_PROJECTION);
 	glPushMatrix();
-	glLoadMatrixf(CMatrix44f::ClipOrthoProj01(globalRendering->supportClipSpaceControl * 1.0f));
+	glLoadMatrixf(CMatrix44f::ClipOrthoProj01(RHI::GetDevice()->SupportClipSpaceControl() * 1.0f));
 
 
 	glEnable(GL_BLEND);

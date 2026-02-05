@@ -28,6 +28,7 @@
 #include "MultiPageAtlasAlloc.hpp"
 
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/GL/myGL.h" // needed for FBO, SubState, RenderBuffers, TexBind (rendering pipeline)
 #include "Rendering/GL/FBO.h"
 #include "Rendering/GL/TexBind.h"
@@ -109,8 +110,8 @@ CTextureRenderAtlas::CTextureRenderAtlas(
 		default:                                     {                                                              assert(false); } break;
 	}
 
-	atlasSizeX = std::min<int>(globalRendering->maxTextureSize, (atlasSizeX > 0) ? atlasSizeX : configHandler->GetInt("MaxTextureAtlasSizeX"));
-	atlasSizeY = std::min<int>(globalRendering->maxTextureSize, (atlasSizeY > 0) ? atlasSizeY : configHandler->GetInt("MaxTextureAtlasSizeY"));
+	atlasSizeX = std::min<int>(RHI::GetDevice()->GetMaxTextureSize(), (atlasSizeX > 0) ? atlasSizeX : configHandler->GetInt("MaxTextureAtlasSizeX"));
+	atlasSizeY = std::min<int>(RHI::GetDevice()->GetMaxTextureSize(), (atlasSizeY > 0) ? atlasSizeY : configHandler->GetInt("MaxTextureAtlasSizeY"));
 
 	atlasAllocator->SetMaxSize(atlasSizeX, atlasSizeY);
 

@@ -661,7 +661,7 @@ CFontTexture::CFontTexture(const std::string& fontfile, int size, int _outlinesi
 	, isColor(false)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	atlasAlloc.SetMaxSize(globalRendering->maxTextureSize, globalRendering->maxTextureSize);
+	atlasAlloc.SetMaxSize(RHI::GetDevice()->GetMaxTextureSize(), RHI::GetDevice()->GetMaxTextureSize());
 
 	atlasGlyphs.reserve(1024);
 
@@ -1430,7 +1430,7 @@ void CFontTexture::ClearAtlases(const int width, const int height)
 #ifndef HEADLESS
 	// refresh the atlasAlloc to reset coordinates
 	atlasAlloc = CRowAtlasAlloc();
-	atlasAlloc.SetMaxSize(globalRendering->maxTextureSize, globalRendering->maxTextureSize);
+	atlasAlloc.SetMaxSize(RHI::GetDevice()->GetMaxTextureSize(), RHI::GetDevice()->GetMaxTextureSize());
 
 	// clear atlases
 	wantedTexWidth = width;

@@ -21,6 +21,7 @@
 #include "Sim/Units/UnitDef.h"
 #include "Sim/Units/UnitDefHandler.h"
 #include "Rendering/GL/VBO.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/Models/ModelsMemStorage.h"
 #include "Rendering/Models/ModelsLock.h"
 #include "Rendering/Units/UnitDrawer.h"
@@ -119,7 +120,7 @@ namespace Impl {
 	>
 	void InitCommon(std::unique_ptr<SSBO>& ssbo, MemStorage& memStorage, uint32_t bindingIdx, uint32_t elemCount0, uint32_t elemCountIncr, IStreamBufferConcept::Types type, bool coherent, uint32_t numBuffers, const char* className)
 	{
-		if (!globalRendering->haveGL4)
+		if (!RHI::GetDevice()->HaveGL4())
 			return;
 
 		assert(bindingIdx < -1u);
@@ -160,7 +161,7 @@ namespace Impl {
 	template<typename SSBO>
 	void KillCommon(std::unique_ptr<SSBO>& ssbo, uint32_t bindingIdx)
 	{
-		if (!globalRendering->haveGL4)
+		if (!RHI::GetDevice()->HaveGL4())
 			return;
 
 		ssbo->UnbindBufferRange(bindingIdx);
@@ -177,7 +178,7 @@ ModelUniformsUploader modelUniformsUploader;
 
 void TransformsUploader::Init()
 {
-	const auto sbType = globalRendering->supportPersistentMapping
+	const auto sbType = RHI::GetDevice()->SupportPersistentMapping()
 		? IStreamBufferConcept::Types::SB_PERSISTENTMAP
 		: IStreamBufferConcept::Types::SB_BUFFERSUBDATA;
 
@@ -197,7 +198,7 @@ void TransformsUploader::Kill()
 
 void TransformsUploader::Update()
 {
-	if (!globalRendering->haveGL4)
+	if (!RHI::GetDevice()->HaveGL4())
 		return;
 
 	SCOPED_TIMER("TransformsUploader::Update");
@@ -328,7 +329,7 @@ size_t TransformsUploader::GetProjectileElemOffset(int32_t syncedProjectileID) c
 
 void ModelUniformsUploader::Init()
 {
-	if (!globalRendering->haveGL4)
+	if (!RHI::GetDevice()->HaveGL4())
 		return;
 
 	Impl::InitCommon<MyDataType>(

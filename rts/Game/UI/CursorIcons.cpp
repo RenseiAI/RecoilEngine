@@ -13,6 +13,7 @@
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/Units/UnitDrawer.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Sim/Units/UnitDef.h"
 #include "Sim/Units/UnitDefHandler.h"
 
@@ -96,7 +97,7 @@ void CCursorIcons::DrawCursors() const
 
 	glMatrixMode(GL_PROJECTION);
 	glPushMatrix();
-	glLoadMatrixf(CMatrix44f::ClipOrthoProj01(globalRendering->supportClipSpaceControl * 1.0f));
+	glLoadMatrixf(CMatrix44f::ClipOrthoProj01(RHI::GetDevice()->SupportClipSpaceControl() * 1.0f));
 
 	sh.Enable();
 	sh.SetUniform("alphaCtrl", 0.01f, 1.0f, 0.0f, 0.0f); // test > 0.01

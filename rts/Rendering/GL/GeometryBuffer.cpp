@@ -3,6 +3,7 @@
 #include "GeometryBuffer.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "System/Config/ConfigHandler.h"
 
 #include <algorithm>
@@ -55,7 +56,7 @@ void GL::GeometryBuffer::Clear() const {
 void GL::GeometryBuffer::SetDepthRange(float nearDepth, float farDepth) const {
 	RECOIL_DETAILED_TRACY_ZONE;
 	#if 0
-	if (globalRendering->supportClipSpaceControl) {
+	if (RHI::GetDevice()->SupportClipSpaceControl()) {
 		// TODO: need to inform shaders about this, modify PM instead
 		glDepthRangef(nearDepth, farDepth);
 		glClearDepth(farDepth);

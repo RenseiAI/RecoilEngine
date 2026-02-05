@@ -25,6 +25,7 @@
 #include "Rendering/Textures/TextureAtlas.h"
 #include "Rendering/Common/ModelDrawerHelpers.h"
 #include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIFactory.h"
 
 // RHI Migration Notes (ProjectileDrawer):
 // This is the most GL-heavy file (44+ direct GL calls). Migration categories:
@@ -355,7 +356,7 @@ void CProjectileDrawer::Init() {
 	fxShader->AttachShaderObject(shaderHandler->CreateShaderObject("GLSL/ProjFXVertProg.glsl", "", GL_VERTEX_SHADER));
 	fxShader->AttachShaderObject(shaderHandler->CreateShaderObject("GLSL/ProjFXFragProg.glsl", "", GL_FRAGMENT_SHADER));
 	fxShader->SetFlag("SMOOTH_PARTICLES", CheckSoftenExt());
-	fxShader->SetFlag("DEPTH_CLIP01", globalRendering->supportClipSpaceControl);
+	fxShader->SetFlag("DEPTH_CLIP01", RHI::GetDevice()->SupportClipSpaceControl());
 	fxShader->SetFlag("USE_TEXTURE_ARRAY", false);
 
 	using VAT = std::decay_t<decltype(CProjectile::GetPrimaryRenderBuffer())>::VertType;

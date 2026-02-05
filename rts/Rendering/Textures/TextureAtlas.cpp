@@ -9,6 +9,7 @@
 #include "RowAtlasAlloc.h"
 #include "MultiPageAtlasAlloc.hpp"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/GL/myGL.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/Log/ILog.h"
@@ -70,8 +71,8 @@ void CTextureAtlas::ReinitAllocator()
 	}
 
 	// NB: maxTextureSize can be as large as 32768, resulting in a 4GB atlas
-	atlasSizeX = std::min(globalRendering->maxTextureSize, (atlasSizeX > 0) ? atlasSizeX : configHandler->GetInt("MaxTextureAtlasSizeX"));
-	atlasSizeY = std::min(globalRendering->maxTextureSize, (atlasSizeY > 0) ? atlasSizeY : configHandler->GetInt("MaxTextureAtlasSizeY"));
+	atlasSizeX = std::min(RHI::GetDevice()->GetMaxTextureSize(), (atlasSizeX > 0) ? atlasSizeX : configHandler->GetInt("MaxTextureAtlasSizeX"));
+	atlasSizeY = std::min(RHI::GetDevice()->GetMaxTextureSize(), (atlasSizeY > 0) ? atlasSizeY : configHandler->GetInt("MaxTextureAtlasSizeY"));
 
 	atlasAllocator->SetMaxSize(atlasSizeX, atlasSizeY);
 }

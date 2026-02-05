@@ -275,12 +275,12 @@ void CShadowHandler::LoadShadowGenShaders()
 	// #version has to be added here because it is conditional
 	static const std::string versionDefs[3] = {
 		"#version 130\n",
-		"#version " + IntToString(globalRendering->supportFragDepthLayout? 420: 130) + "\n",
+		"#version " + IntToString(RHI::GetDevice()->SupportFragDepthLayout()? 420: 130) + "\n",
 	};
 
 	static const std::string extraDefs =
-		("#define SUPPORT_CLIP_CONTROL " + IntToString(globalRendering->supportClipSpaceControl) + "\n") +
-		("#define SUPPORT_DEPTH_LAYOUT " + IntToString(globalRendering->supportFragDepthLayout) + "\n");
+		("#define SUPPORT_CLIP_CONTROL " + IntToString(RHI::GetDevice()->SupportClipSpaceControl()) + "\n") +
+		("#define SUPPORT_DEPTH_LAYOUT " + IntToString(RHI::GetDevice()->SupportFragDepthLayout()) + "\n");
 
 	for (int i = 0; i < SHADOWGEN_PROGRAM_COUNT; i++) {
 		if (i == SHADOWGEN_PROGRAM_MODEL_GL4)
@@ -352,7 +352,7 @@ void CShadowHandler::LoadShadowGenShaders()
 
 		shadowGenProgs[SHADOWGEN_PROGRAM_MAP] = po;
 	}
-	if (globalRendering->haveGL4) {
+	if (RHI::GetDevice()->HaveGL4()) {
 		Shader::IProgramObject* po = sh->CreateProgramObject("[ShadowHandler]", shadowGenProgHandles[SHADOWGEN_PROGRAM_MODEL_GL4] + "GLSL");
 
 		po->AttachShaderObject(sh->CreateShaderObject("GLSL/ShadowGenVertProgGL4.glsl", shadowGenProgDefines[SHADOWGEN_PROGRAM_MODEL_GL4] + extraDefs, GL_VERTEX_SHADER));

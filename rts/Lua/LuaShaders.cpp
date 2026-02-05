@@ -43,6 +43,7 @@
 #include "System/StringUtil.h"
 #include "System/TypeToStr.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/Models/ModelsMemStorage.h"
 #include "Rendering/Models/ModelsMemStorageDefs.h"
 #include "Rendering/UniformConstants.h"
@@ -1344,7 +1345,7 @@ int LuaShaders::UniformSubroutine(lua_State* L)
  */
 int LuaShaders::GetEngineUniformBufferDef(lua_State* L)
 {
-	if (!globalRendering->haveGL4)
+	if (!RHI::GetDevice()->HaveGL4())
 		return 0;
 
 	const int idx = luaL_checkint(L, 1);
@@ -1366,7 +1367,7 @@ int LuaShaders::GetEngineUniformBufferDef(lua_State* L)
  */
 int LuaShaders::GetEngineModelUniformDataDef(lua_State* L)
 {
-	if (!globalRendering->haveGL4)
+	if (!RHI::GetDevice()->HaveGL4())
 		return 0;
 
 	lua_pushstring(L, ModelUniformData::GetGLSLDefinition().c_str());
@@ -1386,7 +1387,7 @@ int LuaShaders::GetEngineModelUniformDataDef(lua_State* L)
  */
 int LuaShaders::GetEngineModelUniformDataSize(lua_State* L)
 {
-	if (!globalRendering->haveGL4)
+	if (!RHI::GetDevice()->HaveGL4())
 		return 0;
 
 	const auto sizeInElems = modelUniformsStorage.GetSize();

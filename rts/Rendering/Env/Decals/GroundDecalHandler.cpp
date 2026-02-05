@@ -446,7 +446,7 @@ bool CGroundDecalHandler::ReloadDecalShaders() {
 	decalShader = shaderHandler->CreateProgramObject("[GroundDecalHandler]", "DecalShaderGLSL");
 	decalShader->LoadFromLua("shaders/GLSL/groundDecals.lua");
 
-	decalShader->SetFlag("DEPTH_CLIP01", globalRendering->supportClipSpaceControl);
+	decalShader->SetFlag("DEPTH_CLIP01", RHI::GetDevice()->SupportClipSpaceControl());
 	decalShader->SetFlag("HAVE_SHADOWS", true);
 	decalShader->SetFlag("HIGH_QUALITY", highQuality);
 	decalShader->SetFlag("HAVE_INFOTEX", true);

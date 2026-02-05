@@ -37,6 +37,7 @@
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/GL/SubState.h"
 #include "Rendering/Textures/Bitmap.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Sim/Units/CommandAI/CommandAI.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Units/UnitHandler.h"
@@ -510,7 +511,7 @@ void CMiniMap::UpdateGeometry()
 		viewMats[2].Scale({ 1.0f / curDim.x, 1.0f / curDim.y, 1.0f });
 
 		projMats[0] = CMatrix44f::ClipOrthoProj01();
-		projMats[1] = CMatrix44f::ClipOrthoProj(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, -1.0f, globalRendering->supportClipSpaceControl * 1.0f);
+		projMats[1] = CMatrix44f::ClipOrthoProj(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, -1.0f, RHI::GetDevice()->SupportClipSpaceControl() * 1.0f);
 		projMats[2] = projMats[1];
 	}
 
