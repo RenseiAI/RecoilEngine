@@ -698,8 +698,11 @@ void CGlobalRendering::PostInit() {
 	UniformConstants::GetInstance().Init();
 	ModelUniformData::Init();
 
-	// Create timer queries via RHI device
-	if (auto* device = RHI::GetDevice()) {
+	// Create timer queries via RHI device (requires RHI::InitDevice() before PostInit)
+	auto* device = RHI::GetDevice();
+	if (!device)
+		LOG_L(L_WARNING, "[GR::%s] RHI device not initialized — timer queries unavailable", __func__);
+	else {
 		for (auto& q : glTimerQueries)
 			q = device->CreateTimerQuery();
 	}

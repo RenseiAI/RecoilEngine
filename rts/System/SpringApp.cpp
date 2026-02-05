@@ -265,11 +265,11 @@ bool SpringApp::Init()
 	Threading::SetThreadName("recoil-main"); // set default threadname for pstree
 
 	// Init OpenGL
-	globalRendering->PostInit();
 	globalRendering->UpdateGLConfigs();
 	globalRendering->UpdateGLGeometry();
+	RHI::InitDevice();  // must be before PostInit() — timer queries need device
+	globalRendering->PostInit();
 	globalRendering->InitGLState();
-	RHI::InitDevice();
 
 	CCameraHandler::InitStatic();
 	CBitmap::InitPool(configHandler->GetInt("TextureMemPoolSize"));
