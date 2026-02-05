@@ -153,7 +153,7 @@ private:
 	std::array<MTLBuffer*, MaxUniformBindings> boundUniformBuffers = {};
 
 	// Clear state (accumulated for next render pass)
-	ClearColor clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+	struct ClearColor clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
 	float      clearDepthValue = 1.0f;
 	uint32_t   clearStencilValue = 0;
 	bool       pendingColorClear = false;

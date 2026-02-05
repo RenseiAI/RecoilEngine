@@ -6,11 +6,18 @@
 #include "Rendering/GL/FBO.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHITexture.h"
+#include "Rendering/RHI/RHIFramebuffer.h"
+#include "Rendering/RHI/RHIPipeline.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "IWater.h"
 
 #include "System/EventClient.h"
 #include "System/Misc/RectangleOverlapHandler.h"
 
+#include <memory>
+#include <vector>
 
 namespace Shader {
 	struct IProgramObject;
@@ -83,30 +90,34 @@ private:
 	int  normalTextureX; ///< needed for dynamic waves
 	int  normalTextureY;
 
-	GLuint target; ///< for screen copies (color/depth), can be GL_TEXTURE_RECTANGLE (nvidia) or GL_TEXTURE_2D (others)
 	int  screenTextureX;
 	int  screenTextureY;
 
-	FBO reflectFBO;
-	FBO refractFBO;
-	FBO coastFBO;
-	FBO dynWavesFBO;
+	// RHI framebuffers
+	std::unique_ptr<RHI::IRHIFramebuffer> reflectFBO;
+	std::unique_ptr<RHI::IRHIFramebuffer> refractFBO;
+	std::unique_ptr<RHI::IRHIFramebuffer> coastFBO;
+	std::unique_ptr<RHI::IRHIFramebuffer> dynWavesFBO;
 
 	TypedRenderBuffer<VA_TYPE_0> rb;
 
-	GLuint refractTexture;
-	GLuint reflectTexture;
-	GLuint depthTexture;   ///< screen depth copy
-	GLuint waveRandTexture;
-	GLuint foamTexture;
-	GLuint normalTexture;  ///< final used
-	GLuint normalTexture2; ///< updates normalTexture with dynamic waves turned on
-	GLuint coastTexture;
-	GLuint coastUpdateTexture;
-	std::vector<GLuint> caustTextures;
+	// RHI textures
+	std::unique_ptr<RHI::IRHITexture> refractTexture;
+	std::unique_ptr<RHI::IRHITexture> reflectTexture;
+	std::unique_ptr<RHI::IRHITexture> depthTexture;   ///< screen depth copy
+	std::unique_ptr<RHI::IRHITexture> waveRandTexture;
+	std::unique_ptr<RHI::IRHITexture> foamTexture;
+	std::unique_ptr<RHI::IRHITexture> normalTexture;  ///< final used
+	std::unique_ptr<RHI::IRHITexture> normalTexture2; ///< updates normalTexture with dynamic waves turned on
+	std::unique_ptr<RHI::IRHITexture> coastTexture;
+	GLuint coastUpdateTexture; ///< Managed by CTextureAtlas, keep as GLuint
+	std::vector<std::unique_ptr<RHI::IRHITexture>> caustTextures;
 
 	Shader::IProgramObject* waterShader;
 	Shader::IProgramObject* blurShader;
+
+private:
+	static RHI::IRHIDevice* GetRHIDevice() { return RHI::GetDevice(); }
 };
 
 #endif // BUMP_WATER_H

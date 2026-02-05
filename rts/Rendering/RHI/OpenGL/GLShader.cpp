@@ -39,28 +39,31 @@ void GLShader::Unbind() { glslProgram->Disable(); }
 void GLShader::BindAttribLocation(const std::string& name, uint32_t index) { glslProgram->BindAttribLocation(name, index); }
 void GLShader::BindOutputLocation(const std::string& name, uint32_t index) { glslProgram->BindOutputLocation(name, index); }
 
-// --- Uniform setters: delegate via the name-based template interface ---
+// --- Uniform setters ---
+// GLSLProgramObject's private SetUniform(UniformState*,...) overrides hide the
+// public template SetUniform(const char*,...) inherited from IProgramObject.
+// Route through the base class reference to access the name-based templates.
 
-void GLShader::SetUniform1i(const char* name, int v0)                         { glslProgram->SetUniform(name, v0); }
-void GLShader::SetUniform2i(const char* name, int v0, int v1)                 { glslProgram->SetUniform(name, v0, v1); }
-void GLShader::SetUniform3i(const char* name, int v0, int v1, int v2)         { glslProgram->SetUniform(name, v0, v1, v2); }
-void GLShader::SetUniform4i(const char* name, int v0, int v1, int v2, int v3) { glslProgram->SetUniform(name, v0, v1, v2, v3); }
+void GLShader::SetUniform1i(const char* name, int v0)                         { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniform(name, v0); }
+void GLShader::SetUniform2i(const char* name, int v0, int v1)                 { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniform(name, v0, v1); }
+void GLShader::SetUniform3i(const char* name, int v0, int v1, int v2)         { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniform(name, v0, v1, v2); }
+void GLShader::SetUniform4i(const char* name, int v0, int v1, int v2, int v3) { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniform(name, v0, v1, v2, v3); }
 
-void GLShader::SetUniform1f(const char* name, float v0)                             { glslProgram->SetUniform(name, v0); }
-void GLShader::SetUniform2f(const char* name, float v0, float v1)                   { glslProgram->SetUniform(name, v0, v1); }
-void GLShader::SetUniform3f(const char* name, float v0, float v1, float v2)         { glslProgram->SetUniform(name, v0, v1, v2); }
-void GLShader::SetUniform4f(const char* name, float v0, float v1, float v2, float v3) { glslProgram->SetUniform(name, v0, v1, v2, v3); }
+void GLShader::SetUniform1f(const char* name, float v0)                                   { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniform(name, v0); }
+void GLShader::SetUniform2f(const char* name, float v0, float v1)                         { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniform(name, v0, v1); }
+void GLShader::SetUniform3f(const char* name, float v0, float v1, float v2)               { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniform(name, v0, v1, v2); }
+void GLShader::SetUniform4f(const char* name, float v0, float v1, float v2, float v3)     { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniform(name, v0, v1, v2, v3); }
 
-void GLShader::SetUniform2iv(const char* name, const int* v)   { glslProgram->SetUniform2v(name, v); }
-void GLShader::SetUniform3iv(const char* name, const int* v)   { glslProgram->SetUniform3v(name, v); }
-void GLShader::SetUniform4iv(const char* name, const int* v)   { glslProgram->SetUniform4v(name, v); }
-void GLShader::SetUniform2fv(const char* name, const float* v) { glslProgram->SetUniform2v(name, v); }
-void GLShader::SetUniform3fv(const char* name, const float* v) { glslProgram->SetUniform3v(name, v); }
-void GLShader::SetUniform4fv(const char* name, const float* v) { glslProgram->SetUniform4v(name, v); }
+void GLShader::SetUniform2iv(const char* name, const int* v)   { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniform2v(name, v); }
+void GLShader::SetUniform3iv(const char* name, const int* v)   { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniform3v(name, v); }
+void GLShader::SetUniform4iv(const char* name, const int* v)   { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniform4v(name, v); }
+void GLShader::SetUniform2fv(const char* name, const float* v) { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniform2v(name, v); }
+void GLShader::SetUniform3fv(const char* name, const float* v) { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniform3v(name, v); }
+void GLShader::SetUniform4fv(const char* name, const float* v) { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniform4v(name, v); }
 
-void GLShader::SetUniformMatrix2fv(const char* name, bool transp, const float* v) { glslProgram->SetUniformMatrix2x2(name, transp, v); }
-void GLShader::SetUniformMatrix3fv(const char* name, bool transp, const float* v) { glslProgram->SetUniformMatrix3x3(name, transp, v); }
-void GLShader::SetUniformMatrix4fv(const char* name, bool transp, const float* v) { glslProgram->SetUniformMatrix4x4(name, transp, v); }
+void GLShader::SetUniformMatrix2fv(const char* name, bool transp, const float* v) { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniformMatrix2x2(name, transp, v); }
+void GLShader::SetUniformMatrix3fv(const char* name, bool transp, const float* v) { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniformMatrix3x3(name, transp, v); }
+void GLShader::SetUniformMatrix4fv(const char* name, bool transp, const float* v) { static_cast<Shader::IProgramObject*>(glslProgram.get())->SetUniformMatrix4x4(name, transp, v); }
 
 bool GLShader::IsValid() const        { return glslProgram->IsValid(); }
 bool GLShader::IsBound() const        { return glslProgram->IsBound(); }

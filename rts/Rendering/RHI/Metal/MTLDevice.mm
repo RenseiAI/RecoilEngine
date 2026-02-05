@@ -13,6 +13,7 @@
 #import <SDL2/SDL.h>
 #import <SDL2/SDL_metal.h>
 
+#include <mach/mach_time.h>
 #include "System/Log/ILog.h"
 
 namespace RHI {

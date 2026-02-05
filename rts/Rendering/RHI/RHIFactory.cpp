@@ -5,7 +5,7 @@
 
 // Backend includes
 #include "OpenGL/GLDevice.h"
-#ifdef __APPLE__
+#ifdef RHI_HAS_METAL
 #include "Metal/MTLDevice.h"
 #endif
 
@@ -18,11 +18,11 @@ std::unique_ptr<IRHIDevice> CreateDevice(Backend backend) {
 			return std::make_unique<GLDevice>();
 
 		case Backend::Metal:
-#ifdef __APPLE__
+#ifdef RHI_HAS_METAL
 			LOG("[RHI] Creating Metal device");
 			return std::make_unique<MTLDevice>();
 #else
-			LOG_L(L_ERROR, "[RHI] Metal backend not available on this platform");
+			LOG_L(L_ERROR, "[RHI] Metal backend not available in this build");
 			return nullptr;
 #endif
 	}
@@ -31,7 +31,7 @@ std::unique_ptr<IRHIDevice> CreateDevice(Backend backend) {
 }
 
 Backend GetDefaultBackend() {
-#if defined(__APPLE__) && defined(__aarch64__)
+#if defined(RHI_HAS_METAL) && defined(__aarch64__)
 	// Metal is preferred on Apple Silicon
 	return Backend::Metal;
 #else
@@ -44,7 +44,7 @@ bool IsBackendAvailable(Backend backend) {
 		case Backend::OpenGL:
 			return true;
 		case Backend::Metal:
-#ifdef __APPLE__
+#ifdef RHI_HAS_METAL
 			return true;
 #else
 			return false;

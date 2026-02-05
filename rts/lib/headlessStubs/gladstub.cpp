@@ -72,6 +72,8 @@ int GLAD_GL_ARB_conservative_depth = 0;
 int GLAD_GL_ARB_clip_control = 0;
 int GLAD_GL_ARB_buffer_storage = 0;
 int GLAD_GL_KHR_debug = 0;
+int GLAD_GL_ATI_meminfo = 0;
+int GLAD_GL_NVX_gpu_memory_info = 0;
 
 GLenum APIENTRY impl_glCheckFramebufferStatus(GLenum target) {
     return GL_FRAMEBUFFER_COMPLETE;
@@ -303,6 +305,7 @@ decltype(glad_glMemoryBarrier) glad_glMemoryBarrier = nullptr;
 decltype(glad_glMinSampleShading) glad_glMinSampleShading = nullptr;
 decltype(glad_glMultMatrixd) glad_glMultMatrixd = nullptr;
 decltype(glad_glMultMatrixf) glad_glMultMatrixf = nullptr;
+decltype(glad_glMultiDrawArraysIndirect) glad_glMultiDrawArraysIndirect = nullptr;
 decltype(glad_glMultiDrawElementsIndirect) glad_glMultiDrawElementsIndirect = nullptr;
 decltype(glad_glMultiTexCoord1f) glad_glMultiTexCoord1f = nullptr;
 decltype(glad_glMultiTexCoord2f) glad_glMultiTexCoord2f = nullptr;
@@ -372,6 +375,7 @@ decltype(glad_glTexParameterf) glad_glTexParameterf = nullptr;
 decltype(glad_glTexParameterfv) glad_glTexParameterfv = nullptr;
 decltype(glad_glTexParameteri) glad_glTexParameteri = nullptr;
 decltype(glad_glTexParameteriv) glad_glTexParameteriv = nullptr;
+decltype(glad_glTexStorage1D) glad_glTexStorage1D = nullptr;
 decltype(glad_glTexStorage2D) glad_glTexStorage2D = nullptr;
 decltype(glad_glTexStorage3D) glad_glTexStorage3D = nullptr;
 decltype(glad_glTexSubImage2D) glad_glTexSubImage2D = nullptr;
@@ -742,6 +746,7 @@ int gladLoadGL(void) {
     glad_glMinSampleShading = MakeStubImpl(glad_glMinSampleShading);
     glad_glMultMatrixd = MakeStubImpl(glad_glMultMatrixd);
     glad_glMultMatrixf = MakeStubImpl(glad_glMultMatrixf);
+    glad_glMultiDrawArraysIndirect = MakeStubImpl(glad_glMultiDrawArraysIndirect);
     glad_glMultiDrawElementsIndirect = MakeStubImpl(glad_glMultiDrawElementsIndirect);
     glad_glMultiTexCoord1f = MakeStubImpl(glad_glMultiTexCoord1f);
     glad_glMultiTexCoord2f = MakeStubImpl(glad_glMultiTexCoord2f);
@@ -811,6 +816,7 @@ int gladLoadGL(void) {
     glad_glTexParameterfv = MakeStubImpl(glad_glTexParameterfv);
     glad_glTexParameteri = MakeStubImpl(glad_glTexParameteri);
     glad_glTexParameteriv = MakeStubImpl(glad_glTexParameteriv);
+    glad_glTexStorage1D = MakeStubImpl(glad_glTexStorage1D);
     glad_glTexStorage2D = MakeStubImpl(glad_glTexStorage2D);
     glad_glTexStorage3D = MakeStubImpl(glad_glTexStorage3D);
     glad_glTexSubImage2D = MakeStubImpl(glad_glTexSubImage2D);

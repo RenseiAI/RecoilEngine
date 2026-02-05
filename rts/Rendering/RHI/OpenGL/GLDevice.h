@@ -4,6 +4,7 @@
 #define GL_RHI_DEVICE_H
 
 #include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
 
 namespace RHI {
 

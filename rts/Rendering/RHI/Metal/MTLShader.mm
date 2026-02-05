@@ -36,17 +36,14 @@ MTLShader::~MTLShader() {
 
 void MTLShader::AttachStage(ShaderStage stage, const std::string& sourceFile, const std::string& defines) {
 	// Read shader source from file
-	std::string source;
-
 	CFileHandler file(sourceFile);
 	if (!file.FileExists()) {
 		LOG_L(L_ERROR, "[MTLShader] Shader file not found: %s", sourceFile.c_str());
 		return;
 	}
 
-	std::vector<uint8_t> buffer;
-	file.LoadToBuffer(buffer);
-	source.assign(reinterpret_cast<char*>(buffer.data()), buffer.size());
+	std::string source;
+	file.LoadStringData(source);
 
 	if (source.empty()) {
 		LOG_L(L_ERROR, "[MTLShader] Failed to read shader file: %s", sourceFile.c_str());
