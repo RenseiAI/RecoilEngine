@@ -22,6 +22,7 @@
  */
 
 #include "Rendering/RHI/RHIDevice.h"
+#include <climits>
 #include <memory>
 
 #ifdef __OBJC__
@@ -68,6 +69,14 @@ public:
 	int GetMaxStorageBufferBindings() const override { return 31; }
 	int GetMaxStorageBufferSize() const override;
 	int GetDepthBufferBitDepth() const override { return 32; }
+
+	int GetMaxFragmentTextureSlots() const override { return 31; }
+	int GetMaxCombinedTextureSlots() const override { return 31; }
+	int GetMaxVaryings() const override { return 60; }
+	int GetMaxVertexAttributes() const override { return 31; }
+	int GetMaxRecommendedIndices() const override { return INT_MAX; }
+	int GetMaxRecommendedVertices() const override { return INT_MAX; }
+	bool SupportTextureQueryLOD() const override { return true; }
 
 	bool SupportTimerQueries() const override;
 	size_t GetAvailableVideoMemory() const override;

@@ -55,6 +55,14 @@ public:
 	virtual int GetMaxStorageBufferSize() const = 0;
 	virtual int GetDepthBufferBitDepth() const = 0;
 
+	virtual int GetMaxFragmentTextureSlots() const = 0;
+	virtual int GetMaxCombinedTextureSlots() const = 0;
+	virtual int GetMaxVaryings() const = 0;
+	virtual int GetMaxVertexAttributes() const = 0;
+	virtual int GetMaxRecommendedIndices() const = 0;
+	virtual int GetMaxRecommendedVertices() const = 0;
+	virtual bool SupportTextureQueryLOD() const = 0;
+
 	// --- Additional capability queries ---
 	virtual bool SupportTimerQueries() const = 0;
 	virtual size_t GetAvailableVideoMemory() const = 0;  // Returns bytes, 0 if unavailable

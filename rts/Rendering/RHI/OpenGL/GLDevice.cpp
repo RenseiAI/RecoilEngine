@@ -8,6 +8,7 @@
 #include "GLFramebuffer.h"
 #include "GLPipeline.h"
 #include "Rendering/GL/myGL.h"
+#include "System/Config/ConfigHandler.h"
 
 namespace RHI {
 
@@ -55,10 +56,32 @@ void GLDevice::InitCapabilities()
 
 	glGetIntegerv(GL_MAX_DRAW_BUFFERS, &caps_glslMaxDrawBuffers);
 
+	glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS,          &caps_maxFragShSlots);
+	glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &caps_maxCombShSlots);
+	glGetIntegerv(GL_MAX_VARYING_FLOATS,               &caps_glslMaxVaryings);
+	glGetIntegerv(GL_MAX_VERTEX_ATTRIBS,               &caps_glslMaxAttributes);
+	glGetIntegerv(GL_MAX_ELEMENTS_INDICES,             &caps_glslMaxRecommendedIndices);
+	glGetIntegerv(GL_MAX_ELEMENTS_VERTICES,            &caps_glslMaxRecommendedVertices);
+
+	// GL_MAX_VARYING_FLOATS is the maximum number of floats; count float4's
+	caps_glslMaxVaryings /= 4;
+
+	caps_supportTextureQueryLOD = GLAD_GL_ARB_texture_query_lod;
+
 	// Depth buffer bit depth is probed via FBO in GlobalRendering::SetGLSupportFlags().
 	// We can't easily replicate that probe here without FBO infrastructure, so default
 	// to 24 bits which is the most common and safe default.
 	caps_supportDepthBufferBitDepth = 24;
+
+	// Apply user config overrides (mirrors GlobalRendering::SetGLSupportFlags logic)
+	if (configHandler->GetInt("ForceDisablePersistentMapping") != 0)
+		caps_supportPersistentMapping = false;
+	if (configHandler->GetInt("ForceDisableGL4") != 0)
+		caps_haveGL4 = false;
+	if (configHandler->GetInt("ForceDisableClipCtrl") != 0)
+		caps_supportClipSpaceControl = false;
+	if (configHandler->GetInt("ForceDisableExplicitAttribLocs") != 0)
+		caps_supportExplicitAttribLoc = false;
 }
 
 // --- Capability queries: read from own fields ---
@@ -81,6 +104,14 @@ int GLDevice::GetMaxUniformBufferSize() const { return caps_glslMaxUniformBuffer
 int GLDevice::GetMaxStorageBufferBindings() const { return caps_glslMaxStorageBufferBindings; }
 int GLDevice::GetMaxStorageBufferSize() const { return caps_glslMaxStorageBufferSize; }
 int GLDevice::GetDepthBufferBitDepth() const { return caps_supportDepthBufferBitDepth; }
+
+int GLDevice::GetMaxFragmentTextureSlots() const { return caps_maxFragShSlots; }
+int GLDevice::GetMaxCombinedTextureSlots() const { return caps_maxCombShSlots; }
+int GLDevice::GetMaxVaryings() const { return caps_glslMaxVaryings; }
+int GLDevice::GetMaxVertexAttributes() const { return caps_glslMaxAttributes; }
+int GLDevice::GetMaxRecommendedIndices() const { return caps_glslMaxRecommendedIndices; }
+int GLDevice::GetMaxRecommendedVertices() const { return caps_glslMaxRecommendedVertices; }
+bool GLDevice::SupportTextureQueryLOD() const { return caps_supportTextureQueryLOD; }
 
 bool GLDevice::SupportTimerQueries() const { return GLAD_GL_ARB_timer_query; }
 

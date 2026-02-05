@@ -36,6 +36,14 @@ public:
 	int GetMaxStorageBufferSize() const override;
 	int GetDepthBufferBitDepth() const override;
 
+	int GetMaxFragmentTextureSlots() const override;
+	int GetMaxCombinedTextureSlots() const override;
+	int GetMaxVaryings() const override;
+	int GetMaxVertexAttributes() const override;
+	int GetMaxRecommendedIndices() const override;
+	int GetMaxRecommendedVertices() const override;
+	bool SupportTextureQueryLOD() const override;
+
 	bool SupportTimerQueries() const override;
 	size_t GetAvailableVideoMemory() const override;
 
@@ -82,6 +90,14 @@ private:
 	int caps_glslMaxStorageBufferBindings = 0;
 	int caps_glslMaxStorageBufferSize = 0;
 	int caps_supportDepthBufferBitDepth = 0;
+
+	int caps_maxFragShSlots = 0;
+	int caps_maxCombShSlots = 0;
+	int caps_glslMaxVaryings = 0;
+	int caps_glslMaxAttributes = 0;
+	int caps_glslMaxRecommendedIndices = 0;
+	int caps_glslMaxRecommendedVertices = 0;
+	bool caps_supportTextureQueryLOD = false;
 };
 
 } // namespace RHI
