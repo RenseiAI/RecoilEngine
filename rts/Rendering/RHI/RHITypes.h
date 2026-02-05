@@ -56,6 +56,17 @@
 #include <cstdint>
 #include <vector>
 
+// macOS system headers may define these as macros (from NSObjCRuntime.h, X11, etc.)
+#ifdef Always
+#undef Always
+#endif
+#ifdef None
+#undef None
+#endif
+#ifdef Bool
+#undef Bool
+#endif
+
 namespace RHI {
 
 enum class Backend : uint8_t {
@@ -276,6 +287,7 @@ struct BlendState {
 	BlendFactor dstAlpha     = BlendFactor::Zero;
 	BlendOp     alphaOp      = BlendOp::Add;
 	bool        colorMask[4] = {true, true, true, true};
+	float       blendColor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 };
 
 // --- Depth/Stencil state ---

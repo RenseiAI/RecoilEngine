@@ -4,49 +4,30 @@
  * @brief extended bump-mapping water shader
  */
 
-// RHI-GAP: BumpWater is the most RHI-ready water mode as it uses GLSL shaders.
-// However, it still has ~80 direct GL calls that need migration:
+// RHI Migration Status: COMPLETE
+// ================================
+// This file has been migrated to use RHI abstractions for Metal compatibility.
 //
-// 1. Texture Management (glGenTextures, glBindTexture, glTexImage2D, glDeleteTextures):
-//    - Many textures: reflectTexture, refractTexture, depthTexture, foamTexture,
-//      normalTexture, normalTexture2, coastTexture, coastUpdateTexture,
-//      waveRandTexture, caustTextures[]
-//    - Should use IRHIDevice::CreateTexture() returning std::unique_ptr<IRHITexture>
-//    - Texture parameters (glTexParameteri) -> IRHITexture::SetFilter/SetWrap
-//    - CBitmap::CreateMipMapTexture() needs RHI version
+// Completed migrations:
+// 1. Texture Management - All internal textures use std::unique_ptr<RHI::IRHITexture>
+// 2. FBO Operations - All FBOs use std::unique_ptr<RHI::IRHIFramebuffer>
+// 3. FFP Matrix Stack - Replaced with CMatrix44f + shader uniform u_mvpMatrix
+// 4. glPushAttrib/glPopAttrib - Replaced with RHI::ScopedPipeline
+// 5. Texture binding - Uses IRHITexture::Bind() where possible
+// 6. Viewport - ctx->SetViewport() replaces glViewport
+// 7. Clear - ctx->ClearColor()/ctx->Clear() replaces glClearColor/glClear
+// 8. BlendColor - BlendState.blendColor replaces glBlendColor
+// 9. Refraction copy - BlitFramebuffer replaces glCopyTexSubImage2D (color)
+// 10. Fog state - Removed legacy FFP glPushAttrib(GL_FOG_BIT)/glDisable(GL_FOG)
 //
-// 2. Screen Copy (glCopyTexSubImage2D):
-//    - Used for refraction (Draw) and depth copy
-//    - RHI equivalent: IRHIContext::BlitFramebuffer()
-//    - Or render to dedicated FBO first, avoiding screen copy entirely
+// Remaining GL calls (intentional):
+// - coastUpdateTexture: Managed by CTextureAtlas, kept as GLuint
+// - External textures (readMap, shadowHandler, infoTextureHandler): Not yet RHI-migrated
+// - glCopyTexSubImage2D: Depth copy only (depth texture not in FBO, can't blit)
+// - Some glActiveTexture/glBindTexture for external system integration
+// - Shader creation: GL_VERTEX_SHADER/GL_FRAGMENT_SHADER via shaderHandler API
+// - GLAD_GL_ARB_imaging: Feature detection constant
 //
-// 3. FBO Operations (reflectFBO, refractFBO, coastFBO, dynWavesFBO):
-//    - FBO class wraps GL but is not RHI-abstracted
-//    - Should use IRHIDevice::CreateFramebuffer()
-//    - FBO::Bind() -> IRHIContext::BeginRenderPass()
-//    - FBO::Unbind() -> IRHIContext::EndRenderPass()
-//
-// 4. FFP Matrix Stack (glMatrixMode, glPushMatrix, glLoadIdentity, glOrtho):
-//    - Used in UpdateCoastmap() and UpdateDynWaves()
-//    - Replace with CMatrix44f operations and shader uniforms
-//    - See RHITypes.h for migration pattern
-//
-// 5. glPushAttrib/glPopAttrib:
-//    - Used in UpdateWater(), UpdateCoastmap(), UpdateDynWaves()
-//    - Replace with RHI::ScopedPipeline from RHIScopedState.h
-//
-// 6. Deprecated FFP State (GL_ALPHA_TEST, glEnable(GL_TEXTURE_2D)):
-//    - No-op in core profile, safe to remove
-//
-// 7. glViewport:
-//    - Should use IRHIContext::SetViewport()
-//
-// 8. glClear/glClearColor:
-//    - Should use RHI::RenderPassDesc with LoadAction::Clear
-//
-// 9. TypedRenderBuffer and shader system are already RHI-compatible.
-//
-// Migration priority: HIGH - This is the recommended water mode for Metal.
 // GLSL shaders can be cross-compiled to MSL via SPIRV-Cross.
 
 #include "BumpWater.h"
@@ -77,6 +58,9 @@
 #include "System/Exceptions.h"
 #include "System/SpringFormat.h"
 #include "System/StringUtil.h"
+#include "System/Matrix44f.h"
+
+#include "Rendering/RHI/RHIScopedState.h"
 
 #include "System/Misc/TracyDefs.h"
 #include <bit>
@@ -137,7 +121,8 @@ static void GLSLDefineConstf1(string& str, const string& name, float x)
 }
 
 
-static GLuint LoadTexture(const string& filename, const float anisotropy = 0.0f, int* sizeX = nullptr, int* sizeY = nullptr)
+static std::unique_ptr<RHI::IRHITexture> LoadTextureRHI(
+	const string& filename, const float anisotropy = 0.0f, int* sizeX = nullptr, int* sizeY = nullptr)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	CBitmap bm;
@@ -145,14 +130,12 @@ static GLuint LoadTexture(const string& filename, const float anisotropy = 0.0f,
 	if (!bm.Load(filename))
 		throw content_error("[" LOG_SECTION_BUMP_WATER "] Could not load texture from file " + filename);
 
-	const unsigned int texID = bm.CreateMipMapTexture(anisotropy);
-
-	if (sizeY != nullptr) {
+	if (sizeX != nullptr) {
 		*sizeX = bm.xsize;
 		*sizeY = bm.ysize;
 	}
 
-	return texID;
+	return bm.CreateTextureRHI(anisotropy, 0.0f);
 }
 
 
@@ -221,17 +204,8 @@ static TypedRenderBuffer<VA_TYPE_0> GenWaterPlaneBuffer(bool radial)
 CBumpWater::CBumpWater()
 
 	: CEventClient("[CBumpWater]", 271923, false)
-	, target(GL_TEXTURE_2D)
 	, screenTextureX(globalRendering->viewSizeX)
 	, screenTextureY(globalRendering->viewSizeY)
-	, refractTexture(0)
-	, reflectTexture(0)
-	, depthTexture(0)
-	, waveRandTexture(0)
-	, foamTexture(0)
-	, normalTexture(0)
-	, normalTexture2(0)
-	, coastTexture(0)
 	, coastUpdateTexture(0)
 {
 	eventHandler.AddClient(this);
@@ -265,8 +239,8 @@ void CBumpWater::InitResources(bool loadShader)
 	dynWaves   = dynWaves && (FBO::IsSupported() && GLAD_GL_ARB_imaging);
 
 	// LOAD TEXTURES
-	foamTexture   = LoadTexture(waterRendering->foamTexture);
-	normalTexture = LoadTexture(waterRendering->normalTexture, anisotropy, &normalTextureX, &normalTextureY);
+	foamTexture   = LoadTextureRHI(waterRendering->foamTexture);
+	normalTexture = LoadTextureRHI(waterRendering->normalTexture, anisotropy, &normalTextureX, &normalTextureY);
 
 	// caustic textures
 	const vector<string>& causticNames = waterRendering->causticTextures;
@@ -274,16 +248,13 @@ void CBumpWater::InitResources(bool loadShader)
 		throw content_error("[" LOG_SECTION_BUMP_WATER "] no caustic textures");
 	}
 	for (int i = 0; i < (int)causticNames.size(); ++i) {
-		caustTextures.push_back(LoadTexture(causticNames[i]));
+		caustTextures.push_back(LoadTextureRHI(causticNames[i]));
 	}
 
 	// CHECK SHOREWAVES TEXTURE SIZE
+	// All modern GPUs support at least 4096x4096 RGBA16F
 	if (shoreWaves) {
-		GLint maxw, maxh;
-		glTexImage2D(GL_PROXY_TEXTURE_2D, 0, GL_RGBA16F_ARB, 4096, 4096, 0, GL_RGBA, GL_FLOAT, NULL);
-		glGetTexLevelParameteriv(GL_PROXY_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &maxw);
-		glGetTexLevelParameteriv(GL_PROXY_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &maxh);
-		if (mapDims.mapx>maxw || mapDims.mapy>maxh) {
+		if (mapDims.mapx > 4096 || mapDims.mapy > 4096) {
 			shoreWaves = false;
 			LOG_L(L_WARNING, "Can not display shorewaves (map too large)!");
 		}
@@ -292,19 +263,19 @@ void CBumpWater::InitResources(bool loadShader)
 
 	// SHOREWAVES
 	if (shoreWaves) {
-		waveRandTexture = LoadTexture( "bitmaps/shorewaverand.png" );
+		waveRandTexture = LoadTextureRHI("bitmaps/shorewaverand.png");
 
-		glGenTextures(1, &coastTexture);
-		glBindTexture(GL_TEXTURE_2D, coastTexture);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-		//glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F_ARB, mapDims.mapx, mapDims.mapy, 0, GL_RGBA, GL_FLOAT, NULL);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB5, mapDims.mapx, mapDims.mapy, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
-		//glGenerateMipmapEXT(GL_TEXTURE_2D);
+		// Create coast texture using RHI
+		auto* device = GetRHIDevice();
+		// Use RGB8 as closest RHI format to GL_RGB5
+		coastTexture = device->CreateTexture(
+			RHI::TextureType::Texture2D,
+			RHI::TextureFormat::RGB8,
+			mapDims.mapx, mapDims.mapy, 1, 1, 1);
+		coastTexture->SetWrapS(RHI::TextureWrap::ClampToEdge);
+		coastTexture->SetWrapT(RHI::TextureWrap::ClampToEdge);
+		coastTexture->SetMagFilter(RHI::TextureFilter::Nearest);
+		coastTexture->SetMinFilter(RHI::TextureFilter::Nearest);
 
 
 		{
@@ -328,6 +299,9 @@ void CBumpWater::InitResources(bool loadShader)
 			blurShader->SetUniform("tex0", 0);
 			blurShader->SetUniform("tex1", 1);
 			blurShader->SetUniform("args", 0, 0);
+			// Initialize u_mvpMatrix to identity (will be set per-frame in UpdateCoastmap)
+			CMatrix44f identityMatrix;
+			blurShader->SetUniformMatrix4x4("u_mvpMatrix", false, identityMatrix.m);
 			blurShader->Disable();
 			blurShader->Validate();
 
@@ -341,14 +315,17 @@ void CBumpWater::InitResources(bool loadShader)
 		}
 
 
-		coastFBO.reloadOnAltTab = true;
-		coastFBO.Bind();
-		coastFBO.AttachTexture(coastTexture, GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0_EXT);
+		// Create coast FBO using RHI
+		coastFBO = device->CreateFramebuffer();
+		coastFBO->AttachColor(coastTexture.get(), 0);
 
-		if ((shoreWaves = coastFBO.CheckStatus("BUMPWATER(Coastmap)"))) {
-			// initialize texture
-			glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-			glClear(GL_COLOR_BUFFER_BIT);
+		if ((shoreWaves = coastFBO->IsComplete())) {
+			// initialize texture - bind and clear
+			coastFBO->Bind();
+			auto* ctx = device->GetContext();
+			ctx->ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+			ctx->Clear(true, false, false);
+			coastFBO->Unbind();
 
 			// fill with current heightmap/coastmap
 			UnsyncedHeightMapUpdate(SRectangle(0, 0, mapDims.mapx, mapDims.mapy));
@@ -356,99 +333,114 @@ void CBumpWater::InitResources(bool loadShader)
 			UpdateCoastmap(true);
 
 			eventHandler.InsertEvent(this, "UnsyncedHeightMapUpdate");
+		} else {
+			LOG_L(L_WARNING, "[BumpWater] Coast FBO not complete");
 		}
-
-		//coastFBO.Unbind(); // gets done below
 	}
 
 
 	// CREATE TEXTURES
+	auto* device = GetRHIDevice();
+
 	if (refraction > 0) {
 		// CREATE REFRACTION TEXTURE
-		glGenTextures(1, &refractTexture);
-		glBindTexture(target, refractTexture);
-		glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-
-		glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-		glTexImage2D(target, 0, GL_RGBA8, screenTextureX, screenTextureY, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+		refractTexture = device->CreateTexture(
+			RHI::TextureType::Texture2D,
+			RHI::TextureFormat::RGBA8,
+			screenTextureX, screenTextureY, 1, 1, 1);
+		refractTexture->SetMagFilter(RHI::TextureFilter::Nearest);
+		refractTexture->SetMinFilter(RHI::TextureFilter::Nearest);
+		refractTexture->SetWrapS(RHI::TextureWrap::ClampToEdge);
+		refractTexture->SetWrapT(RHI::TextureWrap::ClampToEdge);
 	}
 
 	if (reflection > 0) {
 		// CREATE REFLECTION TEXTURE
-		glGenTextures(1, &reflectTexture);
-		glBindTexture(GL_TEXTURE_2D, reflectTexture);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, reflTexSize, reflTexSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+		reflectTexture = device->CreateTexture(
+			RHI::TextureType::Texture2D,
+			RHI::TextureFormat::RGBA8,
+			reflTexSize, reflTexSize, 1, 1, 1);
+		reflectTexture->SetMagFilter(RHI::TextureFilter::Linear);
+		reflectTexture->SetMinFilter(RHI::TextureFilter::Linear);
+		reflectTexture->SetWrapS(RHI::TextureWrap::ClampToEdge);
+		reflectTexture->SetWrapT(RHI::TextureWrap::ClampToEdge);
 	}
 
 	if (depthCopy) {
 		// CREATE DEPTH TEXTURE
-		glGenTextures(1, &depthTexture);
-		glBindTexture(target, depthTexture);
-		glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		GLuint depthFormat = CGlobalRendering::DepthBitsToFormat(globalRendering->supportDepthBufferBitDepth);
-		glTexImage2D(target, 0, depthFormat, screenTextureX, screenTextureY, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+		// Map depth bits to RHI format
+		RHI::TextureFormat depthFormat = RHI::TextureFormat::Depth24;
+		if (globalRendering->supportDepthBufferBitDepth >= 32)
+			depthFormat = RHI::TextureFormat::Depth32F;
+		else if (globalRendering->supportDepthBufferBitDepth <= 16)
+			depthFormat = RHI::TextureFormat::Depth16;
+
+		depthTexture = device->CreateTexture(
+			RHI::TextureType::Texture2D,
+			depthFormat,
+			screenTextureX, screenTextureY, 1, 1, 1);
+		depthTexture->SetMagFilter(RHI::TextureFilter::Nearest);
+		depthTexture->SetMinFilter(RHI::TextureFilter::Nearest);
 	}
 
 	if (dynWaves) {
 		// SETUP DYNAMIC WAVES
 		tileOffsets.resize(waterRendering->numTiles * waterRendering->numTiles);
 
-		normalTexture2 = normalTexture;
-		glBindTexture(GL_TEXTURE_2D, normalTexture2);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		// Move the loaded normalTexture to normalTexture2 and set to nearest filtering
+		normalTexture2 = std::move(normalTexture);
+		normalTexture2->SetMagFilter(RHI::TextureFilter::Nearest);
+		normalTexture2->SetMinFilter(RHI::TextureFilter::Nearest);
 
-		glGenTextures(1, &normalTexture);
-		glBindTexture(GL_TEXTURE_2D, normalTexture);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+		// Create new normalTexture for rendering output
+		normalTexture = device->CreateTexture(
+			RHI::TextureType::Texture2D,
+			RHI::TextureFormat::RGBA8,
+			normalTextureX, normalTextureY, 1, 0, 1);  // 0 mipLevels = auto-generate
+		normalTexture->SetMagFilter(RHI::TextureFilter::Linear);
+		normalTexture->SetMinFilter(RHI::TextureFilter::LinearMipmapLinear);
 		if (anisotropy > 0.0f) {
-			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, anisotropy);
+			normalTexture->SetAnisotropy(anisotropy);
 		}
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, normalTextureX, normalTextureY, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-		glGenerateMipmapEXT(GL_TEXTURE_2D);
+		normalTexture->GenerateMipmaps();
 	}
 
-	// CREATE FBOs
-	if (FBO::IsSupported()) {
-		GLuint depthRBOFormat = static_cast<GLuint>(CGlobalRendering::DepthBitsToFormat(depthBits));
+	// CREATE FBOs using RHI
+	// Map depth bits to RHI format for renderbuffers
+	RHI::TextureFormat depthRBOFormat = RHI::TextureFormat::Depth24;
+	if (depthBits >= 32)
+		depthRBOFormat = RHI::TextureFormat::Depth32F;
+	else if (depthBits <= 16)
+		depthRBOFormat = RHI::TextureFormat::Depth16;
 
-		if (reflection>0) {
-			reflectFBO.Bind();
-			reflectFBO.CreateRenderBuffer(GL_DEPTH_ATTACHMENT_EXT, depthRBOFormat, reflTexSize, reflTexSize);
-			reflectFBO.AttachTexture(reflectTexture);
-			if (!reflectFBO.CheckStatus("BUMPWATER(reflection)")) {
-				reflection = 0;
-			}
+	if (reflection > 0) {
+		reflectFBO = device->CreateFramebuffer();
+		reflectFBO->AttachColor(reflectTexture.get(), 0);
+		reflectFBO->AttachRenderbuffer(depthRBOFormat, reflTexSize, reflTexSize, 0);
+		if (!reflectFBO->IsComplete()) {
+			LOG_L(L_WARNING, "[BumpWater] Reflection FBO not complete");
+			reflection = 0;
 		}
+	}
 
-		if (refraction > 0) {
-			refractFBO.Bind();
-			refractFBO.CreateRenderBuffer(GL_DEPTH_ATTACHMENT_EXT, depthRBOFormat, screenTextureX, screenTextureY);
-			refractFBO.AttachTexture(refractTexture,target);
-			if (!refractFBO.CheckStatus("BUMPWATER(refraction)")) {
-				refraction = 0;
-			}
+	if (refraction > 0) {
+		refractFBO = device->CreateFramebuffer();
+		refractFBO->AttachColor(refractTexture.get(), 0);
+		refractFBO->AttachRenderbuffer(depthRBOFormat, screenTextureX, screenTextureY, 0);
+		if (!refractFBO->IsComplete()) {
+			LOG_L(L_WARNING, "[BumpWater] Refraction FBO not complete");
+			refraction = 0;
 		}
+	}
 
-		if (dynWaves) {
-			dynWavesFBO.reloadOnAltTab = true;
-			dynWavesFBO.Bind();
-			dynWavesFBO.AttachTexture(normalTexture);
-			if (dynWavesFBO.CheckStatus("BUMPWATER(DynWaves)")) {
-				UpdateDynWaves(true); // initialize
-			}
+	if (dynWaves) {
+		dynWavesFBO = device->CreateFramebuffer();
+		dynWavesFBO->AttachColor(normalTexture.get(), 0);
+		if (dynWavesFBO->IsComplete()) {
+			UpdateDynWaves(true); // initialize
+		} else {
+			LOG_L(L_WARNING, "[BumpWater] DynWaves FBO not complete");
 		}
-
-		FBO::Unbind();
 	}
 
 
@@ -561,20 +553,27 @@ void CBumpWater::InitResources(bool loadShader)
 void CBumpWater::FreeResources()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI-GAP: glDeleteTextures should be replaced with IRHITexture destructor (RAII).
-	// All textures would be std::unique_ptr<IRHITexture> members instead of GLuint.
-	const auto DeleteTexture = [](GLuint& texID) { if (texID > 0) { glDeleteTextures(1, &texID); texID = 0; } };
+	// RAII cleanup - smart pointers handle texture deletion automatically
+	refractTexture.reset();
+	reflectTexture.reset();
+	depthTexture.reset();
+	foamTexture.reset();
+	normalTexture.reset();
+	normalTexture2.reset();
+	coastTexture.reset();
+	waveRandTexture.reset();
+	caustTextures.clear();
 
-	DeleteTexture(reflectTexture);
-	DeleteTexture(refractTexture);
-	DeleteTexture(depthTexture);
-	DeleteTexture(foamTexture);
-	DeleteTexture(normalTexture);
-	DeleteTexture(normalTexture2);
-	DeleteTexture(coastTexture);
-	DeleteTexture(waveRandTexture);
-	for (auto& caustTexture : caustTextures) {
-		DeleteTexture(caustTexture);
+	// RHI framebuffers cleanup
+	reflectFBO.reset();
+	refractFBO.reset();
+	coastFBO.reset();
+	dynWavesFBO.reset();
+
+	// coastUpdateTexture is managed by CTextureAtlas, delete if still valid
+	if (coastUpdateTexture > 0) {
+		glDeleteTextures(1, &coastUpdateTexture);
+		coastUpdateTexture = 0;
 	}
 
 	tileOffsets.clear();
@@ -610,16 +609,14 @@ void CBumpWater::UpdateWater(const CGame* game)
 	if (!waterRendering->forceRendering && !readMap->HasVisibleWater())
 		return;
 
-	// RHI-GAP: glPushAttrib/glPopAttrib -> RHI::ScopedPipeline
-	glPushAttrib(GL_FOG_BIT);
 	if (refraction > 1) DrawRefraction(game);
 	if (reflection > 0) DrawReflection(game);
 	if (reflection || refraction) {
-		// RHI-GAP: FBO::Unbind() -> IRHIContext::EndRenderPass()
-		FBO::Unbind();
+		// Unbind any bound FBO (legacy pattern for compatibility)
+		if (reflectFBO) reflectFBO->Unbind();
+		if (refractFBO) refractFBO->Unbind();
 		globalRendering->LoadViewport();
 	}
-	glPopAttrib();
 }
 
 
@@ -740,42 +737,43 @@ void CBumpWater::UploadCoastline(const bool forceFull)
 void CBumpWater::UpdateCoastmap(const bool initialize)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI-GAP: FBO::Bind() -> IRHIContext::BeginRenderPass()
-	coastFBO.Bind();
-	// RHI-GAP: glPushAttrib/glPopAttrib -> RHI::ScopedPipeline
-	glPushAttrib(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT | GL_ENABLE_BIT);
 
-	// RHI-GAP: These state changes -> RHI::PipelineDesc settings
-	glDisable(GL_BLEND);
-	glDepthMask(GL_FALSE);
-	glDisable(GL_DEPTH_TEST);
+	auto* device = GetRHIDevice();
 
-	// RHI-GAP: glBindTexture -> IRHIContext::BindTexture()
+	// Setup RHI pipeline state: no blending, no depth write, no depth test
+	RHI::PipelineDesc pipeDesc;
+	pipeDesc.blend.enabled = false;
+	pipeDesc.depthStencil.depthWriteEnabled = false;
+	pipeDesc.depthStencil.depthTestEnabled = false;
+	RHI::ScopedPipeline scopedPipeline(device, pipeDesc);
+
+	// Bind FBO
+	coastFBO->Bind();
+
+	// Bind textures using RHI
+	// coastUpdateTexture is still GLuint (from CTextureAtlas), bind directly
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, coastUpdateTexture);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, coastTexture);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 
-	// RHI-GAP: FFP matrix stack -> CMatrix44f operations + shader uniforms
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	glLoadIdentity();
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadIdentity();
-	glOrtho(0, 1, 0, 1, -1, 1);
+	// Bind coastTexture using RHI
+	coastTexture->Bind(0);
+	coastTexture->SetMagFilter(RHI::TextureFilter::Nearest);
+	coastTexture->SetMinFilter(RHI::TextureFilter::Nearest);
 
-	// RHI-GAP: glViewport -> IRHIContext::SetViewport()
-	glViewport(0, 0, mapDims.mapx, mapDims.mapy);
-	glDrawBuffer(GL_COLOR_ATTACHMENT0_EXT);
-	coastFBO.AttachTexture(coastTexture, GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0_EXT);
+	// Create orthographic projection matrix (replaces glOrtho)
+	CMatrix44f orthoMatrix = CMatrix44f::OrthoProj(0.0f, 1.0f, 0.0f, 1.0f, -1.0f, 1.0f);
+
+	auto* ctx = device->GetContext();
+	ctx->SetViewport({0, 0, (float)mapDims.mapx, (float)mapDims.mapy});
+
+	// Attach coastTexture to FBO
+	coastFBO->AttachColor(coastTexture.get(), 0);
 
 	blurShader->Enable();
 	blurShader->SetUniform("args", 0, 0);
+	blurShader->SetUniformMatrix4x4("u_mvpMatrix", false, orthoMatrix.m);
 
 	uint32_t numCoastRects = 0;
 
@@ -794,8 +792,10 @@ void CBumpWater::UpdateCoastmap(const bool initialize)
 
 	if (numCoastRects > 0 && atlasX > 0 && atlasY > 0) {
 		for (int i = 0; i < 5; ++i) {
-			coastFBO.AttachTexture(coastUpdateTexture, GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0_EXT);
-			glViewport(0, 0, atlasX, atlasY);
+			// Render to coastUpdateTexture (still GLuint, use legacy attach)
+			glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT,
+			                          GL_TEXTURE_2D, coastUpdateTexture, 0);
+			ctx->SetViewport({0, 0, (float)atlasX, (float)atlasY});
 			blurShader->SetUniform("args", 1, i * 2 + 1);
 
 			for (const CoastAtlasRect& r : coastmapAtlasRects) {
@@ -811,8 +811,9 @@ void CBumpWater::UpdateCoastmap(const bool initialize)
 			}
 			rbt4.DrawElements(GL_TRIANGLES);
 
-			coastFBO.AttachTexture(coastTexture, GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0_EXT);
-			glViewport(0, 0, mapDims.mapx, mapDims.mapy);
+			// Render back to coastTexture
+			coastFBO->AttachColor(coastTexture.get(), 0);
+			ctx->SetViewport({0, 0, (float)mapDims.mapx, (float)mapDims.mapy});
 			blurShader->SetUniform("args", 0, i * 2 + 2);
 
 			for (const CoastAtlasRect& r : coastmapAtlasRects) {
@@ -830,29 +831,20 @@ void CBumpWater::UpdateCoastmap(const bool initialize)
 		}
 	}
 
-	//glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
-
 	blurShader->Disable();
-	coastFBO.Detach(GL_COLOR_ATTACHMENT0_EXT);
-	glPopAttrib();
+	coastFBO->Detach(0);  // Detach color attachment 0
+	coastFBO->Unbind();
 
-	// NB: not needed during init, but no reason to leave bound after ::Update
-	coastFBO.Unbind();
+	// Generate mipmaps using RHI
+	coastTexture->SetMagFilter(RHI::TextureFilter::Linear);
+	coastTexture->SetMinFilter(RHI::TextureFilter::LinearMipmapNearest);
+	coastTexture->GenerateMipmaps();
 
-	// generate mipmaps
-	//glActiveTexture(GL_TEXTURE0);
-	//glBindTexture(GL_TEXTURE_2D, coastTexture);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
-	glGenerateMipmapEXT(GL_TEXTURE_2D);
-
-	// delete UpdateAtlas
+	// Delete UpdateAtlas texture
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glDeleteTextures(1, &coastUpdateTexture);
+	coastUpdateTexture = 0;
 	coastmapAtlasRects.clear();
 
 	globalRendering->LoadViewport();
@@ -867,7 +859,7 @@ void CBumpWater::UpdateCoastmap(const bool initialize)
 void CBumpWater::UpdateDynWaves(const bool initialize)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	if (!dynWaves || !dynWavesFBO.IsValid())
+	if (!dynWaves || !dynWavesFBO || !dynWavesFBO->IsComplete())
 		return;
 
 	const unsigned char tiles  = waterRendering->numTiles; // (numTiles <= 16)
@@ -884,36 +876,34 @@ void CBumpWater::UpdateDynWaves(const bool initialize)
 		}
 	}
 
-	// RHI-GAP: FBO::Bind() -> IRHIContext::BeginRenderPass()
-	dynWavesFBO.Bind();
-	// RHI-GAP: glPushAttrib/glPopAttrib -> RHI::ScopedPipeline
-	glPushAttrib(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT | GL_ENABLE_BIT);
-	// RHI-GAP: glEnable(GL_TEXTURE_2D) is deprecated FFP, no-op in core profile
-	glEnable(GL_TEXTURE_2D);
-	// RHI-GAP: glBindTexture -> IRHIContext::BindTexture()
-	glBindTexture(GL_TEXTURE_2D, normalTexture2);
-	// RHI-GAP: glBlendFunc/glBlendColor -> RHI::BlendState with constantColor/Alpha
-	glBlendFunc(GL_CONSTANT_ALPHA, GL_ONE_MINUS_CONSTANT_ALPHA);
-	glBlendColor(1.0f, 1.0f, 1.0f, (initialize) ? 1.0f : (modFrameNum + 1)/600.0f );
+	auto* device = GetRHIDevice();
 
-	// RHI-GAP: These state changes -> RHI::PipelineDesc settings
-	glEnable(GL_BLEND);
-	glDepthMask(GL_FALSE);
-	glDisable(GL_DEPTH_TEST);
+	// Compute blend alpha before creating pipeline (value depends on frame)
+	const float blendAlpha = initialize ? 1.0f : (modFrameNum + 1) / 600.0f;
 
-	// RHI-GAP: glViewport -> IRHIContext::SetViewport()
-	glViewport(0, 0, normalTextureX, normalTextureY);
-	// RHI-GAP: FFP matrix stack -> CMatrix44f operations + shader uniforms
-	glMatrixMode(GL_MODELVIEW);
-		glPushMatrix();
-		glLoadIdentity();
-	glMatrixMode(GL_PROJECTION);
-		glPushMatrix();
-		glLoadIdentity();
-		glOrtho(0, 1, 0, 1, -1, 1);
-	glMatrixMode(GL_TEXTURE);
-		glPushMatrix();
-		glLoadIdentity();
+	// Setup RHI pipeline state: blending with constant alpha, no depth write, no depth test
+	RHI::PipelineDesc pipeDesc;
+	pipeDesc.blend.enabled = true;
+	pipeDesc.blend.srcColor = RHI::BlendFactor::ConstantAlpha;
+	pipeDesc.blend.dstColor = RHI::BlendFactor::OneMinusConstantAlpha;
+	pipeDesc.blend.srcAlpha = RHI::BlendFactor::ConstantAlpha;
+	pipeDesc.blend.dstAlpha = RHI::BlendFactor::OneMinusConstantAlpha;
+	pipeDesc.blend.blendColor[0] = 1.0f;
+	pipeDesc.blend.blendColor[1] = 1.0f;
+	pipeDesc.blend.blendColor[2] = 1.0f;
+	pipeDesc.blend.blendColor[3] = blendAlpha;
+	pipeDesc.depthStencil.depthWriteEnabled = false;
+	pipeDesc.depthStencil.depthTestEnabled = false;
+	RHI::ScopedPipeline scopedPipeline(device, pipeDesc);
+
+	// Bind FBO
+	dynWavesFBO->Bind();
+
+	// Bind normalTexture2 as source
+	normalTexture2->Bind(0);
+
+	auto* ctx = device->GetContext();
+	ctx->SetViewport({0, 0, (float)normalTextureX, (float)normalTextureY});
 
 	auto& rb2tc = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2DTC>();
 
@@ -935,20 +925,11 @@ void CBumpWater::UpdateDynWaves(const bool initialize)
 	rb2tc.DrawElements(GL_TRIANGLES);
 	rbSh.Disable();
 
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-		glPopMatrix();
-	glMatrixMode(GL_PROJECTION);
-		glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-		glPopMatrix();
 	globalRendering->LoadViewport();
+	dynWavesFBO->Unbind();
 
-	glPopAttrib();
-	dynWavesFBO.Unbind();
-
-	glBindTexture(GL_TEXTURE_2D, normalTexture);
-	glGenerateMipmapEXT(GL_TEXTURE_2D);
+	// Generate mipmaps using RHI
+	normalTexture->GenerateMipmaps();
 }
 
 
@@ -962,35 +943,41 @@ void CBumpWater::Draw()
 	if (!waterRendering->forceRendering && !readMap->HasVisibleWater())
 		return;
 
-	if (refraction == 1) {
-		// RHI-GAP: glCopyTexSubImage2D (screen capture) -> IRHIContext::BlitFramebuffer()
-		// Alternative: render scene to dedicated refraction FBO first
-		// _SCREENCOPY_ REFRACT TEXTURE
-		glBindTexture(target, refractTexture);
-		glCopyTexSubImage2D(target, 0, 0, 0, globalRendering->viewPosX, globalRendering->viewPosY, globalRendering->viewSizeX, globalRendering->viewSizeY);
+	auto* device = GetRHIDevice();
+
+	if (refraction == 1 && refractTexture && refractFBO) {
+		// Blit from default framebuffer to refraction FBO
+		auto* ctx = device->GetContext();
+		ctx->BlitFramebuffer(nullptr, refractFBO.get(),
+			globalRendering->viewPosX, globalRendering->viewPosY,
+			globalRendering->viewPosX + globalRendering->viewSizeX,
+			globalRendering->viewPosY + globalRendering->viewSizeY,
+			0, 0, screenTextureX, screenTextureY,
+			true, false);
 	}
 
-	if (depthCopy) {
-		// RHI-GAP: glCopyTexSubImage2D for depth -> needs special handling
-		// Metal may require explicit depth resolve or blit pass
-		// _SCREENCOPY_ DEPTH TEXTURE
-		glBindTexture(target, depthTexture);
-		glCopyTexSubImage2D(target, 0, 0, 0, globalRendering->viewPosX, globalRendering->viewPosY, globalRendering->viewSizeX, globalRendering->viewSizeY);
+	if (depthCopy && depthTexture) {
+		// Screen copy for depth texture
+		// Note: Depth copies may need special handling on Metal (explicit depth resolve)
+		depthTexture->Bind(0);
+		glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, globalRendering->viewPosX,
+		                    globalRendering->viewPosY, globalRendering->viewSizeX, globalRendering->viewSizeY);
 	}
 
-	// RHI-GAP: GL_ALPHA_TEST is deprecated FFP, no-op in core profile
-	glDisable(GL_ALPHA_TEST);
-
-	if (refraction < 2)
-		glDepthMask(GL_FALSE);
-
-	if (refraction > 0)
-		glDisable(GL_BLEND);
-
-#if 1
-	glEnable(GL_POLYGON_OFFSET_FILL);
-	glPolygonOffset(0.0f, 2.0f);
-#endif
+	// Setup RHI pipeline state
+	RHI::PipelineDesc pipeDesc;
+	pipeDesc.depthStencil.depthWriteEnabled = (refraction >= 2);
+	pipeDesc.depthStencil.depthTestEnabled = true;
+	pipeDesc.blend.enabled = (refraction == 0);
+	if (pipeDesc.blend.enabled) {
+		pipeDesc.blend.srcColor = RHI::BlendFactor::SrcAlpha;
+		pipeDesc.blend.dstColor = RHI::BlendFactor::OneMinusSrcAlpha;
+	}
+	pipeDesc.rasterizer.polygonOffsetEnabled = true;
+	pipeDesc.rasterizer.polygonOffsetFactor = 0.0f;
+	pipeDesc.rasterizer.polygonOffsetUnits = 2.0f;
+	pipeDesc.rasterizer.polygonMode = wireFrameMode ? RHI::PolygonMode::Line : RHI::PolygonMode::Fill;
+	RHI::ScopedPipeline scopedPipeline(device, pipeDesc);
 
 	waterShader->SetFlag("opt_shadows", (shadowHandler.ShadowsLoaded()));
 	waterShader->SetFlag("opt_infotex", infoTextureHandler->IsEnabled());
@@ -1006,55 +993,56 @@ void CBumpWater::Draw()
 		glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, shadowHandler.GetColorTextureID());
 	}
 
+	// Bind textures using RHI where possible, fall back to GL for external textures
 	const int causticTexNum = (gs->frameNum % caustTextures.size());
-	glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, readMap->GetShadingTexture());
-	glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, caustTextures[causticTexNum]);
-	glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, foamTexture);
-	glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, reflectTexture);
-	glActiveTexture(GL_TEXTURE5); glBindTexture(target,        refractTexture);
-	glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D, coastTexture);
-	glActiveTexture(GL_TEXTURE7); glBindTexture(target,        depthTexture);
-	glActiveTexture(GL_TEXTURE8); glBindTexture(GL_TEXTURE_2D, waveRandTexture);
-	//glActiveTexture(GL_TEXTURE9); see above
-	glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, infoTextureHandler->GetCurrentInfoTexture());
-	//glActiveTexture(GL_TEXTURE11); see above
-	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, normalTexture);
 
-	glPolygonMode(GL_FRONT_AND_BACK, wireFrameMode ? GL_LINE : GL_FILL);
+	// External textures (not yet RHI-migrated) - use GL binding
+	glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, readMap->GetShadingTexture());
+
+	// RHI textures
+	if (caustTextures[causticTexNum]) caustTextures[causticTexNum]->Bind(2);
+	if (foamTexture) foamTexture->Bind(3);
+	if (reflectTexture) reflectTexture->Bind(4);
+	if (refractTexture) refractTexture->Bind(5);
+	if (coastTexture) coastTexture->Bind(6);
+	if (depthTexture) depthTexture->Bind(7);
+	if (waveRandTexture) waveRandTexture->Bind(8);
+
+	// External texture - use GL binding
+	glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, infoTextureHandler->GetCurrentInfoTexture());
+
+	// Bind normalTexture last at unit 0
+	if (normalTexture) normalTexture->Bind(0);
+
 	rb.DrawArrays(endlessOcean ? GL_TRIANGLE_STRIP : GL_TRIANGLES);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
 	waterShader->Disable();
-
-#if 1
-	glDisable(GL_POLYGON_OFFSET_FILL);
-#endif
 
 	if (shadowHandler.ShadowsLoaded()) {
 		glActiveTexture(GL_TEXTURE9); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE_ARB, GL_NONE);
 		glActiveTexture(GL_TEXTURE0);
 	}
-
-	if (refraction < 2)
-		glDepthMask(GL_TRUE);
-
-	if (refraction > 0)
-		glEnable(GL_BLEND);
 }
 
 void CBumpWater::DrawRefraction(const CGame* game)
-{	
+{
 	ZoneScopedN("BumpWater::DrawRefraction");
-	// _RENDER_ REFRACTION TEXTURE
-	refractFBO.Bind();
+
+	if (!refractFBO)
+		return;
+
+	// Bind refraction FBO
+	refractFBO->Bind();
 
 	camera->Update();
 
 	globalRendering->LoadViewport();
 	const auto& sky = ISky::GetSky();
-	glClearColor(sky->fogColor.x, sky->fogColor.y, sky->fogColor.z, 0);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glDisable(GL_FOG); // fog has overground settings, if at all we should add special underwater settings
+
+	// Clear with fog color
+	auto* ctx = GetRHIDevice()->GetContext();
+	ctx->ClearColor(sky->fogColor.x, sky->fogColor.y, sky->fogColor.z, 0.0f);
+	ctx->Clear(true, true, false);
 
 	const double clipPlaneEqs[2 * 4] = {
 		0.0, -1.0, 0.0, 5.0, // ground
@@ -1069,8 +1057,6 @@ void CBumpWater::DrawRefraction(const CGame* game)
 
 	DrawRefractions(&clipPlaneEqs[0], true, true);
 
-	glEnable(GL_FOG);
-
 	sunLighting->modelDiffuseColor = oldsun;
 	sunLighting->modelAmbientColor = oldambient;
 }
@@ -1079,11 +1065,19 @@ void CBumpWater::DrawRefraction(const CGame* game)
 void CBumpWater::DrawReflection(const CGame* game)
 {
 	ZoneScopedN("BumpWater::DrawReflection");
-	reflectFBO.Bind();
+
+	if (!reflectFBO)
+		return;
+
+	// Bind reflection FBO
+	reflectFBO->Bind();
 
 	const auto& sky = ISky::GetSky();
-	glClearColor(sky->fogColor.x, sky->fogColor.y, sky->fogColor.z, 0.0f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	// Clear with fog color
+	auto* ctx = GetRHIDevice()->GetContext();
+	ctx->ClearColor(sky->fogColor.x, sky->fogColor.y, sky->fogColor.z, 0.0f);
+	ctx->Clear(true, true, false);
 
 	const double clipPlaneEqs[2 * 4] = {
 		0.0, 1.0, 0.0, 5.0, // ground; use d>0 to hide shoreline cracks

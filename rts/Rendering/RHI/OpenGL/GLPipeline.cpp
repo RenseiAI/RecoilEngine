@@ -92,6 +92,8 @@ void GLPipeline::Bind() {
 			ToGLBlendFactor(blend.srcColor), ToGLBlendFactor(blend.dstColor),
 			ToGLBlendFactor(blend.srcAlpha), ToGLBlendFactor(blend.dstAlpha));
 		glBlendEquationSeparate(ToGLBlendOp(blend.colorOp), ToGLBlendOp(blend.alphaOp));
+		glBlendColor(blend.blendColor[0], blend.blendColor[1],
+		             blend.blendColor[2], blend.blendColor[3]);
 	} else {
 		glDisable(GL_BLEND);
 	}
