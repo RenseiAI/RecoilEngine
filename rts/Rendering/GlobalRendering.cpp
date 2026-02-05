@@ -1735,9 +1735,6 @@ void CGlobalRendering::InitGLState()
 
 	glShadeModel(GL_SMOOTH);
 
-	glClearDepth(1.0f);
-	glDepthRange(0.0f, 1.0f);
-
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LEQUAL);
 
@@ -1754,8 +1751,13 @@ void CGlobalRendering::InitGLState()
 
 	SetMinSampleShadingRate();
 
-	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	// Clear via RHI context (handles glClearDepth, glClearColor, glClear)
+	if (auto* device = RHI::GetDevice()) {
+		auto* ctx = device->GetContext();
+		ctx->ClearDepth(1.0f);
+		ctx->ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+		ctx->Clear(true, true, false);
+	}
 
 	LoadViewport();
 
