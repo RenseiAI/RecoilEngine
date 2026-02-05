@@ -120,6 +120,16 @@ void GLDevice::EndTimerQuery(uint32_t query) {
 	glEndQuery(GL_TIME_ELAPSED);
 }
 
+void GLDevice::TimestampQuery(uint32_t query) {
+	glQueryCounter(query, GL_TIMESTAMP);
+}
+
+bool GLDevice::IsTimerQueryResultAvailable(uint32_t query) {
+	GLint available = 0;
+	glGetQueryObjectiv(query, GL_QUERY_RESULT_AVAILABLE, &available);
+	return available != 0;
+}
+
 uint64_t GLDevice::GetTimerQueryResult(uint32_t query, bool wait) {
 	if (wait) {
 		GLuint64 result = 0;

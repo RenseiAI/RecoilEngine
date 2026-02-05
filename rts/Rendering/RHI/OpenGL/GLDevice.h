@@ -43,6 +43,8 @@ public:
 	void DeleteTimerQuery(uint32_t query) override;
 	void BeginTimerQuery(uint32_t query) override;
 	void EndTimerQuery(uint32_t query) override;
+	void TimestampQuery(uint32_t query) override;
+	bool IsTimerQueryResultAvailable(uint32_t query) override;
 	uint64_t GetTimerQueryResult(uint32_t query, bool wait) override;
 
 	// Resource creation

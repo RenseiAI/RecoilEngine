@@ -207,6 +207,26 @@ void MTLDevice::EndTimerQuery(uint32_t query) {
 	}
 }
 
+void MTLDevice::TimestampQuery(uint32_t query) {
+	// Record an absolute timestamp (CPU-based on Metal).
+	// Stores timestamp in startTime; GetTimerQueryResult returns it as nanoseconds.
+	if (query > 0 && query <= timerQueries.size()) {
+		auto& q = timerQueries[query - 1];
+		q.startTime = mach_absolute_time();
+		q.started = true;
+		q.ended = true;  // Timestamp queries are immediately available
+		q.endTime = 0;   // Mark as timestamp query (not elapsed)
+	}
+}
+
+bool MTLDevice::IsTimerQueryResultAvailable(uint32_t query) {
+	// CPU timing is always immediately available
+	if (query > 0 && query <= timerQueries.size()) {
+		return timerQueries[query - 1].ended;
+	}
+	return false;
+}
+
 uint64_t MTLDevice::GetTimerQueryResult(uint32_t query, bool wait) {
 	(void)wait;  // CPU timing doesn't need to wait
 
@@ -218,6 +238,11 @@ uint64_t MTLDevice::GetTimerQueryResult(uint32_t query, bool wait) {
 			if (timebaseInfo.denom == 0) {
 				mach_timebase_info(&timebaseInfo);
 			}
+			if (q.endTime == 0) {
+				// Timestamp query: return absolute timestamp in nanoseconds
+				return q.startTime * timebaseInfo.numer / timebaseInfo.denom;
+			}
+			// Elapsed time query: return difference in nanoseconds
 			uint64_t elapsed = q.endTime - q.startTime;
 			return elapsed * timebaseInfo.numer / timebaseInfo.denom;
 		}

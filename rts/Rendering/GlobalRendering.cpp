@@ -408,9 +408,14 @@ CGlobalRendering::~CGlobalRendering()
 	configHandler->RemoveObserver(this);
 	verticalSync->WrapRemoveObserver();
 
-	// protect against aborted startup
-	if (glContext) {
-		glDeleteQueries(glTimerQueries.size(), glTimerQueries.data());
+	// Delete timer queries via RHI device
+	if (auto* device = RHI::GetDevice()) {
+		for (auto& q : glTimerQueries) {
+			if (q != 0) {
+				device->DeleteTimerQuery(q);
+				q = 0;
+			}
+		}
 	}
 
 	DestroyWindowAndContext();
@@ -692,7 +697,13 @@ void CGlobalRendering::PostInit() {
 
 	UniformConstants::GetInstance().Init();
 	ModelUniformData::Init();
-	glGenQueries(glTimerQueries.size(), glTimerQueries.data());
+
+	// Create timer queries via RHI device
+	if (auto* device = RHI::GetDevice()) {
+		for (auto& q : glTimerQueries)
+			q = device->CreateTimerQuery();
+	}
+
 	RenderBuffer::InitStatic();
 	GL::shapes.Init();
 
@@ -750,15 +761,17 @@ void CGlobalRendering::SwapBuffers(bool allowSwapBuffers, bool clearErrors)
 
 void CGlobalRendering::SetGLTimeStamp(uint32_t queryIdx) const
 {
-	if (!GLAD_GL_ARB_timer_query)
+	auto* device = RHI::GetDevice();
+	if (!device || !device->SupportTimerQueries())
 		return;
 
-	glQueryCounter(glTimerQueries[(NUM_OPENGL_TIMER_QUERIES * (drawFrame & 1)) + queryIdx], GL_TIMESTAMP);
+	device->TimestampQuery(glTimerQueries[(NUM_OPENGL_TIMER_QUERIES * (drawFrame & 1)) + queryIdx]);
 }
 
 uint64_t CGlobalRendering::CalcGLDeltaTime(uint32_t queryIdx0, uint32_t queryIdx1) const
 {
-	if (!GLAD_GL_ARB_timer_query)
+	auto* device = RHI::GetDevice();
+	if (!device || !device->SupportTimerQueries())
 		return 0;
 
 	const uint32_t queryBase = NUM_OPENGL_TIMER_QUERIES * (1 - (drawFrame & 1));
@@ -767,18 +780,13 @@ uint64_t CGlobalRendering::CalcGLDeltaTime(uint32_t queryIdx0, uint32_t queryIdx
 	assert(queryIdx1 < NUM_OPENGL_TIMER_QUERIES);
 	assert(queryIdx0 < queryIdx1);
 
-	GLuint64 t0 = 0;
-	GLuint64 t1 = 0;
-
-	GLint res = 0;
-
 	// results from the previous frame should already (or soon) be available
-	while (!res) {
-		glGetQueryObjectiv(glTimerQueries[queryBase + queryIdx1], GL_QUERY_RESULT_AVAILABLE, &res);
+	while (!device->IsTimerQueryResultAvailable(glTimerQueries[queryBase + queryIdx1])) {
+		// spin until available
 	}
 
-	glGetQueryObjectui64v(glTimerQueries[queryBase + queryIdx0], GL_QUERY_RESULT, &t0);
-	glGetQueryObjectui64v(glTimerQueries[queryBase + queryIdx1], GL_QUERY_RESULT, &t1);
+	const uint64_t t0 = device->GetTimerQueryResult(glTimerQueries[queryBase + queryIdx0], true);
+	const uint64_t t1 = device->GetTimerQueryResult(glTimerQueries[queryBase + queryIdx1], true);
 
 	// nanoseconds between timestamps
 	return (t1 - t0);

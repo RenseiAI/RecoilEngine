@@ -65,6 +65,10 @@ public:
 	virtual void DeleteTimerQuery(uint32_t query) = 0;
 	virtual void BeginTimerQuery(uint32_t query) = 0;
 	virtual void EndTimerQuery(uint32_t query) = 0;
+	/// Record a GPU timestamp into the query (maps to glQueryCounter on GL).
+	virtual void TimestampQuery(uint32_t query) = 0;
+	/// Check if a query result is available without blocking.
+	virtual bool IsTimerQueryResultAvailable(uint32_t query) = 0;
 	/// Returns elapsed time in nanoseconds, or 0 if not available yet
 	virtual uint64_t GetTimerQueryResult(uint32_t query, bool wait = true) = 0;
 
