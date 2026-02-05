@@ -37,6 +37,8 @@
 
 #include "GlobalRendering.h"
 #include "GlobalRenderingInfo.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Rendering/VerticalSync.h"
 #include "Rendering/GL/StreamBuffer.h"
 #include "Rendering/GL/RenderBuffers.h"
@@ -2046,10 +2048,24 @@ bool CGlobalRendering::ToggleGLDebugOutput(unsigned int msgSrceIdx, unsigned int
 
 void CGlobalRendering::LoadViewport()
 {
-	glViewport(viewPosX, viewPosY, viewSizeX, viewSizeY);
+	if (auto* device = RHI::GetDevice()) {
+		RHI::Viewport vp;
+		vp.x      = static_cast<float>(viewPosX);
+		vp.y      = static_cast<float>(viewPosY);
+		vp.width  = static_cast<float>(viewSizeX);
+		vp.height = static_cast<float>(viewSizeY);
+		device->GetContext()->SetViewport(vp);
+	}
 }
 
 void CGlobalRendering::LoadDualViewport()
 {
-	glViewport(dualViewPosX, dualViewPosY, dualViewSizeX, dualViewSizeY);
+	if (auto* device = RHI::GetDevice()) {
+		RHI::Viewport vp;
+		vp.x      = static_cast<float>(dualViewPosX);
+		vp.y      = static_cast<float>(dualViewPosY);
+		vp.width  = static_cast<float>(dualViewSizeX);
+		vp.height = static_cast<float>(dualViewSizeY);
+		device->GetContext()->SetViewport(vp);
+	}
 }
