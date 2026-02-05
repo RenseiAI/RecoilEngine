@@ -79,6 +79,14 @@ public:
 	void SetScissor(const ScissorRect& rect) override;
 	void SetClipDistanceEnabled(uint32_t index, bool enabled) override;
 
+	// --- Global state (Metal handles via pipeline descriptors — no-ops) ---
+	void SetDepthTestEnabled(bool enabled) override {}
+	void SetDepthFunc(CompareFunc func) override {}
+	void SetClipControl(bool zeroToOne) override {}
+	void SetSeamlessCubeMapsEnabled(bool enabled) override {}
+	void SetMultisampleEnabled(bool enabled) override {}
+	void SetSampleShading(bool enabled, float minRate) override {}
+
 	// --- Clear ---
 	void ClearColor(float r, float g, float b, float a) override;
 	void ClearDepth(float depth) override;

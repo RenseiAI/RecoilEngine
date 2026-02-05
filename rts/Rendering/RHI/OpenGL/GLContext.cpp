@@ -40,6 +40,20 @@ static size_t IndexTypeSize(IndexType type) {
 	return 4;
 }
 
+static GLenum ToGLCompareFunc(CompareFunc func) {
+	switch (func) {
+		case CompareFunc::Never:        return GL_NEVER;
+		case CompareFunc::Less:         return GL_LESS;
+		case CompareFunc::LessEqual:    return GL_LEQUAL;
+		case CompareFunc::Equal:        return GL_EQUAL;
+		case CompareFunc::NotEqual:     return GL_NOTEQUAL;
+		case CompareFunc::GreaterEqual: return GL_GEQUAL;
+		case CompareFunc::Greater:      return GL_GREATER;
+		case CompareFunc::Always:       return GL_ALWAYS;
+	}
+	return GL_LEQUAL;
+}
+
 // --- Render pass (maps to FBO bind/unbind) ---
 
 void GLContext::BeginRenderPass(IRHIFramebuffer* framebuffer, const RenderPassDesc& desc) {
@@ -172,6 +186,47 @@ void GLContext::SetClipDistanceEnabled(uint32_t index, bool enabled) {
 		glEnable(GL_CLIP_DISTANCE0 + index);
 	else
 		glDisable(GL_CLIP_DISTANCE0 + index);
+}
+
+// --- Global state ---
+
+void GLContext::SetDepthTestEnabled(bool enabled) {
+	if (enabled)
+		glEnable(GL_DEPTH_TEST);
+	else
+		glDisable(GL_DEPTH_TEST);
+}
+
+void GLContext::SetDepthFunc(CompareFunc func) {
+	glDepthFunc(ToGLCompareFunc(func));
+}
+
+void GLContext::SetClipControl(bool zeroToOne) {
+	if (zeroToOne && GLAD_GL_ARB_clip_control)
+		glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+}
+
+void GLContext::SetSeamlessCubeMapsEnabled(bool enabled) {
+	if (enabled)
+		glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+	else
+		glDisable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+}
+
+void GLContext::SetMultisampleEnabled(bool enabled) {
+	if (enabled)
+		glEnable(GL_MULTISAMPLE);
+	else
+		glDisable(GL_MULTISAMPLE);
+}
+
+void GLContext::SetSampleShading(bool enabled, float minRate) {
+	if (enabled) {
+		glEnable(GL_SAMPLE_SHADING);
+		glMinSampleShading(minRate);
+	} else {
+		glDisable(GL_SAMPLE_SHADING);
+	}
 }
 
 // --- Clear ---

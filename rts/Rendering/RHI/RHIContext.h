@@ -69,6 +69,14 @@ public:
 	virtual void SetClipDistanceEnabled(uint32_t index, bool enabled) = 0;
 	static constexpr uint32_t MaxClipDistances = 8;
 
+	// --- Global state ---
+	virtual void SetDepthTestEnabled(bool enabled) = 0;
+	virtual void SetDepthFunc(CompareFunc func) = 0;
+	virtual void SetClipControl(bool zeroToOne) = 0;
+	virtual void SetSeamlessCubeMapsEnabled(bool enabled) = 0;
+	virtual void SetMultisampleEnabled(bool enabled) = 0;
+	virtual void SetSampleShading(bool enabled, float minRate = 0.0f) = 0;
+
 	// --- Clear ---
 	virtual void ClearColor(float r, float g, float b, float a) = 0;
 	virtual void ClearDepth(float depth) = 0;

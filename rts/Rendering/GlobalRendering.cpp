@@ -1744,17 +1744,25 @@ void CGlobalRendering::InitGLState()
 {
 	LOG("[GR::%s]", __func__);
 
-	glShadeModel(GL_SMOOTH);
+	auto* device = RHI::GetDevice();
+	if (!device) {
+		LOG_L(L_WARNING, "[GR::%s] RHI device not initialized — skipping GL state init", __func__);
+		return;
+	}
 
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LEQUAL);
+	auto* ctx = device->GetContext();
+
+	// glShadeModel(GL_SMOOTH) removed — deprecated FFP no-op
+
+	ctx->SetDepthTestEnabled(true);
+	ctx->SetDepthFunc(RHI::CompareFunc::LessEqual);
 
 	// avoid precision loss with default DR transform
-	if (supportClipSpaceControl)
-		glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+	if (device->SupportClipSpaceControl())
+		ctx->SetClipControl(true);
 
-	if (supportSeamlessCubeMaps)
-		glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+	if (device->SupportSeamlessCubeMaps())
+		ctx->SetSeamlessCubeMapsEnabled(true);
 
 	// MSAA rasterization
 	msaaLevel *= CheckGLMultiSampling();
@@ -1762,13 +1770,9 @@ void CGlobalRendering::InitGLState()
 
 	SetMinSampleShadingRate();
 
-	// Clear via RHI context (handles glClearDepth, glClearColor, glClear)
-	if (auto* device = RHI::GetDevice()) {
-		auto* ctx = device->GetContext();
-		ctx->ClearDepth(1.0f);
-		ctx->ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-		ctx->Clear(true, true, false);
-	}
+	ctx->ClearDepth(1.0f);
+	ctx->ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+	ctx->Clear(true, true, false);
 
 	LoadViewport();
 
@@ -1779,10 +1783,8 @@ void CGlobalRendering::InitGLState()
 
 void CGlobalRendering::ToggleMultisampling() const
 {
-	if (msaaLevel > 0)
-		glEnable(GL_MULTISAMPLE);
-	else
-		glDisable(GL_MULTISAMPLE);
+	if (auto* device = RHI::GetDevice())
+		device->GetContext()->SetMultisampleEnabled(msaaLevel > 0);
 }
 
 bool CGlobalRendering::CheckShaderGL4() const
@@ -1859,13 +1861,9 @@ void CGlobalRendering::SetMinSampleShadingRate()
 	if (!GLAD_GL_VERSION_4_0)
 		return;
 
-	if (msaaLevel > 0 && minSampleShadingRate > 0.0f) {
-		// Enable sample shading
-		glEnable(GL_SAMPLE_SHADING);
-		glMinSampleShading(minSampleShadingRate);
-	}
-	else {
-		glDisable(GL_SAMPLE_SHADING);
+	if (auto* device = RHI::GetDevice()) {
+		const bool enable = (msaaLevel > 0 && minSampleShadingRate > 0.0f);
+		device->GetContext()->SetSampleShading(enable, minSampleShadingRate);
 	}
 #endif // !HEADLESS
 }

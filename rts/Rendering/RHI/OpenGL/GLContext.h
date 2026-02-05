@@ -36,6 +36,13 @@ public:
 	void SetScissor(const ScissorRect& rect) override;
 	void SetClipDistanceEnabled(uint32_t index, bool enabled) override;
 
+	void SetDepthTestEnabled(bool enabled) override;
+	void SetDepthFunc(CompareFunc func) override;
+	void SetClipControl(bool zeroToOne) override;
+	void SetSeamlessCubeMapsEnabled(bool enabled) override;
+	void SetMultisampleEnabled(bool enabled) override;
+	void SetSampleShading(bool enabled, float minRate) override;
+
 	void ClearColor(float r, float g, float b, float a) override;
 	void ClearDepth(float depth) override;
 	void ClearStencil(uint32_t value) override;
