@@ -43,13 +43,6 @@
 
 #include "System/Misc/TracyDefs.h"
 
-namespace {
-	RHI::IRHIDevice* GetRHIDevice() {
-		static auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
-		return device.get();
-	}
-}
-
 bool CModelDrawerHelper::ObjectVisibleReflection(const float3& objPos, const float3& camPos, float maxRadius)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -258,7 +251,7 @@ const std::array<const CModelDrawerHelper*, MODELTYPE_CNT> CModelDrawerHelper::m
 void CModelDrawerHelper3DO::PushRenderState() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	auto* device = GetRHIDevice();
+	auto* device = RHI::GetDevice();
 	auto* ctx = device->GetContext();
 	RHI::PipelineDesc desc;
 	desc.rasterizer.cullMode = RHI::CullMode::None;
@@ -269,7 +262,7 @@ void CModelDrawerHelper3DO::PushRenderState() const
 void CModelDrawerHelper3DO::PopRenderState() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	auto* device = GetRHIDevice();
+	auto* device = RHI::GetDevice();
 	auto* ctx = device->GetContext();
 	RHI::PipelineDesc desc;
 	desc.rasterizer.cullMode = RHI::CullMode::Back;

@@ -57,11 +57,6 @@
 #include "lib/fmt/format.h"
 
 namespace {
-	RHI::IRHIDevice* GetRHIDevice() {
-		static auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
-		return device.get();
-	}
-
 	RHI::TextureFormat DepthBitsToRHIFormat(int bits) {
 		switch (bits) {
 			case 16: return RHI::TextureFormat::Depth16;
@@ -379,7 +374,7 @@ void CShadowHandler::LoadShadowGenShaders()
 
 bool CShadowHandler::InitFBOAndTextures()
 {
-	auto* device = GetRHIDevice();
+	auto* device = RHI::GetDevice();
 	auto* ctx = device->GetContext();
 
 	//create dummy textures / FBO in case shadowConfig is 0
@@ -472,7 +467,7 @@ bool CShadowHandler::InitFBOAndTextures()
 
 void CShadowHandler::DrawShadowPasses()
 {
-	auto* device = GetRHIDevice();
+	auto* device = RHI::GetDevice();
 	auto* ctx = device->GetContext();
 
 	inShadowPass = true;
@@ -641,7 +636,7 @@ void CShadowHandler::ResetShadowTexSamplerRaw() const
 
 void CShadowHandler::CreateShadows()
 {
-	auto* device = GetRHIDevice();
+	auto* device = RHI::GetDevice();
 	auto* ctx = device->GetContext();
 
 	// NOTE:

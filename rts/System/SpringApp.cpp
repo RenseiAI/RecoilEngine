@@ -47,6 +47,7 @@
 #include "Net/GameServer.h"
 #include "Net/Protocol/NetProtocol.h" // clientNet
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/Fonts/FontHandler.h"
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GL/FBO.h"
@@ -268,6 +269,7 @@ bool SpringApp::Init()
 	globalRendering->UpdateGLConfigs();
 	globalRendering->UpdateGLGeometry();
 	globalRendering->InitGLState();
+	RHI::InitDevice();
 
 	CCameraHandler::InitStatic();
 	CBitmap::InitPool(configHandler->GetInt("TextureMemPoolSize"));
@@ -1041,6 +1043,7 @@ void SpringApp::Kill(bool fromRun)
 	gu->Kill();
 
 	LOG("[SpringApp::%s][7]", __func__);
+	RHI::KillDevice();
 
 	CGlobalRendering::KillStatic();
 	CBitmap::KillPool();

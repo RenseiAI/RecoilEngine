@@ -47,13 +47,6 @@
 
 #include "System/Misc/TracyDefs.h"
 
-namespace {
-	RHI::IRHIDevice* GetRHIDevice() {
-		static auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
-		return device.get();
-	}
-}
-
 
 bool IModelDrawerState::SetTeamColor(int team, float alpha) const
 {
@@ -72,7 +65,7 @@ bool IModelDrawerState::SetTeamColor(int team, float alpha) const
 void IModelDrawerState::SetupOpaqueDrawing(bool deferredPass) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	auto* device = GetRHIDevice();
+	auto* device = RHI::GetDevice();
 	auto* ctx = device->GetContext();
 
 	RHI::PipelineDesc desc;
@@ -103,7 +96,7 @@ void IModelDrawerState::ResetOpaqueDrawing(bool deferredPass) const
 		glDisable(GL_ALPHA_TEST);
 
 	// Restore default pipeline state
-	auto* device = GetRHIDevice();
+	auto* device = RHI::GetDevice();
 	auto* ctx = device->GetContext();
 	RHI::PipelineDesc defaultDesc;
 	defaultDesc.rasterizer.cullMode = RHI::CullMode::None;
@@ -114,7 +107,7 @@ void IModelDrawerState::ResetOpaqueDrawing(bool deferredPass) const
 void IModelDrawerState::SetupAlphaDrawing(bool deferredPass) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	auto* device = GetRHIDevice();
+	auto* device = RHI::GetDevice();
 	auto* ctx = device->GetContext();
 
 	RHI::PipelineDesc desc;
@@ -144,7 +137,7 @@ void IModelDrawerState::ResetAlphaDrawing(bool deferredPass) const
 	Disable(/*deferredPass*/ false);
 
 	// Restore default pipeline state
-	auto* device = GetRHIDevice();
+	auto* device = RHI::GetDevice();
 	auto* ctx = device->GetContext();
 	RHI::PipelineDesc defaultDesc;
 	auto defaultPipeline = device->CreatePipeline(defaultDesc);

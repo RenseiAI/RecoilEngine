@@ -46,13 +46,6 @@
 #include "System/SafeUtil.h"
 
 
-namespace {
-	RHI::IRHIDevice* GetRHIDevice() {
-		static auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
-		return device.get();
-	}
-}
-
 // optimisation for team-color, but potentially breaks
 // the alpha-pass and matrices can not be bucket-sorted
 #define USE_OBJECT_RENDERING_BUCKETS
@@ -376,7 +369,7 @@ void LuaObjectDrawer::DrawMaterialBins(LuaObjType objType, LuaMatType matType, b
 	inAlphaBin = (matType == LUAMAT_ALPHA || matType == LUAMAT_ALPHA_REFLECT);
 
 	// Set up pipeline state via RHI (replaces glPushAttrib for blend/depth)
-	auto* device = GetRHIDevice();
+	auto* device = RHI::GetDevice();
 	auto* ctx = device->GetContext();
 	if (inAlphaBin) {
 		RHI::PipelineDesc desc;

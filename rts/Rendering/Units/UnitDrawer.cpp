@@ -85,13 +85,6 @@
 
 #include "System/Misc/TracyDefs.h"
 
-namespace {
-	RHI::IRHIDevice* GetRHIDevice() {
-		static auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
-		return device.get();
-	}
-}
-
 CONFIG(int, UnitIconDist).defaultValue(200).headlessValue(0);
 CONFIG(float, UnitIconScaleUI).defaultValue(1.0f).minimumValue(0.1f).maximumValue(10.0f);
 CONFIG(float, UnitIconFadeStart).defaultValue(3000.0f).minimumValue(1.0f).maximumValue(10000.0f);
@@ -1299,7 +1292,7 @@ void CUnitDrawerGLSL::PushIndividualOpaqueState(const S3DModel* model, int teamI
 	// easier to assume they no longer have the correct
 	// values at this point
 	{
-		auto* device = GetRHIDevice();
+		auto* device = RHI::GetDevice();
 		auto* ctx = device->GetContext();
 		RHI::PipelineDesc desc;
 		desc.depthStencil.depthTestEnabled = true;
@@ -1329,7 +1322,7 @@ void CUnitDrawerGLSL::PopIndividualOpaqueState(const S3DModel* model, int teamID
 	ResetOpaqueDrawing(deferredPass);
 
 	// Restore default pipeline state (replaces glPopAttrib)
-	auto* device = GetRHIDevice();
+	auto* device = RHI::GetDevice();
 	auto* ctx = device->GetContext();
 	RHI::PipelineDesc defaultDesc;
 	auto defaultPipeline = device->CreatePipeline(defaultDesc);
@@ -1429,7 +1422,7 @@ bool CUnitDrawerGLSL::ShowUnitBuildSquare(const BuildInfo& buildInfo, const std:
 	RECOIL_DETAILED_TRACY_ZONE;
 	//TODO: make this a lua callin!
 	{
-		auto* device = GetRHIDevice();
+		auto* device = RHI::GetDevice();
 		auto* ctx = device->GetContext();
 		RHI::PipelineDesc desc;
 		desc.depthStencil.depthTestEnabled = false;
@@ -1582,7 +1575,7 @@ bool CUnitDrawerGLSL::ShowUnitBuildSquare(const BuildInfo& buildInfo, const std:
 
 	{
 		// Restore depth test (replaces glEnable(GL_DEPTH_TEST))
-		auto* device = GetRHIDevice();
+		auto* device = RHI::GetDevice();
 		auto* ctx = device->GetContext();
 		RHI::PipelineDesc desc;
 		desc.depthStencil.depthTestEnabled = true;

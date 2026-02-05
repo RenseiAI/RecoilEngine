@@ -28,11 +28,6 @@
 #include "Rendering/RHI/RHIFactory.h"
 
 namespace {
-	RHI::IRHIDevice* GetRHIDevice() {
-		static auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
-		return device.get();
-	}
-
 	RHI::TextureFormat DepthBitsToRHIFormat(int bits) {
 		switch (bits) {
 			case 16: return RHI::TextureFormat::Depth16;
@@ -104,7 +99,7 @@ bool DepthBufferCopy::IsValid(bool ms) const {
 
 void DepthBufferCopy::MakeDepthBufferCopy() const
 {
-	auto* ctx = GetRHIDevice()->GetContext();
+	auto* ctx = RHI::GetDevice()->GetContext();
 
 	const std::array<int, 4> srcScreenRect = { globalRendering->viewPosX, globalRendering->viewPosY, globalRendering->viewPosX + globalRendering->viewSizeX, globalRendering->viewPosY + globalRendering->viewSizeY };
 	const std::array<int, 4> dstScreenRect = { 0, 0, globalRendering->viewSizeX, globalRendering->viewSizeY };
@@ -147,7 +142,7 @@ void DepthBufferCopy::DestroyTextureAndFBO(bool ms)
 
 void DepthBufferCopy::CreateTextureAndFBO(bool ms)
 {
-	auto* device = GetRHIDevice();
+	auto* device = RHI::GetDevice();
 	auto& depthTexture = depthTextures[ms];
 	auto& depthFBO     = depthFBOs[ms];
 
