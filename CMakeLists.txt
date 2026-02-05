@@ -438,7 +438,12 @@ option(ENABLE_STREFLOP "build Spring with streflop support (REQUIRED FOR MULTIPL
 
 if (ENABLE_STREFLOP)
 	## note: is removed in ./AI/CMakeLists.txt since it would break AI compilation
-	if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|armv8")
+	if (APPLE)
+		# STREFLOP_SOFT has macOS fenv.h compatibility issues
+		# Disable streflop on Apple for now
+		add_definitions(-DNOT_USING_STREFLOP)
+		message(WARNING "Streflop disabled on Apple due to FPU settings compatibility issues")
+	elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|armv8")
 		add_definitions(-DSTREFLOP_SOFT)
 	else ()
 		add_definitions(-DSTREFLOP_SSE)

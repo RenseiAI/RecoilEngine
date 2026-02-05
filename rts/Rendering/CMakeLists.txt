@@ -147,5 +147,16 @@ set(sources_engine_Rendering
 		"${CMAKE_CURRENT_SOURCE_DIR}/Fonts/glFont.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Fonts/glFontRenderer.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Fonts/TextWrap.cpp"
-		PARENT_SCOPE
 	)
+
+# RHI (Render Hardware Interface) abstraction layer
+add_subdirectory(RHI)
+list(APPEND sources_engine_Rendering ${RHI_SOURCES})
+
+set(sources_engine_Rendering ${sources_engine_Rendering} PARENT_SCOPE)
+if(RHI_METAL_SOURCES)
+	set(RHI_METAL_SOURCES ${RHI_METAL_SOURCES} PARENT_SCOPE)
+endif()
+if(RHI_FRAMEWORKS)
+	set(RHI_FRAMEWORKS ${RHI_FRAMEWORKS} PARENT_SCOPE)
+endif()

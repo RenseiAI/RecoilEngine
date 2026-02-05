@@ -80,8 +80,13 @@ list(APPEND engineIncludes ${ENGINE_SRC_ROOT_DIR}/lib/cereal/include)
 include_directories(${engineIncludes})
 
 ### Build the executable
-add_executable(engine-legacy ${EXE_FLAGS} ${engineSources} ${ENGINE_ICON} ${engineHeaders})
-target_link_libraries(engine-legacy ${engineLibraries} Game)
+add_executable(engine-legacy ${EXE_FLAGS} ${engineSources} ${engineMetalSources} ${ENGINE_ICON} ${engineHeaders})
+target_link_libraries(engine-legacy ${engineLibraries} ${engineMetalFrameworks} Game)
+
+# Enable Metal RHI backend when Metal sources are available
+if(engineMetalSources)
+	target_compile_definitions(engine-legacy PRIVATE RHI_HAS_METAL)
+endif()
 
 
 ### Install the executable

@@ -36,6 +36,10 @@ endif()
 
 ### give error when not found
 find_package_static(DevIL REQUIRED)
+# DevIL's CMake module sets IL_INCLUDE_DIR to the directory containing il.h (e.g. /include/IL)
+# but code uses #include <IL/il.h>, so we need the parent directory
+get_filename_component(_IL_PARENT_DIR "${IL_INCLUDE_DIR}" DIRECTORY)
+include_directories(${_IL_PARENT_DIR})
 
 ### Assemble common include dirs
 include_directories(BEFORE lib)
@@ -150,6 +154,11 @@ make_global_var(engineSources
 		${sources_engine_System}
 		${sources_engine_ExternalAI}
 	)
+# Metal RHI sources are kept separate so headless builds can exclude them
+if(RHI_METAL_SOURCES)
+	make_global_var(engineMetalSources ${RHI_METAL_SOURCES})
+	make_global_var(engineMetalFrameworks ${RHI_FRAMEWORKS})
+endif()
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/lib/assimp/include) #FIXME: hack for rts/Rendering/Models/IModelParser.cpp
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/lib/simdjson/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/lib/fastgltf/include)
