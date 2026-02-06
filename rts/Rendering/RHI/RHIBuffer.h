@@ -39,6 +39,10 @@ public:
 	virtual void Unmap() = 0;
 	virtual void Upload(const void* data, size_t offset, size_t size) = 0;
 
+	// --- Persistent / flagged mapping ---
+	virtual void* MapWithFlags(size_t offset, size_t size, MapFlags flags) = 0;
+	virtual void FlushMappedRange(size_t offset, size_t size) = 0;
+
 	// --- Resize / Invalidate ---
 	virtual void Resize(size_t newSize) = 0;
 	virtual void Invalidate() = 0;

@@ -722,8 +722,13 @@ void CGlobalRendering::SwapBuffers(bool allowSwapBuffers, bool clearErrors)
 		assert(sdlWindow);
 
 		// silently or verbosely clear queue at the end of every frame
-		if (clearErrors || glDebugErrors)
-			glClearErrors("GR", __func__, glDebugErrors);
+		if (clearErrors || glDebugErrors) {
+			auto* device = RHI::GetDevice();
+			if (device)
+				device->ClearErrors();
+			else
+				glClearErrors("GR", __func__, glDebugErrors);
+		}
 
 		if (!allowSwapBuffers && !forceSwapBuffers)
 			return;
@@ -977,34 +982,53 @@ void CGlobalRendering::SetGLSupportFlags()
 
 void CGlobalRendering::QueryGLMaxVals()
 {
-	// maximum 2D texture size
-	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
-	glGetIntegerv(GL_MAX_TEXTURE_COORDS, &maxTexSlots);
-	glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &maxFragShSlots);
-	glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &maxCombShSlots);
+	auto* device = RHI::GetDevice();
+	if (device) {
+		maxTextureSize  = device->GetMaxTextureSize();
+		maxTexSlots     = device->GetMaxTextureSlots();
+		maxFragShSlots  = device->GetMaxFragmentTextureSlots();
+		maxCombShSlots  = device->GetMaxCombinedTextureSlots();
+		maxTexAnisoLvl  = device->GetMaxTexAnisotropy();
 
-	if (GLAD_GL_EXT_texture_filter_anisotropic)
-		glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxTexAnisoLvl);
+		glslMaxUniformBufferBindings  = device->GetMaxUniformBufferBindings();
+		glslMaxUniformBufferSize      = device->GetMaxUniformBufferSize();
+		glslMaxStorageBufferBindings  = device->GetMaxStorageBufferBindings();
+		glslMaxStorageBufferSize      = device->GetMaxStorageBufferSize();
 
-	// some GLSL relevant information
-	if (GLAD_GL_ARB_uniform_buffer_object) {
-		glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &glslMaxUniformBufferBindings);
-		glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE,      &glslMaxUniformBufferSize);
+		glslMaxVaryings              = device->GetMaxVaryings();
+		glslMaxAttributes            = device->GetMaxVertexAttributes();
+		glslMaxDrawBuffers           = device->GetMaxDrawBuffers();
+		glslMaxRecommendedIndices    = device->GetMaxRecommendedIndices();
+		glslMaxRecommendedVertices   = device->GetMaxRecommendedVertices();
+	} else {
+		// Fallback: direct GL queries (pre-RHI init or headless)
+		glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
+		glGetIntegerv(GL_MAX_TEXTURE_COORDS, &maxTexSlots);
+		glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &maxFragShSlots);
+		glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &maxCombShSlots);
+
+		if (GLAD_GL_EXT_texture_filter_anisotropic)
+			glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxTexAnisoLvl);
+
+		if (GLAD_GL_ARB_uniform_buffer_object) {
+			glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &glslMaxUniformBufferBindings);
+			glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE,      &glslMaxUniformBufferSize);
+		}
+
+		if (GLAD_GL_ARB_shader_storage_buffer_object) {
+			glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &glslMaxStorageBufferBindings);
+			glGetIntegerv(GL_MAX_SHADER_STORAGE_BLOCK_SIZE,      &glslMaxStorageBufferSize);
+		}
+
+		glGetIntegerv(GL_MAX_VARYING_FLOATS,                 &glslMaxVaryings);
+		glGetIntegerv(GL_MAX_VERTEX_ATTRIBS,                 &glslMaxAttributes);
+		glGetIntegerv(GL_MAX_DRAW_BUFFERS,                   &glslMaxDrawBuffers);
+		glGetIntegerv(GL_MAX_ELEMENTS_INDICES,               &glslMaxRecommendedIndices);
+		glGetIntegerv(GL_MAX_ELEMENTS_VERTICES,              &glslMaxRecommendedVertices);
+
+		// GL_MAX_VARYING_FLOATS is the maximum number of floats, we count float4's
+		glslMaxVaryings /= 4;
 	}
-
-	if (GLAD_GL_ARB_shader_storage_buffer_object) {
-		glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &glslMaxStorageBufferBindings);
-		glGetIntegerv(GL_MAX_SHADER_STORAGE_BLOCK_SIZE,      &glslMaxStorageBufferSize);
-	}
-
-	glGetIntegerv(GL_MAX_VARYING_FLOATS,                 &glslMaxVaryings);
-	glGetIntegerv(GL_MAX_VERTEX_ATTRIBS,                 &glslMaxAttributes);
-	glGetIntegerv(GL_MAX_DRAW_BUFFERS,                   &glslMaxDrawBuffers);
-	glGetIntegerv(GL_MAX_ELEMENTS_INDICES,               &glslMaxRecommendedIndices);
-	glGetIntegerv(GL_MAX_ELEMENTS_VERTICES,              &glslMaxRecommendedVertices);
-
-	// GL_MAX_VARYING_FLOATS is the maximum number of floats, we count float4's
-	glslMaxVaryings /= 4;
 }
 
 void CGlobalRendering::QueryVersionInfo(char (&sdlVersionStr)[64], char (&glVidMemStr)[64])
@@ -1023,10 +1047,21 @@ void CGlobalRendering::QueryVersionInfo(char (&sdlVersionStr)[64], char (&glVidM
 	grInfo.gladVersion = "headless stub";
 #endif // HEADLESS
 
-	if ((grInfo.glVersion   = (const char*) glGetString(GL_VERSION                 )) == nullptr) grInfo.glVersion   = "unknown";
-	if ((grInfo.glVendor    = (const char*) glGetString(GL_VENDOR                  )) == nullptr) grInfo.glVendor    = "unknown";
-	if ((grInfo.glRenderer  = (const char*) glGetString(GL_RENDERER                )) == nullptr) grInfo.glRenderer  = "unknown";
-	if ((grInfo.glslVersion = (const char*) glGetString(GL_SHADING_LANGUAGE_VERSION)) == nullptr) grInfo.glslVersion = "unknown";
+	// Query version strings via RHI device if available, fallback to direct GL
+	auto* rhiDevice = RHI::GetDevice();
+	if (rhiDevice) {
+		static RHI::VersionInfo versionInfo;
+		versionInfo = rhiDevice->GetVersionInfo();
+		grInfo.glVersion   = versionInfo.version.empty()                ? "unknown" : versionInfo.version.c_str();
+		grInfo.glVendor    = versionInfo.vendor.empty()                 ? "unknown" : versionInfo.vendor.c_str();
+		grInfo.glRenderer  = versionInfo.renderer.empty()               ? "unknown" : versionInfo.renderer.c_str();
+		grInfo.glslVersion = versionInfo.shadingLanguageVersion.empty()  ? "unknown" : versionInfo.shadingLanguageVersion.c_str();
+	} else {
+		if ((grInfo.glVersion   = (const char*) glGetString(GL_VERSION                 )) == nullptr) grInfo.glVersion   = "unknown";
+		if ((grInfo.glVendor    = (const char*) glGetString(GL_VENDOR                  )) == nullptr) grInfo.glVendor    = "unknown";
+		if ((grInfo.glRenderer  = (const char*) glGetString(GL_RENDERER                )) == nullptr) grInfo.glRenderer  = "unknown";
+		if ((grInfo.glslVersion = (const char*) glGetString(GL_SHADING_LANGUAGE_VERSION)) == nullptr) grInfo.glslVersion = "unknown";
+	}
 	if ((grInfo.sdlDriverName = (const char*) SDL_GetCurrentVideoDriver(           )) == nullptr) grInfo.sdlDriverName = "unknown";
 	// should never be null with any driver, no harm in an extra check
 	// (absence of GLSL version string would indicate bigger problems)
@@ -1895,6 +1930,13 @@ bool CGlobalRendering::CheckGLMultiSampling() const
 {
 	if (msaaLevel == 0)
 		return false;
+
+	auto* device = RHI::GetDevice();
+	if (device) {
+		return (device->GetFramebufferSampleCount() > 1);
+	}
+
+	// Fallback: direct GL query
 	if (!GLAD_GL_ARB_multisample)
 		return false;
 
@@ -2040,15 +2082,29 @@ bool CGlobalRendering::ToggleGLDebugOutput(unsigned int msgSrceIdx, unsigned int
 		glDebugOptions.dbgTraces = configHandler->GetBool("DebugGLStacktraces");
 		glDebugOptions.dbgGroups = configHandler->GetBool("DebugGLReportGroups");
 
-		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-		glDebugMessageCallback((GLDEBUGPROC)&glDebugMessageCallbackFunc, (const void*)&glDebugOptions);
+		auto* device = RHI::GetDevice();
+		if (device) {
+			device->SetDebugOutputEnabled(true, true);
+			device->SetDebugMessageCallback(
+				reinterpret_cast<RHI::IRHIDevice::DebugMessageCallback>(&glDebugMessageCallbackFunc),
+				(const void*)&glDebugOptions);
+		} else {
+			glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+			glDebugMessageCallback((GLDEBUGPROC)&glDebugMessageCallbackFunc, (const void*)&glDebugOptions);
+		}
 		glDebugMessageControl(msgSrceEnums[msgSrceIdx], msgTypeEnums[msgTypeIdx], msgSevrEnums[msgSevrIdx], 0, nullptr, GL_TRUE);
 
 		LOG("[GR::%s] OpenGL debug-message callback enabled (source=%s type=%s severity=%s)", __func__, msgSrceStr, msgTypeStr, msgSevrStr);
 	}
 	else {
-		glDebugMessageCallback(nullptr, nullptr);
-		glDisable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+		auto* device = RHI::GetDevice();
+		if (device) {
+			device->SetDebugMessageCallback(nullptr, nullptr);
+			device->SetDebugOutputEnabled(false);
+		} else {
+			glDebugMessageCallback(nullptr, nullptr);
+			glDisable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+		}
 
 		LOG("[GR::%s] OpenGL debug-message callback disabled", __func__);
 	}

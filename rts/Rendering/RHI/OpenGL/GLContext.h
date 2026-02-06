@@ -36,6 +36,8 @@ public:
 	void SetScissor(const ScissorRect& rect) override;
 	void SetClipDistanceEnabled(uint32_t index, bool enabled) override;
 
+	void SetVertexAttribDivisor(uint32_t index, uint32_t divisor) override;
+
 	void SetDepthTestEnabled(bool enabled) override;
 	void SetDepthFunc(CompareFunc func) override;
 	void SetClipControl(bool zeroToOne) override;

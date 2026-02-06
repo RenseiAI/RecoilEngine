@@ -47,6 +47,20 @@ public:
 	bool SupportTimerQueries() const override;
 	size_t GetAvailableVideoMemory() const override;
 
+	// Fence sync
+	FenceHandle CreateFence() override;
+	bool WaitFence(FenceHandle fence, uint64_t timeoutNs) override;
+	void DeleteFence(FenceHandle fence) override;
+
+	// Version/debug info
+	VersionInfo GetVersionInfo() const override;
+	int GetFramebufferSampleCount() const override;
+
+	// Debug output
+	void SetDebugOutputEnabled(bool enabled, bool synchronous) override;
+	void SetDebugMessageCallback(DebugMessageCallback callback, const void* userParam) override;
+	void ClearErrors() override;
+
 	uint32_t CreateTimerQuery() override;
 	void DeleteTimerQuery(uint32_t query) override;
 	void BeginTimerQuery(uint32_t query) override;

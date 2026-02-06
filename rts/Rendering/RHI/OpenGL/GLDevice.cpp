@@ -178,6 +178,68 @@ uint64_t GLDevice::GetTimerQueryResult(uint32_t query, bool wait) {
 	}
 }
 
+// --- Fence sync ---
+
+FenceHandle GLDevice::CreateFence() {
+	return reinterpret_cast<FenceHandle>(glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0));
+}
+
+bool GLDevice::WaitFence(FenceHandle fence, uint64_t timeoutNs) {
+	if (!fence) return true;
+	GLenum result = glClientWaitSync(reinterpret_cast<GLsync>(fence), GL_SYNC_FLUSH_COMMANDS_BIT, timeoutNs);
+	return result == GL_ALREADY_SIGNALED || result == GL_CONDITION_SATISFIED;
+}
+
+void GLDevice::DeleteFence(FenceHandle fence) {
+	if (fence)
+		glDeleteSync(reinterpret_cast<GLsync>(fence));
+}
+
+// --- Version/debug info ---
+
+VersionInfo GLDevice::GetVersionInfo() const {
+	VersionInfo info;
+	const char* s;
+	s = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
+	if (s) info.vendor = s;
+	s = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+	if (s) info.renderer = s;
+	s = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+	if (s) info.version = s;
+	s = reinterpret_cast<const char*>(glGetString(GL_SHADING_LANGUAGE_VERSION));
+	if (s) info.shadingLanguageVersion = s;
+	return info;
+}
+
+int GLDevice::GetFramebufferSampleCount() const {
+	GLint samples = 0;
+	glGetIntegerv(GL_SAMPLES, &samples);
+	return samples;
+}
+
+// --- Debug output ---
+
+void GLDevice::SetDebugOutputEnabled(bool enabled, bool synchronous) {
+	if (enabled) {
+		glEnable(GL_DEBUG_OUTPUT);
+		if (synchronous)
+			glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+		else
+			glDisable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+	} else {
+		glDisable(GL_DEBUG_OUTPUT);
+		glDisable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+	}
+}
+
+void GLDevice::SetDebugMessageCallback(DebugMessageCallback callback, const void* userParam) {
+	glDebugMessageCallback(reinterpret_cast<GLDEBUGPROC>(callback), userParam);
+}
+
+void GLDevice::ClearErrors() {
+	while (glGetError() != GL_NO_ERROR) {}
+}
+
 // --- Resource creation ---
 
 std::unique_ptr<IRHIBuffer> GLDevice::CreateBuffer(BufferType type, BufferUsage usage, size_t size, const void* initialData) {

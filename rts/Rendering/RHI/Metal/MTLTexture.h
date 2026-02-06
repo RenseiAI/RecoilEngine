@@ -87,6 +87,7 @@ public:
 	TextureType GetType() const override { return texType; }
 	TextureFormat GetFormat() const override { return texFormat; }
 	uint32_t GetNativeHandle() const override { return 0; }  // Metal uses object pointers
+	uint32_t GetSampleCount() const override { return texSampleCount; }
 
 #ifdef __OBJC__
 	// --- Metal-specific accessors ---

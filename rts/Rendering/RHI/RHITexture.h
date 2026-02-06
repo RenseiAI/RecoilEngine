@@ -86,6 +86,7 @@ public:
 	virtual TextureType GetType() const = 0;
 	virtual TextureFormat GetFormat() const = 0;
 	virtual uint32_t GetNativeHandle() const = 0;
+	virtual uint32_t GetSampleCount() const = 0;
 };
 
 } // namespace RHI

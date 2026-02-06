@@ -80,6 +80,22 @@ public:
 	/// Returns elapsed time in nanoseconds, or 0 if not available yet
 	virtual uint64_t GetTimerQueryResult(uint32_t query, bool wait = true) = 0;
 
+	// --- Fence sync ---
+	virtual FenceHandle CreateFence() = 0;
+	virtual bool WaitFence(FenceHandle fence, uint64_t timeoutNs = 1) = 0;
+	virtual void DeleteFence(FenceHandle fence) = 0;
+
+	// --- Version/debug info ---
+	virtual VersionInfo GetVersionInfo() const = 0;
+	virtual int GetFramebufferSampleCount() const = 0;
+
+	// --- Debug output ---
+	using DebugMessageCallback = void(*)(uint32_t source, uint32_t type, uint32_t id,
+		uint32_t severity, const char* message, const void* userParam);
+	virtual void SetDebugOutputEnabled(bool enabled, bool synchronous = true) = 0;
+	virtual void SetDebugMessageCallback(DebugMessageCallback callback, const void* userParam = nullptr) = 0;
+	virtual void ClearErrors() = 0;
+
 	// --- Resource creation ---
 	virtual std::unique_ptr<IRHIBuffer> CreateBuffer(
 		BufferType type,

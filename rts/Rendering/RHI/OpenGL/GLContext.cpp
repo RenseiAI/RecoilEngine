@@ -188,6 +188,10 @@ void GLContext::SetClipDistanceEnabled(uint32_t index, bool enabled) {
 		glDisable(GL_CLIP_DISTANCE0 + index);
 }
 
+void GLContext::SetVertexAttribDivisor(uint32_t index, uint32_t divisor) {
+	glVertexAttribDivisor(index, divisor);
+}
+
 // --- Global state ---
 
 void GLContext::SetDepthTestEnabled(bool enabled) {

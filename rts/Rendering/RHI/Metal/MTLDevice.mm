@@ -13,6 +13,7 @@
 #import <SDL2/SDL.h>
 #import <SDL2/SDL_metal.h>
 
+#include <dispatch/dispatch.h>
 #include <mach/mach_time.h>
 #include "System/Log/ILog.h"
 
@@ -165,6 +166,74 @@ size_t MTLDevice::GetAvailableVideoMemory() const {
 		return static_cast<size_t>([mtlDevice recommendedMaxWorkingSetSize]);
 	}
 	return 0;
+}
+
+// --- Fence sync ---
+
+FenceHandle MTLDevice::CreateFence() {
+	// Metal uses dispatch_semaphore for CPU-GPU sync.
+	// Create a signaled semaphore (value 1) that GPU work can signal.
+	dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+	// Signal it immediately so first wait succeeds
+	dispatch_semaphore_signal(sem);
+	return reinterpret_cast<FenceHandle>((__bridge_retained void*)sem);
+}
+
+bool MTLDevice::WaitFence(FenceHandle fence, uint64_t timeoutNs) {
+	if (!fence) return true;
+	dispatch_semaphore_t sem = (__bridge dispatch_semaphore_t)fence;
+	dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(timeoutNs));
+	long result = dispatch_semaphore_wait(sem, timeout);
+	if (result == 0) {
+		// Re-signal so subsequent waits also succeed (fence is level-triggered, not edge)
+		dispatch_semaphore_signal(sem);
+		return true;
+	}
+	return false;
+}
+
+void MTLDevice::DeleteFence(FenceHandle fence) {
+	if (fence) {
+		// Release the retained reference
+		dispatch_semaphore_t sem = (__bridge_transfer dispatch_semaphore_t)fence;
+		(void)sem; // ARC will release
+	}
+}
+
+// --- Version/debug info ---
+
+VersionInfo MTLDevice::GetVersionInfo() const {
+	VersionInfo info;
+	info.vendor = "Apple";
+	if (mtlDevice) {
+		info.renderer = [[mtlDevice name] UTF8String];
+	}
+	info.version = "Metal";
+	info.shadingLanguageVersion = "MSL 2.4";
+	return info;
+}
+
+int MTLDevice::GetFramebufferSampleCount() const {
+	// Query from the metal layer or default to 1 (no MSAA by default)
+	return 1;
+}
+
+// --- Debug output ---
+
+void MTLDevice::SetDebugOutputEnabled(bool enabled, bool synchronous) {
+	// Metal uses Metal Validation Layer and GPU Capture, not runtime debug output
+	(void)enabled;
+	(void)synchronous;
+}
+
+void MTLDevice::SetDebugMessageCallback(DebugMessageCallback callback, const void* userParam) {
+	// Metal doesn't have a debug message callback mechanism like OpenGL
+	(void)callback;
+	(void)userParam;
+}
+
+void MTLDevice::ClearErrors() {
+	// Metal doesn't have an error state like glGetError()
 }
 
 // Timer query implementation using Metal timestamps

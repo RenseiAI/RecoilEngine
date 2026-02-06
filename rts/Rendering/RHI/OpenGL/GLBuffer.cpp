@@ -57,6 +57,26 @@ void GLBuffer::Unmap() {
 	vbo.UnmapBuffer();
 }
 
+void* GLBuffer::MapWithFlags(size_t offset, size_t size, MapFlags flags) {
+	GLbitfield glFlags = 0;
+	if (HasFlag(flags, MapFlags::Read))             glFlags |= GL_MAP_READ_BIT;
+	if (HasFlag(flags, MapFlags::Write))            glFlags |= GL_MAP_WRITE_BIT;
+	if (HasFlag(flags, MapFlags::Persistent))       glFlags |= GL_MAP_PERSISTENT_BIT;
+	if (HasFlag(flags, MapFlags::Coherent))         glFlags |= GL_MAP_COHERENT_BIT;
+	if (HasFlag(flags, MapFlags::InvalidateBuffer)) glFlags |= GL_MAP_INVALIDATE_BUFFER_BIT;
+	if (HasFlag(flags, MapFlags::InvalidateRange))  glFlags |= GL_MAP_INVALIDATE_RANGE_BIT;
+	if (HasFlag(flags, MapFlags::FlushExplicit))    glFlags |= GL_MAP_FLUSH_EXPLICIT_BIT;
+	if (HasFlag(flags, MapFlags::Unsynchronized))   glFlags |= GL_MAP_UNSYNCHRONIZED_BIT;
+
+	vbo.Bind();
+	return glMapBufferRange(ToGLTarget(bufType), static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size), glFlags);
+}
+
+void GLBuffer::FlushMappedRange(size_t offset, size_t size) {
+	vbo.Bind();
+	glFlushMappedBufferRange(ToGLTarget(bufType), static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size));
+}
+
 void GLBuffer::Upload(const void* data, size_t offset, size_t size) {
 	vbo.Bind();
 	vbo.SetBufferSubData(static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size), data);

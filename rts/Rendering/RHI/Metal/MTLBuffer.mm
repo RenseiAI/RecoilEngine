@@ -152,6 +152,20 @@ void MTLBuffer::Upload(const void* data, size_t offset, size_t size) {
 	std::memcpy(dst, data, size);
 }
 
+void* MTLBuffer::MapWithFlags(size_t offset, size_t size, MapFlags flags) {
+	// On Apple Silicon with unified memory, all buffers are already mapped.
+	// MapFlags are hints that don't change behavior for shared storage mode.
+	(void)flags;
+	return Map(offset, size, HasFlag(flags, MapFlags::Read));
+}
+
+void MTLBuffer::FlushMappedRange(size_t offset, size_t size) {
+	// No-op on Apple Silicon with shared storage mode.
+	// Coherency is automatic with unified memory.
+	(void)offset;
+	(void)size;
+}
+
 void MTLBuffer::Resize(size_t newSize) {
 	if (newSize == bufferSize) {
 		return;

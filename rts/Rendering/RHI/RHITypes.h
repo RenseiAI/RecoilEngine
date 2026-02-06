@@ -54,6 +54,7 @@
  */
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 // macOS system headers may define these as macros (from NSObjCRuntime.h, X11, etc.)
@@ -72,6 +73,42 @@ namespace RHI {
 enum class Backend : uint8_t {
 	OpenGL,
 	Metal
+};
+
+// --- Buffer map flags (bitfield) ---
+
+enum class MapFlags : uint32_t {
+	Read             = 1 << 0,
+	Write            = 1 << 1,
+	Persistent       = 1 << 2,
+	Coherent         = 1 << 3,
+	InvalidateBuffer = 1 << 4,
+	InvalidateRange  = 1 << 5,
+	FlushExplicit    = 1 << 6,
+	Unsynchronized   = 1 << 7,
+};
+
+inline MapFlags operator|(MapFlags a, MapFlags b) {
+	return static_cast<MapFlags>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+}
+inline MapFlags operator&(MapFlags a, MapFlags b) {
+	return static_cast<MapFlags>(static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
+}
+inline bool HasFlag(MapFlags flags, MapFlags test) {
+	return (static_cast<uint32_t>(flags) & static_cast<uint32_t>(test)) != 0;
+}
+
+// --- Fence sync ---
+
+using FenceHandle = void*;
+
+// --- GPU/driver version info ---
+
+struct VersionInfo {
+	std::string vendor;
+	std::string renderer;
+	std::string version;
+	std::string shadingLanguageVersion;
 };
 
 // --- Buffer ---

@@ -69,6 +69,9 @@ public:
 	virtual void SetClipDistanceEnabled(uint32_t index, bool enabled) = 0;
 	static constexpr uint32_t MaxClipDistances = 8;
 
+	// --- Vertex attribute ---
+	virtual void SetVertexAttribDivisor(uint32_t index, uint32_t divisor) = 0;
+
 	// --- Global state ---
 	virtual void SetDepthTestEnabled(bool enabled) = 0;
 	virtual void SetDepthFunc(CompareFunc func) = 0;

@@ -78,6 +78,7 @@ public:
 	void SetViewport(const Viewport& viewport) override;
 	void SetScissor(const ScissorRect& rect) override;
 	void SetClipDistanceEnabled(uint32_t index, bool enabled) override;
+	void SetVertexAttribDivisor(uint32_t index, uint32_t divisor) override;
 
 	// --- Global state (Metal handles via pipeline descriptors — no-ops) ---
 	void SetDepthTestEnabled(bool enabled) override {}

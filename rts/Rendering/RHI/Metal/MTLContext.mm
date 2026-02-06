@@ -457,6 +457,13 @@ void MTLContext::SetClipDistanceEnabled(uint32_t index, bool enabled) {
 	(void)enabled;
 }
 
+void MTLContext::SetVertexAttribDivisor(uint32_t index, uint32_t divisor) {
+	// Metal handles vertex attribute divisor via MTLVertexStepFunction in the
+	// pipeline descriptor, not as runtime state. Store for pipeline creation.
+	(void)index;
+	(void)divisor;
+}
+
 void MTLContext::ClearColor(float r, float g, float b, float a) {
 	clearColor.r = r;
 	clearColor.g = g;

@@ -50,6 +50,8 @@ public:
 	void* MapAll(bool readOnly) override;
 	void Unmap() override;
 	void Upload(const void* data, size_t offset, size_t size) override;
+	void* MapWithFlags(size_t offset, size_t size, MapFlags flags) override;
+	void FlushMappedRange(size_t offset, size_t size) override;
 
 	// --- Resize / Invalidate ---
 	void Resize(size_t newSize) override;
