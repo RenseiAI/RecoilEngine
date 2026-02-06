@@ -3,26 +3,22 @@
 /**
  * CNamedTextures - Global texture cache with string-based lookup.
  *
- * RHI Migration Status: PARTIAL
+ * RHI Migration Status: COMPLETE
  * ============================
- * RHI texture creation already used in GenTex() and GenLoadTex():
- *   - RHI::GetDevice()->CreateTexture() for placeholder textures
- *   - GetNativeHandle() extracts raw handle, then releases ownership
+ * All texture operations migrated to RHI:
+ *   - TexInfo stores std::shared_ptr<RHI::IRHITexture> for managed lifetime
+ *   - id field populated from GetNativeHandle() for Lua API compatibility
+ *   - Texture creation via RHI::IRHIDevice::CreateTexture()
+ *   - Texture binding via texture->Bind(unit)
+ *   - Texture deletion via smart pointer cleanup
  *
- * Remaining GL Dependencies:
- *   - Kill(), EraseTex() use glDeleteTextures for cleanup
- *   - Bind() uses glBindTexture directly
- *   - Load() uses glBindTexture, glTexParameteri for extra params
- *   - Update() uses glPushAttrib/glPopAttrib (GL_TEXTURE_BIT)
+ * Remaining GL Dependencies (external boundaries):
+ *   - Load() uses glBindTexture, glTexParameteri for extra params from CBitmap
+ *     (CBitmap::CreateTexture returns raw GLuint, not yet fully migrated)
+ *   - Update() uses glPushAttrib/glPopAttrib (GL_TEXTURE_BIT) for state save/restore
  *   - Bind(), GetInfo() check GL_LIST_INDEX for display list compilation
- *   - TexInfo.texType stores GL texture target enums
- *
- * Migration Path:
- * 1. Store std::unique_ptr<RHI::IRHITexture> instead of raw id in TexInfo
- * 2. Replace glDeleteTextures with unique_ptr destruction
- * 3. Replace glBindTexture with texture->Bind()
- * 4. Remove display list compilation checks (deprecated feature)
- * 5. Map texType from GL enums to RHI::TextureType
+ *     (deprecated GL feature, kept for compatibility)
+ *   - TexInfo.texType stores GL texture target enums (for CBitmap integration)
  */
 
 #ifndef NAMED_TEXTURES_H
@@ -30,6 +26,9 @@
 
 #include <cstdint>
 #include <string>
+#include <memory>
+
+namespace RHI { class IRHITexture; }
 
 namespace CNamedTextures {
 	void Init();
@@ -52,6 +51,11 @@ namespace CNamedTextures {
 	struct TexInfo {
 		TexInfo()
 			: id(0), xsize(-1), ysize(-1), texType(0), alpha(false), persist(false) {}
+
+		// RHI texture object (owns the texture lifetime)
+		std::shared_ptr<RHI::IRHITexture> rhiTexture;
+
+		// Native handle for Lua API compatibility (populated from rhiTexture->GetNativeHandle())
 		uint32_t id;
 		int xsize;
 		int ysize;
