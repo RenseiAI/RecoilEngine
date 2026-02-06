@@ -8,19 +8,21 @@
  * Migrated patterns:
  *   - Pipeline state (cull mode) -> RHI::PipelineDesc + ctx->BindPipeline()
  *   - RHI device/context access  -> RHI::CreateDevice(), GetContext()
+ *   - Model texture binding -> IRHITexture::Bind() for 3DO atlas and S3O textures
+ *   - Shadow texture binding -> IRHITexture::Bind() via shadowHandler.GetColorTexture()
  *
  * Remaining GL calls (with RHI_TODO comments):
- *   - glActiveTexture/glBindTexture: Texture handlers (textureHandler3DO,
- *     textureHandlerS3O, cubeMapHandler) return raw GL IDs, not RHI objects
- *   - glEnable/glDisable(GL_TEXTURE_2D/GL_TEXTURE_CUBE_MAP): Legacy FFP
- *   - glMatrixMode/glPushMatrix/glPopMatrix: Legacy FFP matrix stack
- *   - glGetIntegerv(GL_MATRIX_MODE): Legacy FFP state query
+ *   - glActiveTexture/glBindTexture(0): Texture unbinding not supported by IRHITexture
+ *   - glActiveTexture/glBindTexture(cube maps): cubeMapHandler doesn't expose RHI textures
+ *   - glEnable/glDisable(GL_TEXTURE_2D/GL_TEXTURE_CUBE_MAP): Legacy FFP state, no RHI equivalent
+ *   - glMatrixMode/glPushMatrix/glPopMatrix: Legacy FFP matrix stack, no RHI equivalent
+ *   - glGetIntegerv(GL_MATRIX_MODE): Legacy FFP state query, no RHI equivalent
  *
  * Dependencies blocking full migration:
- *   - textureHandler3DO needs to return IRHITexture*
- *   - textureHandlerS3O needs to return IRHITexture*
- *   - cubeMapHandler needs to return IRHITexture*
- *   - FFP matrix stack used by GLSL path; GL4 path uses uniform buffers
+ *   - cubeMapHandler needs to expose IRHITexture* getters (currently only GetNativeHandle())
+ *   - IRHITexture needs Unbind() method or context->UnbindTexture(unit)
+ *   - FFP matrix stack used by legacy path; GL4 path uses uniform buffers
+ *   - FFP texture enables/disables should be removed when shader-only rendering is enforced
  */
 
 #include "ModelDrawerHelpers.h"
@@ -71,10 +73,12 @@ bool CModelDrawerHelper::ObjectVisibleReflection(const float3& objPos, const flo
 void CModelDrawerHelper::EnableTexturesCommon()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: texture binding uses raw GL IDs from external texture handlers
-	// (textureHandler3DO, textureHandlerS3O, cubeMapHandler) that have not been
-	// migrated to RHI yet. Once those return IRHITexture*, use ctx->BindTexture().
-	// glEnable(GL_TEXTURE_2D/GL_TEXTURE_CUBE_MAP) is legacy FFP state.
+	// RHI_TODO: glEnable(GL_TEXTURE_2D/GL_TEXTURE_CUBE_MAP) is legacy FFP state with no
+	// RHI equivalent. Modern shaders don't need these enables. Keep for FFP compatibility
+	// until shader migration is complete.
+	// RHI_TODO: cubeMapHandler doesn't yet expose RHI texture objects (only GetNativeHandle),
+	// so cube map binding still uses raw GL calls.
+
 	glActiveTexture(GL_TEXTURE1);
 	glEnable(GL_TEXTURE_2D);
 
@@ -88,6 +92,7 @@ void CModelDrawerHelper::EnableTexturesCommon()
 		}
 	}
 
+	// Cube map textures - use GL until cubeMapHandler exposes RHI texture objects
 	glActiveTexture(GL_TEXTURE4);
 	glEnable(GL_TEXTURE_CUBE_MAP);
 	glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapHandler.GetEnvReflectionTextureID());
@@ -103,14 +108,17 @@ void CModelDrawerHelper::EnableTexturesCommon()
 void CModelDrawerHelper::DisableTexturesCommon()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: see EnableTexturesCommon for texture migration notes
+	// RHI_TODO: glDisable(GL_TEXTURE_2D/GL_TEXTURE_CUBE_MAP) is legacy FFP state with no
+	// RHI equivalent. Modern shaders don't need these disables. Keep for FFP compatibility
+	// until shader migration is complete.
+
 	glActiveTexture(GL_TEXTURE1);
 	glDisable(GL_TEXTURE_2D);
 
 	if (shadowHandler.ShadowsLoaded())
 		shadowHandler.ResetShadowTexSampler(GL_TEXTURE2, true);
 
-	// RHI_TODO: unbind shadow color texture via RHI once cubeMapHandler migrated
+	// Disable cube map texture units
 	glActiveTexture(GL_TEXTURE3);
 	glDisable(GL_TEXTURE_CUBE_MAP);
 
@@ -273,18 +281,21 @@ void CModelDrawerHelper3DO::PopRenderState() const
 void CModelDrawerHelper3DO::BindOpaqueTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: textureHandler3DO returns raw GL IDs. Once migrated to RHI,
-	// use ctx->BindTexture(rhiTexture, unit) instead.
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, textureHandler3DO.GetAtlasTex2ID());
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, textureHandler3DO.GetAtlasTex1ID());
+	// Use RHI texture binding for 3DO atlas textures
+	if (auto* tex2 = textureHandler3DO.GetAtlasTex2()) {
+		tex2->Bind(1);
+	}
+	if (auto* tex1 = textureHandler3DO.GetAtlasTex1()) {
+		tex1->Bind(0);
+	}
 }
 
 void CModelDrawerHelper3DO::UnbindOpaqueTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: see BindOpaqueTex note
+	// RHI_TODO: Unbinding textures (glBindTexture(target, 0)) is not currently
+	// supported by IRHITexture interface. This is typically unnecessary in modern
+	// GL as subsequent Bind() calls will override, but keeping GL fallback for now.
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glActiveTexture(GL_TEXTURE0);
@@ -294,10 +305,15 @@ void CModelDrawerHelper3DO::UnbindOpaqueTex() const
 void CModelDrawerHelper3DO::BindShadowTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: glEnable(GL_TEXTURE_2D) is legacy FFP. textureHandler3DO returns raw GL IDs.
+	// RHI_TODO: glEnable(GL_TEXTURE_2D) is legacy FFP state with no RHI equivalent.
+	// Modern shaders don't need this. Keep for FFP compatibility until shader migration complete.
 	glActiveTexture(GL_TEXTURE0);
 	glEnable(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D, textureHandler3DO.GetAtlasTex2ID());
+
+	// Use RHI texture binding for 3DO atlas texture
+	if (auto* tex2 = textureHandler3DO.GetAtlasTex2()) {
+		tex2->Bind(0);
+	}
 }
 
 void CModelDrawerHelper3DO::UnbindShadowTex() const
@@ -314,18 +330,21 @@ void CModelDrawerHelper3DO::UnbindShadowTex() const
 void CModelDrawerHelperS3O::BindOpaqueTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: S3OTexMat stores raw GL texture IDs. Once S3OTextureHandler
-	// is migrated to RHI, use ctx->BindTexture(rhiTexture, unit) instead.
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, textureMat->tex2);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, textureMat->tex1);
+	// Use RHI texture binding for S3O textures - S3OTexMat has RHI texture ownership
+	if (textureMat->tex2RHI) {
+		textureMat->tex2RHI->Bind(1);
+	}
+	if (textureMat->tex1RHI) {
+		textureMat->tex1RHI->Bind(0);
+	}
 }
 
 void CModelDrawerHelperS3O::UnbindOpaqueTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: see BindOpaqueTex note
+	// RHI_TODO: Unbinding textures (glBindTexture(target, 0)) is not currently
+	// supported by IRHITexture interface. This is typically unnecessary in modern
+	// GL as subsequent Bind() calls will override, but keeping GL fallback for now.
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glActiveTexture(GL_TEXTURE0);
@@ -335,10 +354,15 @@ void CModelDrawerHelperS3O::UnbindOpaqueTex() const
 void CModelDrawerHelperS3O::BindShadowTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: glEnable(GL_TEXTURE_2D) is legacy FFP. S3OTexMat stores raw GL IDs.
+	// RHI_TODO: glEnable(GL_TEXTURE_2D) is legacy FFP state with no RHI equivalent.
+	// Modern shaders don't need this. Keep for FFP compatibility until shader migration complete.
 	glActiveTexture(GL_TEXTURE0);
 	glEnable(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D, textureMat->tex2);
+
+	// Use RHI texture binding for S3O texture
+	if (textureMat->tex2RHI) {
+		textureMat->tex2RHI->Bind(0);
+	}
 }
 
 void CModelDrawerHelperS3O::UnbindShadowTex() const
@@ -355,18 +379,21 @@ void CModelDrawerHelperS3O::UnbindShadowTex() const
 void CModelDrawerHelperASS::BindOpaqueTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: S3OTexMat stores raw GL texture IDs. Once S3OTextureHandler
-	// is migrated to RHI, use ctx->BindTexture(rhiTexture, unit) instead.
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, textureMat->tex2);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, textureMat->tex1);
+	// Use RHI texture binding for ASS (Assimp) textures - S3OTexMat has RHI texture ownership
+	if (textureMat->tex2RHI) {
+		textureMat->tex2RHI->Bind(1);
+	}
+	if (textureMat->tex1RHI) {
+		textureMat->tex1RHI->Bind(0);
+	}
 }
 
 void CModelDrawerHelperASS::UnbindOpaqueTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: see BindOpaqueTex note
+	// RHI_TODO: Unbinding textures (glBindTexture(target, 0)) is not currently
+	// supported by IRHITexture interface. This is typically unnecessary in modern
+	// GL as subsequent Bind() calls will override, but keeping GL fallback for now.
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glActiveTexture(GL_TEXTURE0);
@@ -376,10 +403,15 @@ void CModelDrawerHelperASS::UnbindOpaqueTex() const
 void CModelDrawerHelperASS::BindShadowTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: glEnable(GL_TEXTURE_2D) is legacy FFP. S3OTexMat stores raw GL IDs.
+	// RHI_TODO: glEnable(GL_TEXTURE_2D) is legacy FFP state with no RHI equivalent.
+	// Modern shaders don't need this. Keep for FFP compatibility until shader migration complete.
 	glActiveTexture(GL_TEXTURE0);
 	glEnable(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D, textureMat->tex2);
+
+	// Use RHI texture binding for ASS (Assimp) texture
+	if (textureMat->tex2RHI) {
+		textureMat->tex2RHI->Bind(0);
+	}
 }
 
 void CModelDrawerHelperASS::UnbindShadowTex() const
