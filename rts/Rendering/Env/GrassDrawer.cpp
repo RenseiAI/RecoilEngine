@@ -1,5 +1,24 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * RHI Migration Status (GrassDrawer)
+ *
+ * MIGRATED:
+ * - Dynamic state: glDepthMask -> ctx->SetDepthWriteEnabled()
+ * - Dynamic state: glEnable/glDisable(GL_BLEND) -> ctx->SetBlendEnabled()
+ * - Dynamic state: glBlendFunc -> ctx->SetBlendFunc()
+ * - Dynamic state: glBlendFuncSeparate -> ctx->SetBlendFuncSeparate()
+ * - Dynamic state: glEnable/glDisable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled()
+ *
+ * REMAINING (NOT MIGRATED):
+ * - FFP matrix stack: glMatrixMode, glPushMatrix, glPopMatrix, glLoadIdentity, glMultMatrixf, glRotatef, glTranslatef, glOrtho
+ * - FFP deprecated: GL_ALPHA_TEST, GL_FOG, GL_CLIP_PLANE0, glColor4f
+ * - Display lists: glGenLists, glNewList, glCallList (no RHI equivalent, requires vertex buffer)
+ * - Texture binding: glBindTexture, glActiveTexture (depends on external raw GLuint textures)
+ * - FBO operations: glBindFramebufferEXT, glBlitFramebufferEXT
+ * - Texture parameters: glTexParameteri, glTexEnvi
+ */
+
 #include <cmath>
 
 #include "GrassDrawer.h"
@@ -689,9 +708,13 @@ void CGrassDrawer::SetupGlStateNear()
 		glLoadIdentity();
 
 	glActiveTextureARB(GL_TEXTURE0_ARB);
-	glDisable(GL_BLEND);
 	glDisable(GL_ALPHA_TEST);
-	glDepthMask(GL_TRUE);
+
+	// RHI dynamic state
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetBlendEnabled(false);
+	ctx->SetDepthWriteEnabled(true);
+
 	const auto& sky = ISky::GetSky();
 	sky->SetupFog();
 }
@@ -718,7 +741,10 @@ void CGrassDrawer::ResetGlStateNear()
 	glPopMatrix();
 
 	glDisable(GL_TEXTURE_2D);
-	glEnable(GL_BLEND);
+
+	// RHI dynamic state
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetBlendEnabled(true);
 }
 
 
@@ -729,9 +755,12 @@ void CGrassDrawer::SetupGlStateFar()
 	RECOIL_DETAILED_TRACY_ZONE;
 	//glEnable(GL_ALPHA_TEST);
 	//glAlphaFunc(GL_GREATER, 0.01f);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glDepthMask(GL_FALSE);
+
+	// RHI dynamic state
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+	ctx->SetDepthWriteEnabled(false);
 
 	glMatrixMode(GL_PROJECTION);
 		glPushMatrix();
@@ -779,8 +808,11 @@ void CGrassDrawer::ResetGlStateFar()
 		glActiveTextureARB(GL_TEXTURE0_ARB);
 	}
 
-	glDepthMask(GL_TRUE);
 	glDisable(GL_ALPHA_TEST);
+
+	// RHI dynamic state
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetDepthWriteEnabled(true);
 
 }
 
@@ -920,16 +952,19 @@ void CGrassDrawer::CreateFarTex()
 	glPushMatrix();
 
 	glDisable(GL_FOG);
-	glDisable(GL_BLEND);
 	glDisable(GL_ALPHA_TEST);
 	if (grassBladeTex) {
 		grassBladeTex->Bind(0);
 	}
 	glEnable(GL_TEXTURE_2D);
 	glEnable(GL_CLIP_PLANE0);
-	glEnable(GL_DEPTH_TEST);
-	glDepthMask(GL_TRUE);
 	glColor4f(1,1,1,1);
+
+	// RHI dynamic state
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetBlendEnabled(false);
+	ctx->SetDepthTestEnabled(true);
+	ctx->SetDepthWriteEnabled(true);
 
 	{
 		auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
@@ -988,8 +1023,9 @@ void CGrassDrawer::CreateFarTex()
 		glMatrixMode(GL_PROJECTION);
 			glLoadIdentity();
 
-		glEnable(GL_BLEND);
-		glBlendFuncSeparate(GL_ONE_MINUS_DST_ALPHA, GL_DST_ALPHA, GL_ZERO, GL_DST_ALPHA);
+		// RHI dynamic state for blending
+		rhiCtx->SetBlendEnabled(true);
+		rhiCtx->SetBlendFuncSeparate(RHI::BlendFactor::OneMinusDstAlpha, RHI::BlendFactor::DstAlpha, RHI::BlendFactor::Zero, RHI::BlendFactor::DstAlpha);
 
 		// copy each mipmap to its predecessor background
 		// -> fill background with blurred color data
@@ -1011,7 +1047,7 @@ void CGrassDrawer::CreateFarTex()
 			va->DrawArrayT(GL_QUADS);
 		}
 
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		rhiCtx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
 		// recreate mipmaps from now blurred base level
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_LOD, -1000.f);
