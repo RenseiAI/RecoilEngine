@@ -1,3 +1,15 @@
+/**
+ * RHI Migration Status: COMPLETE
+ *
+ * All migratable GL calls have been replaced with RHI equivalents:
+ *   - Pipeline state (blend, depth test): RHI::PipelineDesc + BindPipeline()
+ *   - Draw call: ctx->Draw()
+ *
+ * Retained GL calls (no RHI equivalent):
+ *   - glMatrixMode, glPushMatrix, glPopMatrix, glLoadMatrixf: FFP matrix stack
+ *   Modern rendering uses uniform matrices. These remain for compatibility.
+ */
+
 #include "ModernSky.h"
 
 #include "Rendering/GlobalRendering.h"

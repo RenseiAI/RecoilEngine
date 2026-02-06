@@ -1,5 +1,24 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * RHI Migration Status: COMPLETE
+ *
+ * All migratable GL calls have been replaced with RHI equivalents:
+ *   - Pipeline state (blend, depth test): RHI::PipelineDesc + BindPipeline()
+ *   - Viewport: ctx->SetViewport()
+ *   - Draw calls: ctx->Draw()
+ *
+ * Retained GL calls (no RHI equivalent or external dependencies):
+ *   - glMatrixMode, glPushMatrix, glPopMatrix, glLoadMatrixf, glLoadIdentity: FFP matrix stack
+ *   - glPushAttrib, glPopAttrib: FFP attribute stack (no RHI equivalent)
+ *   - glDrawBuffer: Framebuffer draw buffer selection (no RHI equivalent)
+ *   - glGenTextures, glBindTexture, glTexParameteri, glTexImage2D, glDeleteTextures,
+ *     glGenerateMipmapEXT, glEnable/glDisable(GL_TEXTURE_CUBE_MAP):
+ *     Raw GL texture operations for cubemap creation/conversion and for binding
+ *     skyTex (MapTexture stores raw GL IDs, not RHI texture objects).
+ *     Migration blocked on MapTexture refactor.
+ */
+
 #include <vector>
 #include <algorithm>
 
