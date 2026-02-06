@@ -26,10 +26,21 @@
 #include "Rendering/Common/ModelDrawerHelpers.h"
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
 
-// RHI Migration Notes (ProjectileDrawer):
-// This is the most GL-heavy file (44+ direct GL calls). Migration categories:
+// RHI Migration Status (ProjectileDrawer):
 //
+// MIGRATED (this commit):
+// - glLineWidth -> ctx->SetLineWidth()
+// - glDepthMask -> ctx->SetDepthWriteEnabled()
+// - glEnable/glDisable(GL_BLEND) -> ctx->SetBlendEnabled()
+// - glBlendFunc -> ctx->SetBlendFunc()
+// - glPolygonOffset + glEnable(GL_POLYGON_OFFSET_FILL) -> ctx->SetPolygonOffset()
+// - glEnable/glDisable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled()
+// Total: ~16 dynamic state calls migrated to RHI context methods
+//
+// REMAINING (to be migrated):
 // 1. Texture lifecycle in Init()/Kill():
 //   glGenTextures(8, perlinBlendTex) -> 8x IRHIDevice::CreateTexture()
 //   glBindTexture + glTexParameteri + glTexImage2D -> IRHITexture setup
@@ -40,40 +51,28 @@
 //   glActiveTexture(GL_TEXTUREn) + glBindTexture -> IRHIContext::BindTexture(tex, n)
 //   glTexSubImage2D -> IRHITexture::Upload (sub-region)
 //
-// 3. Pipeline state (GL::SubState already abstracts some):
-//   GL::SubState Blending/DepthTest/DepthMask/BlendFunc/ClipDistance
-//     -> RHI::PipelineDesc (blend, depthStencil fields)
-//   glDepthMask, glEnable/glDisable(GL_BLEND/GL_DEPTH_TEST)
-//     -> RHI::DepthStencilState / RHI::BlendState
-//   glBlendFunc -> RHI::BlendState{srcColor, dstColor}
-//   glPolygonOffset + glEnable(GL_POLYGON_OFFSET_FILL)
-//     -> RHI::RasterizerState{polygonOffsetFactor, polygonOffsetUnits}
-//   glLineWidth -> RHI::RasterizerState{lineWidth}
-//
-// 4. Framebuffer:
+// 3. Framebuffer:
 //   perlinFB (FBO) -> IRHIFramebuffer
 //   perlinFB.Bind/Unbind -> IRHIContext::BeginRenderPass/EndRenderPass
 //   perlinFB.AttachTexture -> IRHIFramebuffer::AttachColor
 //
-// 5. Viewport:
+// 4. Viewport:
 //   glViewport -> IRHIContext::SetViewport()
 //
-// 6. Minimap state:
-//   glIsEnabled(GL_PROGRAM_POINT_SIZE) -> query not in RHI (add to IRHIDevice?)
-//   glDisable/glEnable(GL_PROGRAM_POINT_SIZE) -> no RHI equivalent yet
+// 5. Minimap state (no RHI equivalent yet):
+//   glIsEnabled(GL_PROGRAM_POINT_SIZE), glDisable/glEnable(GL_PROGRAM_POINT_SIZE)
 //
-// 7. Non-mappable legacy FFP in DrawProjectileModel():
+// 6. Legacy FFP in DrawProjectileModel():
 //   glPushMatrix/glPopMatrix, glMultMatrixf, glTranslatef3, glRotatef
-//     -> matrix stack, requires uniform-based transform
+//   (No RHI equivalent - requires uniform-based transform)
 //
-// 8. Non-mappable legacy FFP in UpdatePerlin():
+// 7. Legacy FFP in UpdatePerlin():
 //   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity, glLoadMatrixf
-//     -> matrix stack
+//   (No RHI equivalent - requires uniform-based transform)
 //
-// 9. FBO-related:
-//   Rendering/GL/FBO.h -> should eventually become IRHIFramebuffer
-//   perlinFB.Init/Kill/Bind/Unbind/AttachTexture/CheckStatus
-//     -> IRHIDevice::CreateFramebuffer + IRHIFramebuffer methods
+// 8. Legacy FFP fog:
+//   glDisable(GL_FOG) in DrawOpaque()
+//   (No RHI equivalent - fog is shader-based in modern rendering)
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/LosHandler.h"
 #include "Sim/Misc/TeamHandler.h"
@@ -668,7 +667,8 @@ void CProjectileDrawer::DrawProjectilesMiniMap()
 
 	auto& sh = TypedRenderBuffer<VA_TYPE_C>::GetShader();
 
-	glLineWidth(1.0f);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetLineWidth(1.0f);
 
 	// Note: glPointSize(1.0f); doesn't work here on AMD drivers.
 	// AMD drivers draw huge circles instead of small point for some reason
@@ -1034,9 +1034,10 @@ void CProjectileDrawer::DrawGroundFlashes()
 
 	static constexpr GLfloat black[] = {0.0f, 0.0f, 0.0f, 0.0f};
 
-	glDepthMask(GL_FALSE);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetDepthWriteEnabled(false);
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::One);
 
 	glActiveTexture(GL_TEXTURE0);
 	groundFXAtlas->BindTexture();
@@ -1045,8 +1046,7 @@ void CProjectileDrawer::DrawGroundFlashes()
 	glEnable(GL_ALPHA_TEST);
 	glAlphaFunc(GL_GREATER, 0.01f);
 */
-	glPolygonOffset(-20, -1000);
-	glEnable(GL_POLYGON_OFFSET_FILL);
+	ctx->SetPolygonOffset(true, -20.0f, -1000.0f);
 //	glFogfv(GL_FOG_COLOR, black);
 
 	bool depthTest = true;
@@ -1084,17 +1084,11 @@ void CProjectileDrawer::DrawGroundFlashes()
 		if (depthTest != depthTestWanted || depthMask != gf->depthMask) {
 			rb.DrawElements(GL_TRIANGLES);
 
-			if ((depthTest = depthTestWanted)) {
-				glEnable(GL_DEPTH_TEST);
-			} else {
-				glDisable(GL_DEPTH_TEST);
-			}
+			depthTest = depthTestWanted;
+			ctx->SetDepthTestEnabled(depthTest);
 
-			if ((depthMask = gf->depthMask)) {
-				glDepthMask(GL_TRUE);
-			} else {
-				glDepthMask(GL_FALSE);
-			}
+			depthMask = gf->depthMask;
+			ctx->SetDepthWriteEnabled(depthMask);
 		}
 
 		gf->Draw();
@@ -1112,12 +1106,12 @@ void CProjectileDrawer::DrawGroundFlashes()
 	groundFXAtlas->UnbindTexture();
 
 //	glFogfv(GL_FOG_COLOR, sky->fogColor);
-	glDisable(GL_POLYGON_OFFSET_FILL);
+	ctx->SetPolygonOffset(false);
 //	glDisable(GL_ALPHA_TEST);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glDisable(GL_BLEND);
-	glEnable(GL_DEPTH_TEST);
-	glDepthMask(GL_TRUE);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+	ctx->SetBlendEnabled(false);
+	ctx->SetDepthTestEnabled(true);
+	ctx->SetDepthWriteEnabled(true);
 }
 
 
@@ -1130,6 +1124,8 @@ void CProjectileDrawer::UpdateTextures() {
 
 void CProjectileDrawer::UpdatePerlin() {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	perlinFB.Bind();
 	glViewport(perlintex->xstart * (textureAtlas->GetSize()).x, perlintex->ystart * (textureAtlas->GetSize()).y, perlinTexSize, perlinTexSize);
 
@@ -1141,10 +1137,10 @@ void CProjectileDrawer::UpdatePerlin() {
 	glPushMatrix();
 	glLoadIdentity();
 
-	glDisable(GL_DEPTH_TEST);
-	glDepthMask(GL_FALSE);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_ONE, GL_ONE);
+	ctx->SetDepthTestEnabled(false);
+	ctx->SetDepthWriteEnabled(false);
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One);
 
 	unsigned char col[4];
 	float time = globalRendering->lastFrameTime * gs->speedFactor * 0.003f;
@@ -1173,7 +1169,7 @@ void CProjectileDrawer::UpdatePerlin() {
 		float tsize = 8.0f / size;
 
 		if (a == 0)
-			glDisable(GL_BLEND);
+			ctx->SetBlendEnabled(false);
 
 		for (int b = 0; b < 4; ++b)
 			col[b] = int((1.0f - perlinBlend[a]) * 16 * size);
@@ -1191,7 +1187,7 @@ void CProjectileDrawer::UpdatePerlin() {
 		sh.Disable();
 
 		if (a == 0)
-			glEnable(GL_BLEND);
+			ctx->SetBlendEnabled(true);
 
 		for (int b = 0; b < 4; ++b)
 			col[b] = int(perlinBlend[a] * 16 * size);
@@ -1215,9 +1211,9 @@ void CProjectileDrawer::UpdatePerlin() {
 	perlinFB.Unbind();
 	globalRendering->LoadViewport();
 
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glEnable(GL_DEPTH_TEST);
-	glDepthMask(GL_TRUE);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+	ctx->SetDepthTestEnabled(true);
+	ctx->SetDepthWriteEnabled(true);
 
 	glPopMatrix();
 	glMatrixMode(GL_PROJECTION);
