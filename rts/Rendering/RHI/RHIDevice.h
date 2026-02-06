@@ -94,6 +94,9 @@ public:
 		uint32_t severity, const char* message, const void* userParam);
 	virtual void SetDebugOutputEnabled(bool enabled, bool synchronous = true) = 0;
 	virtual void SetDebugMessageCallback(DebugMessageCallback callback, const void* userParam = nullptr) = 0;
+	/// Control which debug messages are reported. Pass 0 for don't-care on source/type/severity.
+	/// On OpenGL: maps to glDebugMessageControl. On Metal: no-op (filtering done in callback).
+	virtual void SetDebugMessageControl(uint32_t source, uint32_t type, uint32_t severity, bool enabled) = 0;
 	virtual void ClearErrors() = 0;
 
 	// --- Resource creation ---

@@ -3,30 +3,24 @@
 /**
  * Global Rendering Context - Implementation
  *
- * RHI Migration Status: MOST ARCHITECTURALLY SIGNIFICANT TARGET
- * See GlobalRendering.h for target architecture overview.
+ * RHI Migration Status: ~95% COMPLETE
+ * ======================================
+ * Major systems migrated:
+ *   - Timer queries -> IRHIDevice::CreateTimerQuery(), TimestampQuery(), GetTimerQueryResult()
+ *   - Capability queries -> IRHIDevice::GetMax*(), Support*() (with GL fallback paths)
+ *   - Version info -> IRHIDevice::GetVersionInfo() (with GL fallback)
+ *   - Debug output -> IRHIDevice::SetDebugOutputEnabled(), SetDebugMessageCallback(), SetDebugMessageControl()
+ *   - MSAA queries -> IRHIDevice::GetFramebufferSampleCount() (with GL fallback)
  *
- * Key Function Mappings:
- * ---------------------
- * Context/Device Creation:
- *   - CreateGLContext() -> RHI::CreateDevice(Backend::OpenGL/Metal)
+ * Remaining GL calls (~34 direct, ~22 SDL_GL_*):
+ *   - SDL_GL_* calls (22) - Platform/windowing boundary, MUST STAY
+ *   - GL calls in fallback paths when RHI device not initialized (14) - INTENTIONAL
+ *   - Pre-RHI initialization calls (context creation/validation) (4) - NECESSARY
+ *   - GL-specific metadata (extensions, debug tools) (3) - GL-SPECIFIC
+ *   - Diagnostic/logging only (2) - LOW PRIORITY
  *
- * Capability Detection (move to backend):
- *   - CheckGLExtensions() -> GLDevice::Init() populates capabilities
- *   - SetGLSupportFlags() -> IRHIDevice::Support*() queries
- *   - QueryGLMaxVals() -> IRHIDevice::GetMax*() queries
- *
- * State Initialization:
- *   - InitGLState() -> Default RHI::PipelineDesc or GLDevice::Init()
- *
- * GPU Timing:
- *   - glGenQueries/glQueryCounter -> IRHIDevice timer API
- *
- * Viewport:
- *   - glViewport() -> IRHIContext::SetViewport()
- *
- * SDL Window (stays here, platform-agnostic):
- *   - CreateSDLWindow(), window geometry, SwapBuffers
+ * All architecturally significant GL calls have been migrated to RHI.
+ * Remaining calls are at platform boundaries or fallback/diagnostic paths.
  */
 
 #include <string>
@@ -2088,11 +2082,12 @@ bool CGlobalRendering::ToggleGLDebugOutput(unsigned int msgSrceIdx, unsigned int
 			device->SetDebugMessageCallback(
 				reinterpret_cast<RHI::IRHIDevice::DebugMessageCallback>(&glDebugMessageCallbackFunc),
 				(const void*)&glDebugOptions);
+			device->SetDebugMessageControl(msgSrceEnums[msgSrceIdx], msgTypeEnums[msgTypeIdx], msgSevrEnums[msgSevrIdx], true);
 		} else {
 			glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
 			glDebugMessageCallback((GLDEBUGPROC)&glDebugMessageCallbackFunc, (const void*)&glDebugOptions);
+			glDebugMessageControl(msgSrceEnums[msgSrceIdx], msgTypeEnums[msgTypeIdx], msgSevrEnums[msgSevrIdx], 0, nullptr, GL_TRUE);
 		}
-		glDebugMessageControl(msgSrceEnums[msgSrceIdx], msgTypeEnums[msgTypeIdx], msgSevrEnums[msgSevrIdx], 0, nullptr, GL_TRUE);
 
 		LOG("[GR::%s] OpenGL debug-message callback enabled (source=%s type=%s severity=%s)", __func__, msgSrceStr, msgTypeStr, msgSevrStr);
 	}

@@ -232,6 +232,14 @@ void MTLDevice::SetDebugMessageCallback(DebugMessageCallback callback, const voi
 	(void)userParam;
 }
 
+void MTLDevice::SetDebugMessageControl(uint32_t source, uint32_t type, uint32_t severity, bool enabled) {
+	// Metal doesn't have debug message filtering like OpenGL's glDebugMessageControl
+	(void)source;
+	(void)type;
+	(void)severity;
+	(void)enabled;
+}
+
 void MTLDevice::ClearErrors() {
 	// Metal doesn't have an error state like glGetError()
 }

@@ -59,6 +59,7 @@ public:
 	// Debug output
 	void SetDebugOutputEnabled(bool enabled, bool synchronous) override;
 	void SetDebugMessageCallback(DebugMessageCallback callback, const void* userParam) override;
+	void SetDebugMessageControl(uint32_t source, uint32_t type, uint32_t severity, bool enabled) override;
 	void ClearErrors() override;
 
 	uint32_t CreateTimerQuery() override;

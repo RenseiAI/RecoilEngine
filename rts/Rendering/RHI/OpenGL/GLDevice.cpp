@@ -236,6 +236,10 @@ void GLDevice::SetDebugMessageCallback(DebugMessageCallback callback, const void
 	glDebugMessageCallback(reinterpret_cast<GLDEBUGPROC>(callback), userParam);
 }
 
+void GLDevice::SetDebugMessageControl(uint32_t source, uint32_t type, uint32_t severity, bool enabled) {
+	glDebugMessageControl(source, type, severity, 0, nullptr, enabled ? GL_TRUE : GL_FALSE);
+}
+
 void GLDevice::ClearErrors() {
 	while (glGetError() != GL_NO_ERROR) {}
 }
