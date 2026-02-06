@@ -15,10 +15,13 @@
  *   - glActiveTexture/glBindTexture: Icon textures use raw GL IDs
  *   - glColor4f: Legacy FFP vertex color
  *   - glPushAttrib/glPopAttrib: Legacy GL state save/restore
- *   - glEnable/glDisable(GL_CLIP_PLANE*): Legacy clip planes (GL4 uses GL_CLIP_DISTANCE)
- *   - glPolygonMode/glPolygonOffset: Rasterizer state (could use PipelineDesc)
- *   - glEnable/glDisable(GL_DEPTH_TEST): Depth state (could use PipelineDesc)
+ *   - glEnable/glDisable(GL_CLIP_PLANE* and GL_CLIP_DISTANCE*): Legacy clip planes (GL4 uses shader uniforms)
  *   - GL_TEXTURE_2D enable/disable: Legacy FFP texture state
+ *
+ * Migrated to RHI dynamic state:
+ *   - glPolygonMode -> ctx->SetPolygonMode(RHI::PolygonMode::Line/Fill)
+ *   - glPolygonOffset + GL_POLYGON_OFFSET_FILL -> ctx->SetPolygonOffset(enabled, factor, units)
+ *   - glEnable/glDisable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled(bool)
  *
  * Dependencies blocking full migration:
  *   - IconHandler needs to return IRHITexture* for icon atlases
@@ -1134,8 +1137,6 @@ void CUnitDrawerGLSL::DrawModelWireBuildStageShadow(const CUnit* unit, const dou
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	// RHI_TODO: clip planes and FFP matrix stack are legacy GL with no RHI equivalent.
-	// glPolygonMode could use RHI PipelineDesc::rasterizer.polygonMode but is interleaved
-	// with clip plane state that must remain GL for now.
 	if (globalRendering->amdHacks) {
 		glDisable(GL_CLIP_PLANE0);
 		glDisable(GL_CLIP_PLANE1);
@@ -1147,9 +1148,10 @@ void CUnitDrawerGLSL::DrawModelWireBuildStageShadow(const CUnit* unit, const dou
 		glPopMatrix();
 	}
 
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetPolygonMode(RHI::PolygonMode::Line);
 	DrawUnitModel(unit, noLuaCall);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	ctx->SetPolygonMode(RHI::PolygonMode::Fill);
 
 	if (globalRendering->amdHacks) {
 		glEnable(GL_CLIP_PLANE0);
@@ -1251,9 +1253,10 @@ void CUnitDrawerGLSL::DrawModelWireBuildStageOpaque(const CUnit* unit, const dou
 		glClipPlane(GL_CLIP_PLANE1, lowerPlane);
 	}
 
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetPolygonMode(RHI::PolygonMode::Line);
 	DrawUnitModel(unit, noLuaCall);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	ctx->SetPolygonMode(RHI::PolygonMode::Fill);
 
 	if (globalRendering->amdHacks) {
 		glEnable(GL_CLIP_PLANE0);
@@ -1278,10 +1281,10 @@ void CUnitDrawerGLSL::DrawModelFillBuildStageOpaque(const CUnit* unit, const dou
 	else
 		glClipPlane(GL_CLIP_PLANE0, upperPlane);
 
-	glPolygonOffset(1.0f, 1.0f);
-	glEnable(GL_POLYGON_OFFSET_FILL);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetPolygonOffset(true, 1.0f, 1.0f);
 	DrawUnitModel(unit, noLuaCall);
-	glDisable(GL_POLYGON_OFFSET_FILL);
+	ctx->SetPolygonOffset(false);
 }
 
 void CUnitDrawerGLSL::PushIndividualOpaqueState(const CUnit* unit, bool deferredPass) const { PushIndividualOpaqueState(unit->model, unit->team, deferredPass); }
@@ -1592,9 +1595,9 @@ void CUnitDrawerGLSL::DrawBuildIcons(const std::vector<CCursorIcons::BuildIcon>&
 	if (buildIcons.empty())
 		return;
 
-	// RHI_TODO: glEnable(GL_DEPTH_TEST) could use RHI pipeline, but glColor4f and
-	// FFP matrix stack (glPushMatrix/glTranslatef3/glRotatef/glPopMatrix) are legacy.
-	glEnable(GL_DEPTH_TEST);
+	// RHI_TODO: glColor4f and FFP matrix stack (glPushMatrix/glTranslatef3/glRotatef/glPopMatrix) are legacy.
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetDepthTestEnabled(true);
 	glColor4f(1.0f, 1.0f, 1.0f, 0.3f);
 
 	for (const auto& buildIcon : buildIcons) {
@@ -1617,7 +1620,7 @@ void CUnitDrawerGLSL::DrawBuildIcons(const std::vector<CCursorIcons::BuildIcon>&
 		glPopMatrix();
 	}
 
-	glDisable(GL_DEPTH_TEST);
+	ctx->SetDepthTestEnabled(false);
 }
 
 /***********************************************************************/
@@ -1629,7 +1632,8 @@ void CUnitDrawerGL4::DrawBuildIcons(const std::vector<CCursorIcons::BuildIcon>& 
 	if (buildIcons.empty())
 		return;
 
-	glEnable(GL_DEPTH_TEST);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetDepthTestEnabled(true);
 	SetupAlphaDrawing(false);
 
 	const auto oldMM = modelDrawerState->SetMatrixMode(ShaderMatrixModes::STATIC_MATMODE);
@@ -1682,7 +1686,7 @@ void CUnitDrawerGL4::DrawBuildIcons(const std::vector<CCursorIcons::BuildIcon>& 
 	smv.Unbind();
 
 	ResetAlphaDrawing(false);
-	glDisable(GL_DEPTH_TEST);
+	ctx->SetDepthTestEnabled(false);
 }
 
 
@@ -2021,8 +2025,7 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLua
 	assert(po);
 	assert(po->IsBound());
 
-	// RHI_TODO: glPushAttrib(GL_POLYGON_BIT) saves polygon mode state. Could use
-	// RHI PipelineDesc for polygon mode but GL_CLIP_DISTANCE0/1 has no RHI equivalent.
+	// RHI_TODO: glPushAttrib(GL_POLYGON_BIT) saves polygon mode state (now handled by RHI context).
 	glPushAttrib(GL_POLYGON_BIT);
 
 	glEnable(GL_CLIP_DISTANCE0);
@@ -2112,8 +2115,7 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLua
 		{0.0f,  0.0f, 0.0f,                                                           0.0f },
 	};
 
-	// RHI_TODO: glPushAttrib(GL_POLYGON_BIT), GL_CLIP_DISTANCE, and glPolygonOffset
-	// are GL state with no direct RHI equivalent. See shadow build stage notes.
+	// RHI_TODO: glPushAttrib(GL_POLYGON_BIT) saves polygon mode state (now handled by RHI context).
 	glPushAttrib(GL_POLYGON_BIT);
 
 	glEnable(GL_CLIP_DISTANCE0);
