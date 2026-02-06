@@ -63,6 +63,15 @@ public:
 	                      uint32_t width, uint32_t height,
 	                      size_t dataSize, const void* data) override;
 
+	void UploadCubeFace(CubeFace face, uint32_t level,
+	                    uint32_t width, uint32_t height,
+	                    const void* data) override;
+
+	void UpdateCubeFace(CubeFace face, uint32_t level,
+	                    uint32_t x, uint32_t y,
+	                    uint32_t width, uint32_t height,
+	                    const void* data) override;
+
 	// --- Sampling state ---
 	void SetMinFilter(TextureFilter filter) override;
 	void SetMagFilter(TextureFilter filter) override;

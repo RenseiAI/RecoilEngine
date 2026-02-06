@@ -293,6 +293,49 @@ void MTLTexture::UploadCompressed(uint32_t level, uint32_t x, uint32_t y,
 	            bytesPerImage:0];
 }
 
+void MTLTexture::UploadCubeFace(CubeFace face, uint32_t level,
+                                 uint32_t width, uint32_t height,
+                                 const void* data) {
+	if (!mtlTexture || !data) {
+		return;
+	}
+
+	size_t bytesPerPixel = GetBytesPerPixel(texFormat);
+	size_t bytesPerRow = width * bytesPerPixel;
+
+	MTLRegion region = MTLRegionMake2D(0, 0, width, height);
+
+	// Metal cubemap faces are accessed via slice index
+	[mtlTexture replaceRegion:region
+	              mipmapLevel:level
+	                    slice:static_cast<uint32_t>(face)
+	                withBytes:data
+	              bytesPerRow:bytesPerRow
+	            bytesPerImage:0];
+}
+
+void MTLTexture::UpdateCubeFace(CubeFace face, uint32_t level,
+                                 uint32_t x, uint32_t y,
+                                 uint32_t width, uint32_t height,
+                                 const void* data) {
+	if (!mtlTexture || !data) {
+		return;
+	}
+
+	size_t bytesPerPixel = GetBytesPerPixel(texFormat);
+	size_t bytesPerRow = width * bytesPerPixel;
+
+	MTLRegion region = MTLRegionMake2D(x, y, width, height);
+
+	// Metal cubemap faces are accessed via slice index
+	[mtlTexture replaceRegion:region
+	              mipmapLevel:level
+	                    slice:static_cast<uint32_t>(face)
+	                withBytes:data
+	              bytesPerRow:bytesPerRow
+	            bytesPerImage:0];
+}
+
 void MTLTexture::SetMinFilter(TextureFilter filter) {
 	if (minFilter != filter) {
 		minFilter = filter;

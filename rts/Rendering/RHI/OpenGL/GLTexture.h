@@ -20,6 +20,8 @@ public:
 	void Upload(uint32_t level, uint32_t x, uint32_t y, uint32_t width, uint32_t height, const void* data) override;
 	void Upload3D(uint32_t level, uint32_t x, uint32_t y, uint32_t z, uint32_t width, uint32_t height, uint32_t depth, const void* data) override;
 	void UploadCompressed(uint32_t level, uint32_t x, uint32_t y, uint32_t width, uint32_t height, size_t dataSize, const void* data) override;
+	void UploadCubeFace(CubeFace face, uint32_t level, uint32_t width, uint32_t height, const void* data) override;
+	void UpdateCubeFace(CubeFace face, uint32_t level, uint32_t x, uint32_t y, uint32_t width, uint32_t height, const void* data) override;
 
 	void SetMinFilter(TextureFilter filter) override;
 	void SetMagFilter(TextureFilter filter) override;

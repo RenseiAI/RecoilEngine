@@ -192,6 +192,16 @@ enum class SwizzleComponent : uint8_t {
 	One   = 5
 };
 
+/// Cubemap face indices (matches GL_TEXTURE_CUBE_MAP_POSITIVE_X offset order)
+enum class CubeFace : uint8_t {
+	PositiveX = 0,
+	NegativeX = 1,
+	PositiveY = 2,
+	NegativeY = 3,
+	PositiveZ = 4,
+	NegativeZ = 5
+};
+
 // --- Shader ---
 
 enum class ShaderStage : uint8_t {

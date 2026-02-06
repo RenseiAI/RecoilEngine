@@ -55,6 +55,23 @@ public:
 		size_t dataSize,
 		const void* data) = 0;
 
+	/// Upload data to a single cubemap face (only valid for TextureCube)
+	/// Maps to glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, ...)
+	virtual void UploadCubeFace(
+		CubeFace face,
+		uint32_t level,
+		uint32_t width, uint32_t height,
+		const void* data) = 0;
+
+	/// Update part of a cubemap face (only valid for TextureCube)
+	/// Maps to glTexSubImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, ...)
+	virtual void UpdateCubeFace(
+		CubeFace face,
+		uint32_t level,
+		uint32_t x, uint32_t y,
+		uint32_t width, uint32_t height,
+		const void* data) = 0;
+
 	// --- Sampling state ---
 	virtual void SetMinFilter(TextureFilter filter) = 0;
 	virtual void SetMagFilter(TextureFilter filter) = 0;

@@ -203,6 +203,18 @@ void GLTexture::UploadCompressed(uint32_t level, uint32_t x, uint32_t y, uint32_
 	glCompressedTexSubImage2D(glTarget, level, x, y, w, h, glInternalFormat, static_cast<GLsizei>(dataSize), data);
 }
 
+void GLTexture::UploadCubeFace(CubeFace face, uint32_t level, uint32_t w, uint32_t h, const void* data) {
+	glBindTexture(glTarget, texId);
+	GLenum glFace = GL_TEXTURE_CUBE_MAP_POSITIVE_X + static_cast<uint32_t>(face);
+	glTexImage2D(glFace, level, glInternalFormat, w, h, 0, ToGLFormat(texFormat), ToGLDataType(texFormat), data);
+}
+
+void GLTexture::UpdateCubeFace(CubeFace face, uint32_t level, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const void* data) {
+	glBindTexture(glTarget, texId);
+	GLenum glFace = GL_TEXTURE_CUBE_MAP_POSITIVE_X + static_cast<uint32_t>(face);
+	glTexSubImage2D(glFace, level, x, y, w, h, ToGLFormat(texFormat), ToGLDataType(texFormat), data);
+}
+
 // --- Sampling state ---
 
 void GLTexture::SetMinFilter(TextureFilter filter) {

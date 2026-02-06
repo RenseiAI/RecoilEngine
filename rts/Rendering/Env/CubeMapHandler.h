@@ -4,6 +4,8 @@
 #define CUBEMAP_HANDLER_HDR
 
 #include "Rendering/GL/FBO.h"
+#include "Rendering/RHI/RHITexture.h"
+#include <memory>
 
 class CubeMapHandler {
 public:
@@ -15,9 +17,9 @@ public:
 	void UpdateReflectionTexture();
 	void UpdateSpecularTexture();
 
-	unsigned int GetEnvReflectionTextureID() const { return envReflectionTexID; }
-	unsigned int GetSkyReflectionTextureID() const { return skyReflectionTexID; }
-	unsigned int GetSpecularTextureID() const { return specularTexID; }
+	unsigned int GetEnvReflectionTextureID() const { return envReflectionTex ? envReflectionTex->GetNativeHandle() : 0; }
+	unsigned int GetSkyReflectionTextureID() const { return skyReflectionTex ? skyReflectionTex->GetNativeHandle() : 0; }
+	unsigned int GetSpecularTextureID() const { return specularTex ? specularTex->GetNativeHandle() : 0; }
 	unsigned int GetReflectionTextureSize() const { return reflTexSize; }
 	unsigned int GetSpecularTextureSize() const { return specTexSize; }
 
@@ -27,9 +29,9 @@ private:
 	void CreateSpecularFace(unsigned int, unsigned int, const float3&, const float3&, const float3&);
 	void UpdateSpecularFace(unsigned int, unsigned int, const float3&, const float3&, const float3&, unsigned int, unsigned char*);
 
-	unsigned int envReflectionTexID; // sky and map
-	unsigned int skyReflectionTexID; // sky only
-	unsigned int specularTexID;
+	std::unique_ptr<RHI::IRHITexture> envReflectionTex; // sky and map
+	std::unique_ptr<RHI::IRHITexture> skyReflectionTex; // sky only
+	std::unique_ptr<RHI::IRHITexture> specularTex;
 
 	unsigned int reflTexSize;
 	unsigned int specTexSize;
