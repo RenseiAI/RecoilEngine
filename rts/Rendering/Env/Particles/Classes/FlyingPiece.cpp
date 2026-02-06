@@ -11,18 +11,16 @@
 #include "Rendering/Models/3DModelPiece.hpp"
 #include "Rendering/Textures/S3OTextureHandler.h"
 #include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "System/SpringMath.h"
 
 #include "System/Misc/TracyDefs.h"
 
-// RHI Migration Notes (FlyingPiece):
-// Mappable pipeline state in BeginDraw()/EndDraw():
-//   glDisable(GL_CULL_FACE) -> RHI::RasterizerState{cullMode=None}
-//   glEnable(GL_CULL_FACE)  -> RHI::RasterizerState{cullMode=Back}
-//   These should become a scoped pipeline state change.
-// Non-mappable legacy FFP in Draw():
-//   glPushMatrix/glPopMatrix, glMultMatrixf -> matrix stack
-//   Requires conversion to uniform-based transform upload
+// RHI Migration Status (FlyingPiece):
+// MIGRATED:
+//   - glDisable/glEnable(GL_CULL_FACE) -> ctx->SetCullFaceEnabled()
+// REMAINING (no RHI equivalent):
+//   - glPushMatrix/glPopMatrix/glMultMatrixf in Draw() -> FFP matrix stack
 
 
 static const float EXPLOSION_SPEED = 2.f;
@@ -220,14 +218,16 @@ void FlyingPiece::CheckDrawStateChange(const FlyingPiece* prev) const
 void FlyingPiece::BeginDraw()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glDisable(GL_CULL_FACE);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetCullFaceEnabled(false);
 	S3DModelHelpers::BindLegacyAttrVBOs();
 }
 
 void FlyingPiece::EndDraw()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glEnable(GL_CULL_FACE);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetCullFaceEnabled(true);
 	S3DModelHelpers::UnbindLegacyAttrVBOs();
 
 	CModelDrawerHelper::UnbindModelTypeTexture(MODELTYPE_S3O); // all model types do the same thing
