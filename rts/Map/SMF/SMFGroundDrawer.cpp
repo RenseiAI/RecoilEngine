@@ -1,4 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+// RHI Migration: GL state calls migrated to RHI dynamic state context methods
 
 #include "SMFReadMap.h"
 #include "SMFGroundDrawer.h"
@@ -16,6 +17,9 @@
 #include "Rendering/Env/MapRendering.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Rendering/Shaders/Shader.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/EventHandler.h"
@@ -315,9 +319,10 @@ void CSMFGroundDrawer::Draw(const DrawPass::e& drawPass)
 	if (readMap->HasOnlyVoidWater())
 		return;
 
-	glDisable(GL_BLEND);
-	glEnable(GL_CULL_FACE);
-	glCullFace(GL_BACK);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetBlendEnabled(false);
+	ctx->SetCullFaceEnabled(true);
+	ctx->SetCullFace(RHI::CullMode::Back);
 
 	if (drawDeferred) {
 		// do the deferred pass first, will allow us to re-use
@@ -330,7 +335,7 @@ void CSMFGroundDrawer::Draw(const DrawPass::e& drawPass)
 		DrawForwardPass(drawPass, mapRendering->voidGround || (mapRendering->voidWater && drawPass != DrawPass::WaterReflection));
 	}
 
-	glDisable(GL_CULL_FACE);
+	ctx->SetCullFaceEnabled(false);
 
 	if (drawPass == DrawPass::Normal && drawMapEdges) {
 		DrawBorder(drawPass);
@@ -346,9 +351,10 @@ void CSMFGroundDrawer::DrawBorder(const DrawPass::e drawPass)
 	// no need to enable, does nothing
 	smfRenderStates[RENDER_STATE_SEL] = smfRenderStates[RENDER_STATE_NOP];
 
-	glEnable(GL_BLEND);
-	glEnable(GL_CULL_FACE);
-	glCullFace(GL_BACK);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetBlendEnabled(true);
+	ctx->SetCullFaceEnabled(true);
+	ctx->SetCullFace(RHI::CullMode::Back);
 
 	glActiveTexture(GL_TEXTURE2); glEnable(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, smfMap->GetDetailTexture());
@@ -359,7 +365,7 @@ void CSMFGroundDrawer::DrawBorder(const DrawPass::e drawPass)
 	//for CSMFGroundTextures::BindSquareTexture()
 	glActiveTexture(GL_TEXTURE0); glEnable(GL_TEXTURE_2D);
 
-	glPolygonMode(GL_FRONT_AND_BACK, wireframe ? GL_LINE : GL_FILL);
+	ctx->SetPolygonMode(wireframe ? RHI::PolygonMode::Line : RHI::PolygonMode::Fill);
 
 	borderShader->Enable();
 	borderShader->SetUniform("borderMinHeight", std::min(readMap->GetInitMinHeight(), -500.0f));
@@ -367,7 +373,7 @@ void CSMFGroundDrawer::DrawBorder(const DrawPass::e drawPass)
 	borderShader->Disable();
 
 	if (wireframe)
-		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+		ctx->SetPolygonMode(RHI::PolygonMode::Fill);
 
 	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, 0);
@@ -381,8 +387,8 @@ void CSMFGroundDrawer::DrawBorder(const DrawPass::e drawPass)
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glDisable(GL_TEXTURE_2D);
 
-	glDisable(GL_CULL_FACE);
-	glDisable(GL_BLEND);
+	ctx->SetCullFaceEnabled(false);
+	ctx->SetBlendEnabled(false);
 
 	smfRenderStates[RENDER_STATE_SEL] = prvState;
 }
@@ -396,14 +402,14 @@ void CSMFGroundDrawer::DrawShadowPass()
 	if (readMap->HasOnlyVoidWater())
 		return;
 
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	shadowShader = shadowHandler.GetShadowGenProg(CShadowHandler::SHADOWGEN_PROGRAM_MAP);
 	assert(shadowShader);
-	glEnable(GL_POLYGON_OFFSET_FILL);
+	ctx->SetPolygonOffset(true, spPolygonOffsetScale, spPolygonOffsetUnits);
 
 	//#pragma message "REMOVE ME, WHEN NOT NEEDED"
-	//glDisable(GL_CULL_FACE);
-
-	glPolygonOffset(spPolygonOffsetScale, spPolygonOffsetUnits); // dz*s + r*u
+	//ctx->SetCullFaceEnabled(false);
 
 	glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, smfMap->GetHeightMapTexture());
 	shadowShader->Enable();
@@ -415,8 +421,8 @@ void CSMFGroundDrawer::DrawShadowPass()
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glActiveTexture(GL_TEXTURE0);
 
-	glDisable(GL_POLYGON_OFFSET_FILL);
-	//glEnable(GL_CULL_FACE);
+	ctx->SetPolygonOffset(false);
+	//ctx->SetCullFaceEnabled(true);
 }
 
 
