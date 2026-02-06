@@ -11,15 +11,15 @@
  *   - Texture parameters         -> IRHITexture::Set{Min,Mag}Filter(), SetWrap{S,T}()
  *   - Depth texture compare mode -> IRHITexture::SetCompareMode()
  *   - RHI device/context access  -> RHI::CreateDevice(), GetContext()
+ *   - Color write mask           -> IRHIContext::SetColorMask()
  *
  * Remaining GL calls (with RHI_TODO comments):
- *   - glColorMask(): Color write mask not yet in RHI PipelineDesc
  *   - GL_TEXTURE_SWIZZLE_*: Texture swizzle mask not in RHI interface
  *   - GL_DEPTH_TEXTURE_MODE: Legacy FFP, no RHI equivalent
- *   - Line width: RasterizerState::lineWidth not yet implemented
+ *   - Line width: RasterizerState::lineWidth not yet implemented (debug frustum)
+ *   - glEnable/glDisable(GL_TEXTURE_2D): Legacy FFP texture enable, no RHI equivalent
  *
  * Dependencies blocking full migration:
- *   - RHI needs color write mask support in PipelineDesc::blend
  *   - RHI needs texture swizzle support in IRHITexture
  */
 
@@ -459,8 +459,7 @@ bool CShadowHandler::InitFBOAndTextures()
 	smOpaqFBO->Unbind();
 
 	// revert to FBO = 0 default
-	// RHI_TODO: color mask should be managed via pipeline state.
-	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	ctx->SetColorMask(true, true, true, true);
 
 	return status;
 }
@@ -672,17 +671,14 @@ void CShadowHandler::CreateShadows()
 	CCameraHandler::SetActiveCamera(prvCam->GetCamType());
 	prvCam->Update();
 
-
 	//revert to default, EnableColorOutput(true) is not enough
-	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	ctx->SetColorMask(true, true, true, true);
 }
 
 void CShadowHandler::EnableColorOutput(bool enable) const
 {
-	// RHI_TODO: color mask should ideally be managed via pipeline state.
-	// Using GL fallback since this is a cross-cutting concern.
-	const GLboolean b = static_cast<GLboolean>(enable);
-	glColorMask(b, b, b, GL_FALSE);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetColorMask(enable, enable, enable, false);
 }
 
 
