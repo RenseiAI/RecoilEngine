@@ -3,35 +3,32 @@
 /**
  * World Drawer - Implementation
  *
- * RHI Migration Status: NEEDS MIGRATION (~26 GL calls)
- * ----------------------------------------------------
- * GL calls by function:
+ * RHI Migration Status: PARTIAL (~15 GL state calls migrated, ~11 remaining)
+ * ---------------------------------------------------------------------------
+ * Migrated:
+ *   - glClearColor/glClear -> ctx->ClearColor()/Clear()
+ *   - glDepthMask -> ctx->SetDepthWriteEnabled()
+ *   - glEnable/glDisable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled()
+ *   - glEnable/glDisable(GL_BLEND) -> ctx->SetBlendEnabled()
+ *   - glBlendFunc -> ctx->SetBlendFunc()
+ *   - glDepthFunc -> ctx->SetDepthFunc()
  *
- * Draw(): ~6 calls
- *   - glClearColor(sky->fogColor...) + glClear(COLOR|DEPTH|STENCIL)
- *     -> IRHIContext::ClearColor() + Clear(true, true, true)
- *   - glDepthMask(GL_TRUE), glEnable(GL_DEPTH_TEST), glDisable(GL_BLEND)
- *     -> RHI::DepthStencilState{depthTestEnabled=true, depthWriteEnabled=true}
- *   - glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
- *     -> RHI::BlendState{srcColor=SrcAlpha, dstColor=OneMinusSrcAlpha}
- *   - glDisable(GL_FOG) -> fog should be shader-based, not FFP
- *
- * ResetMVPMatrices(): ~5 calls (FFP matrix stack)
- *   -> Use CMatrix44f::OrthoProj() and update uniform buffer
- *
- * DrawAlphaObjects(): ~8 calls (clip planes + matrix stack)
- *   - glClipPlane/glEnable(GL_CLIP_PLANE3)
- *     -> IRHIContext::SetClipDistanceEnabled() or shader-based clipping
- *
- * DrawBelowWaterOverlay(): ~7 calls (immediate mode rendering)
- *   - glEnableClientState/glVertexPointer/glDrawArrays
- *     -> IRHIBuffer + IRHIContext::Draw()
- *   - glColor4f -> per-vertex color attribute or uniform
+ * Remaining (not yet migrated):
+ *   - FFP matrix stack (glMatrixMode/glPushMatrix/glPopMatrix/glLoadIdentity/gluOrtho2D)
+ *     -> Needs uniform-based matrix system
+ *   - FFP clip planes (glClipPlane/glEnable(GL_CLIP_PLANE3))
+ *     -> Needs shader-based clipping or SetClipDistanceEnabled()
+ *   - FFP immediate mode (glEnableClientState/glVertexPointer/glDrawArrays/glColor4f)
+ *     -> Needs IRHIBuffer + vertex layout
+ *   - glDisable(GL_FOG) -> FFP fog, no RHI equivalent (should be shader-based)
  */
 
 #include "Rendering/GL/myGL.h"
 
 #include "WorldDrawer.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Sim/Units/UnitDefHandler.h"
 #include "Sim/Features/FeatureDefHandler.h"
 #include "Sim/Weapons/WeaponDefHandler.h"
@@ -311,15 +308,19 @@ void CWorldDrawer::GenerateIBLTextures() const
 
 void CWorldDrawer::ResetMVPMatrices() const
 {
+	// FFP matrix stack - not migrated (needs uniform-based system)
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	gluOrtho2D(0, 1, 0, 1);
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 
-	glEnable(GL_BLEND);
-	glDisable(GL_DEPTH_TEST);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	auto* device = RHI::GetDevice();
+	auto* ctx = device->GetContext();
+
+	ctx->SetBlendEnabled(true);
+	ctx->SetDepthTestEnabled(false);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 }
 
 
@@ -329,14 +330,17 @@ void CWorldDrawer::Draw() const
 	SCOPED_TIMER("Draw::World");
 	SCOPED_GL_DEBUGGROUP("Draw::World");
 
-	const auto& sky = ISky::GetSky();
-	glClearColor(sky->fogColor.x, sky->fogColor.y, sky->fogColor.z, 0.0f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+	auto* device = RHI::GetDevice();
+	auto* ctx = device->GetContext();
 
-	glDepthMask(GL_TRUE);
-	glEnable(GL_DEPTH_TEST);
-	glDisable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	const auto& sky = ISky::GetSky();
+	ctx->ClearColor(sky->fogColor.x, sky->fogColor.y, sky->fogColor.z, 0.0f);
+	ctx->Clear(true, true, true);
+
+	ctx->SetDepthWriteEnabled(true);
+	ctx->SetDepthTestEnabled(true);
+	ctx->SetBlendEnabled(false);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
 	camera->Update();
 
@@ -352,6 +356,7 @@ void CWorldDrawer::Draw() const
 	DrawMiscObjects();
 	DrawBelowWaterOverlay();
 
+	// FFP fog - not migrated (no RHI equivalent, should be shader-based)
 	glDisable(GL_FOG);
 }
 
@@ -413,9 +418,12 @@ void CWorldDrawer::DrawOpaqueObjects() const
 
 void CWorldDrawer::DrawAlphaObjects() const
 {
+	auto* device = RHI::GetDevice();
+	auto* ctx = device->GetContext();
+
 	// transparent objects
-	glEnable(GL_BLEND);
-	glDepthFunc(GL_LEQUAL);
+	ctx->SetBlendEnabled(true);
+	ctx->SetDepthFunc(RHI::CompareFunc::LessEqual);
 
 	static const double belowPlaneEq[4] = {0.0f, -1.0f, 0.0f, 0.0f};
 	static const double abovePlaneEq[4] = {0.0f,  1.0f, 0.0f, 0.0f};
@@ -527,13 +535,17 @@ void CWorldDrawer::DrawBelowWaterOverlay() const
 	if (camera->GetPos().y >= 0.0f)
 		return;
 
+	auto* device = RHI::GetDevice();
+	auto* ctx = device->GetContext();
+
 	{
+		// FFP client state - not migrated (needs IRHIBuffer + vertex layout)
 		glEnableClientState(GL_VERTEX_ARRAY);
 
 		const float3& cpos = camera->GetPos();
 		const float vr = camera->GetFarPlaneDist() * 0.5f;
 
-		glDepthMask(GL_FALSE);
+		ctx->SetDepthWriteEnabled(false);
 		glDisable(GL_TEXTURE_2D);
 		glColor4f(0.0f, 0.5f, 0.3f, 0.50f);
 
@@ -567,7 +579,8 @@ void CWorldDrawer::DrawBelowWaterOverlay() const
 			glDrawArrays(GL_QUAD_STRIP, 0, 10);
 		}
 
-		glDepthMask(GL_TRUE);
+		ctx->SetDepthWriteEnabled(true);
+		// FFP client state - not migrated
 		glDisableClientState(GL_VERTEX_ARRAY);
 	}
 
