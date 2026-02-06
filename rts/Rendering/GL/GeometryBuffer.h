@@ -8,23 +8,25 @@
 #include "Rendering/RHI/RHITexture.h"
 #include "Rendering/RHI/RHITypes.h"
 #include "System/type2.h"
+#include <array>
+#include <memory>
 
 namespace GL {
 	/**
-	 * RHI Migration Note:
-	 *   GeometryBuffer manages a G-buffer (deferred shading MRT).
-	 *   Migration path:
-	 *   - FBO buffer -> IRHIFramebuffer with multiple color attachments
-	 *   - GLuint bufferTextureIDs -> IRHITexture* array
-	 *   - glGenTextures/glTexImage2D -> device->CreateTexture()
-	 *   - glClear/glClearColor -> IRHIContext::ClearColor/ClearDepth
-	 *   - glViewport -> IRHIContext::SetViewport
-	 *   - DrawDebug uses legacy immediate mode (glBegin/glEnd) -> needs RenderBuffer
+	 * RHI Migration Status: PARTIALLY MIGRATED
 	 *
-	 *   RHI Gaps:
-	 *   - IRHITexture has no glTexImage2DMultisample equivalent (MSAA textures)
-	 *   - IRHIFramebuffer has no glDrawBuffers equivalent (MRT output selection)
-	 *   - No RHI equivalent for GL_DEPTH_TEXTURE_MODE
+	 * Completed:
+	 *   - Texture storage: GLuint array -> std::array<std::unique_ptr<RHI::IRHITexture>>
+	 *   - Texture creation: glGenTextures/glTexImage2D -> device->CreateTexture()
+	 *   - MSAA textures: glTexImage2DMultisample -> CreateTexture(sampleCount)
+	 *
+	 * Remaining:
+	 *   - FBO buffer still uses raw GL (not IRHIFramebuffer) for attachment
+	 *   - glDrawBuffers still raw GL (IRHIFramebuffer::SetDrawBuffers exists but not used)
+	 *   - glClear/glClearColor -> needs IRHIContext migration
+	 *   - glViewport -> needs IRHIContext migration
+	 *   - DrawDebug uses legacy immediate mode (glBegin/glEnd)
+	 *   - GL_DEPTH_TEXTURE_MODE has no RHI equivalent
 	 */
 	struct GeometryBuffer {
 	public:
@@ -51,14 +53,17 @@ namespace GL {
 
 		static void LoadViewport();
 
-		bool HasAttachments() const { return (bufferTextureIDs[0] != 0); }
+		bool HasAttachments() const { return (bufferTextures[0] != nullptr); }
 		bool Valid() const { return (buffer.IsValid()); }
 		bool Create(const int2 size);
 		bool Update(const bool init);
 
 		GLuint GetTextureTarget() const { return (msaa? GL_TEXTURE_2D_MULTISAMPLE: GL_TEXTURE_2D); }
-		GLuint GetBufferTexture(unsigned int idx) const { return bufferTextureIDs[idx]; }
+		GLuint GetBufferTexture(unsigned int idx) const { return bufferTextures[idx] ? bufferTextures[idx]->GetNativeHandle() : 0; }
 		GLuint GetBufferAttachment(unsigned int idx) const { return bufferAttachments[idx]; }
+
+		/// Get the RHI texture object for the given attachment (for RHI consumers).
+		RHI::IRHITexture* GetRHITexture(unsigned int idx) const { return bufferTextures[idx].get(); }
 
 		/// Get the RHI texture type for this G-buffer's textures.
 		RHI::TextureType GetRHITextureType() const {
@@ -87,7 +92,7 @@ namespace GL {
 	private:
 		FBO buffer;
 
-		GLuint bufferTextureIDs[ATTACHMENT_COUNT];
+		std::array<std::unique_ptr<RHI::IRHITexture>, ATTACHMENT_COUNT> bufferTextures;
 		GLenum bufferAttachments[ATTACHMENT_COUNT];
 
 		int2 prevBufferSize;
