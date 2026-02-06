@@ -1,5 +1,9 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+// RHI migration status: PARTIAL
+// - RHI used for viewport, draw operations (via RunFullScreenPass)
+// - glBindTexture cannot be migrated: infoTextureHandler->GetInfoTexture() returns raw GLuint
+
 #include "MetalExtraction.h"
 #include "InfoTextureHandler.h"
 #include "Game/GlobalUnsynced.h"

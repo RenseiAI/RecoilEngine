@@ -1,5 +1,9 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+// RHI migration status: PARTIAL
+// - RHI used for viewport, clear, draw operations
+// - glActiveTexture/glBindTexture cannot be migrated: infoTextureHandler->GetInfoTexture() returns raw GLuint
+
 #include "Radar.h"
 #include "InfoTextureHandler.h"
 #include "Game/GlobalUnsynced.h"
@@ -143,13 +147,10 @@ void CRadarTexture::Update()
 	glBindTexture(GL_TEXTURE_2D, infoTextureHandler->GetInfoTexture("los")->GetTexture());
 	RunFullScreenPass();
 
-	// cleanup
-	glBindTexture(GL_TEXTURE_2D, 0);
-	binding1 = {};
-	binding0 = {};
+	// ScopedBind cleanup handles texture unbinding automatically
+	// (no manual glBindTexture(0) or glActiveTexture needed)
 
 	// generate mipmaps
-	glActiveTexture(GL_TEXTURE0);
 	auto binding = texture.ScopedBind();
 	texture.ProduceMipmaps();
 }

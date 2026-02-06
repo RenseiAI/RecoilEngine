@@ -1,5 +1,9 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+// RHI migration status: COMPLETE
+// - All direct GL calls removed (glActiveTexture, glEnable(GL_TEXTURE_2D))
+// - Texture binding now managed by individual InfoTexture implementations
+
 #include "InfoTextureHandler.h"
 #include "AirLos.h"
 #include "Combiner.h"

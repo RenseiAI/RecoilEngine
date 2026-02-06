@@ -1,5 +1,9 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+// RHI migration status: PARTIAL
+// - RHI used for viewport, clear, draw operations (via RunFullScreenPass)
+// - glActiveTexture/glBindTexture cannot be migrated: readMap->GetHeightMapTexture() returns raw GLuint
+
 #include "Height.h"
 #include "Map/HeightLinePalette.h"
 #include "Map/ReadMap.h"

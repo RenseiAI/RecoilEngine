@@ -1,5 +1,9 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+// RHI migration status: PARTIAL
+// - RHI used for viewport, clear operations
+// - glBegin/glEnd cannot be migrated (Lua shader immediate mode compat)
+
 #include "Combiner.h"
 #include "Game/GlobalUnsynced.h"
 #include "Rendering/GlobalRendering.h"
