@@ -3,17 +3,12 @@
 /**
  * CS3OTextureHandler - Manages S3O model textures (diffuse + secondary).
  *
- * RHI Migration Status: PARTIAL
- * ============================
- * - Stores raw GLuint texture IDs in S3OTexMat and CachedS3OTex structs
- * - Uses glDeleteTextures in Kill() for cleanup
- * - Texture creation via CBitmap::CreateMipMapTexture() (returns raw GLuint)
- *
- * Migration Path:
- * 1. Replace uint32_t tex1/tex2 in S3OTexMat with RHI texture references
- * 2. Replace uint32_t texID in CachedS3OTex with std::unique_ptr<RHI::IRHITexture>
- * 3. Use CBitmap::CreateTextureRHI() instead of CreateMipMapTexture()
- * 4. glDeleteTextures in Kill() becomes automatic via unique_ptr destruction
+ * RHI Migration Status: COMPLETE
+ * ===============================
+ * - Texture storage migrated to std::shared_ptr<RHI::IRHITexture>
+ * - Texture creation via CBitmap::CreateTextureRHI()
+ * - Automatic cleanup via shared_ptr (no glDeleteTextures)
+ * - Backward-compatible getters via GetNativeHandle()
  *
  * Note: S3O models use two-texture material (tex1=diffuse+teamcolor, tex2=glow+reflect)
  */
@@ -24,8 +19,10 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <memory>
 
 #include "Bitmap.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "System/Threading/SpringThreading.h"
 #include "System/UnorderedMap.hpp"
 
@@ -38,6 +35,12 @@ public:
 	struct S3OTexMat {
 		int num;
 
+		// RHI texture ownership
+		std::shared_ptr<RHI::IRHITexture> tex1RHI;
+		std::shared_ptr<RHI::IRHITexture> tex2RHI;
+
+		// Backward-compatible raw texture handles for legacy consumers
+		// Populated from RHI textures via GetNativeHandle()
 		uint32_t tex1;
 		uint32_t tex2;
 
@@ -46,14 +49,20 @@ public:
 
 		uint32_t tex2SizeX;
 		uint32_t tex2SizeY;
+
+		// Update raw handles from RHI textures (implemented in .cpp)
+		void UpdateNativeHandles();
 	};
 
 	struct CachedS3OTex {
-		uint32_t texID;
+		std::shared_ptr<RHI::IRHITexture> texture;
 		uint32_t xsize;
 		uint32_t ysize;
 		bool invertAxis;
 		bool invertAlpha;
+
+		// Backward-compatible getter for legacy consumers (implemented in .cpp)
+		uint32_t GetNativeHandle() const;
 	};
 
 	void Init();

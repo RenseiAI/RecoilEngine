@@ -22,12 +22,11 @@
 #include <vector>
 
 #include "Rendering/GL/myGL.h" // still needed transitively by GL backend
+#include "Rendering/RHI/RHITexture.h"
 #include "Rendering/Textures/AtlasedTexture.hpp"
 #include "Rendering/Textures/TAPalette.h"
 #include "System/float4.h"
 #include "System/UnorderedMap.hpp"
-
-namespace RHI { class IRHITexture; }
 
 struct TexFile;
 
