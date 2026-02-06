@@ -3,26 +3,24 @@
 /**
  * CTextureCollection - Manages a collection of named textures.
  *
- * RHI Migration Status: PARTIAL
- * ============================
- * - Currently stores raw GLuint texture IDs from CBitmap::CreateMipMapTexture()
- * - Uses glDeleteTextures for cleanup (see TextureCollection.cpp)
+ * RHI Migration Status: COMPLETE
+ * ===============================
+ * - Stores std::unique_ptr<RHI::IRHITexture> instead of raw GLuint IDs
+ * - Uses automatic RHI cleanup via unique_ptr destructors
+ * - GetTextureID() returns GetNativeHandle() for backward compatibility
  *
- * Migration Path:
- * 1. When CBitmap::CreateTextureRHI() becomes the primary path, store
- *    std::unique_ptr<RHI::IRHITexture> instead of raw uint32_t IDs
- * 2. Replace glDeleteTextures calls with RHI destructor cleanup
- * 3. GetTextureID() would return GetNativeHandle() for backward compat
- *
- * Pattern mappings:
+ * Pattern mappings applied:
  *   glDeleteTextures(n, &ids)  ->  unique_ptr reset/clear (automatic cleanup)
  *   raw GLuint storage         ->  std::unique_ptr<RHI::IRHITexture>
  *   GetTextureID() return      ->  texture->GetNativeHandle()
  */
 
 #include <vector>
+#include <memory>
 #include "Bitmap.h"
 #include "System/Color.h"
+
+namespace RHI { class IRHITexture; }
 
 class CTextureCollection {
 public:
@@ -50,11 +48,17 @@ public:
 
 	void Reload();
 
-	size_t GetTexturesCount() const { return textureIDs.size(); }
-	const auto& GetTextureIDs() const { return textureIDs; }
+	size_t GetTexturesCount() const { return textures.size(); }
+	// Backward compatibility: returns raw texture IDs for legacy code
+	const std::vector<uint32_t>& GetTextureIDs() const;
+	// Direct access to RHI textures for RHI-aware code
+	RHI::IRHITexture* GetTexture(size_t index) const {
+		return (index < textures.size()) ? textures[index].get() : nullptr;
+	}
 private:
 	std::vector<std::string> textureNames;
 	std::vector<std::string> texturePaths;
-	std::vector<uint32_t> textureIDs;
+	std::vector<std::unique_ptr<RHI::IRHITexture>> textures;
+	mutable std::vector<uint32_t> textureIDs; // Cached for GetTextureIDs() backward compat
 	static constexpr size_t INVALID_TEXTURE_POS = size_t(-1);
 };
