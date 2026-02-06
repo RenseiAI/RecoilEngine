@@ -45,6 +45,19 @@ public:
 	void SetMultisampleEnabled(bool enabled) override;
 	void SetSampleShading(bool enabled, float minRate) override;
 
+	void SetDepthWriteEnabled(bool enabled) override;
+	void SetBlendEnabled(bool enabled) override;
+	void SetBlendFunc(BlendFactor src, BlendFactor dst) override;
+	void SetBlendFuncSeparate(BlendFactor srcColor, BlendFactor dstColor, BlendFactor srcAlpha, BlendFactor dstAlpha) override;
+	void SetCullFaceEnabled(bool enabled) override;
+	void SetCullFace(CullMode mode) override;
+	void SetColorMask(bool r, bool g, bool b, bool a) override;
+	void SetPolygonOffset(bool enabled, float factor, float units) override;
+	void SetLineWidth(float width) override;
+	void SetPointSize(float size) override;
+	void SetPolygonMode(PolygonMode mode) override;
+	void SetStencilTestEnabled(bool enabled) override;
+
 	void ClearColor(float r, float g, float b, float a) override;
 	void ClearDepth(float depth) override;
 	void ClearStencil(uint32_t value) override;

@@ -54,6 +54,45 @@ static GLenum ToGLCompareFunc(CompareFunc func) {
 	return GL_LEQUAL;
 }
 
+static GLenum ToGLBlendFactor(BlendFactor factor) {
+	switch (factor) {
+		case BlendFactor::Zero:                  return GL_ZERO;
+		case BlendFactor::One:                   return GL_ONE;
+		case BlendFactor::SrcColor:              return GL_SRC_COLOR;
+		case BlendFactor::OneMinusSrcColor:      return GL_ONE_MINUS_SRC_COLOR;
+		case BlendFactor::DstColor:              return GL_DST_COLOR;
+		case BlendFactor::OneMinusDstColor:      return GL_ONE_MINUS_DST_COLOR;
+		case BlendFactor::SrcAlpha:              return GL_SRC_ALPHA;
+		case BlendFactor::OneMinusSrcAlpha:      return GL_ONE_MINUS_SRC_ALPHA;
+		case BlendFactor::DstAlpha:              return GL_DST_ALPHA;
+		case BlendFactor::OneMinusDstAlpha:      return GL_ONE_MINUS_DST_ALPHA;
+		case BlendFactor::ConstantColor:         return GL_CONSTANT_COLOR;
+		case BlendFactor::OneMinusConstantColor: return GL_ONE_MINUS_CONSTANT_COLOR;
+		case BlendFactor::ConstantAlpha:         return GL_CONSTANT_ALPHA;
+		case BlendFactor::OneMinusConstantAlpha: return GL_ONE_MINUS_CONSTANT_ALPHA;
+		case BlendFactor::SrcAlphaSaturate:      return GL_SRC_ALPHA_SATURATE;
+	}
+	return GL_ONE;
+}
+
+static GLenum ToGLCullMode(CullMode mode) {
+	switch (mode) {
+		case CullMode::None:  return GL_BACK; // dummy value, culling will be disabled
+		case CullMode::Front: return GL_FRONT;
+		case CullMode::Back:  return GL_BACK;
+	}
+	return GL_BACK;
+}
+
+static GLenum ToGLPolygonMode(PolygonMode mode) {
+	switch (mode) {
+		case PolygonMode::Fill:  return GL_FILL;
+		case PolygonMode::Line:  return GL_LINE;
+		case PolygonMode::Point: return GL_POINT;
+	}
+	return GL_FILL;
+}
+
 // --- Render pass (maps to FBO bind/unbind) ---
 
 void GLContext::BeginRenderPass(IRHIFramebuffer* framebuffer, const RenderPassDesc& desc) {
@@ -266,6 +305,87 @@ void GLContext::BlitFramebuffer(
 		{srcX0, srcY0, srcX1, srcY1},
 		{dstX0, dstY0, dstX1, dstY1},
 		mask, depthBit ? GL_NEAREST : GL_LINEAR);
+}
+
+// --- Dynamic state ---
+
+void GLContext::SetDepthWriteEnabled(bool enabled) {
+	glDepthMask(enabled ? GL_TRUE : GL_FALSE);
+}
+
+void GLContext::SetBlendEnabled(bool enabled) {
+	if (enabled)
+		glEnable(GL_BLEND);
+	else
+		glDisable(GL_BLEND);
+}
+
+void GLContext::SetBlendFunc(BlendFactor src, BlendFactor dst) {
+	glBlendFunc(ToGLBlendFactor(src), ToGLBlendFactor(dst));
+}
+
+void GLContext::SetBlendFuncSeparate(BlendFactor srcColor, BlendFactor dstColor, BlendFactor srcAlpha, BlendFactor dstAlpha) {
+	glBlendFuncSeparate(
+		ToGLBlendFactor(srcColor),
+		ToGLBlendFactor(dstColor),
+		ToGLBlendFactor(srcAlpha),
+		ToGLBlendFactor(dstAlpha)
+	);
+}
+
+void GLContext::SetCullFaceEnabled(bool enabled) {
+	if (enabled)
+		glEnable(GL_CULL_FACE);
+	else
+		glDisable(GL_CULL_FACE);
+}
+
+void GLContext::SetCullFace(CullMode mode) {
+	if (mode == CullMode::None) {
+		glDisable(GL_CULL_FACE);
+	} else {
+		glEnable(GL_CULL_FACE);
+		glCullFace(ToGLCullMode(mode));
+	}
+}
+
+void GLContext::SetColorMask(bool r, bool g, bool b, bool a) {
+	glColorMask(r ? GL_TRUE : GL_FALSE,
+	            g ? GL_TRUE : GL_FALSE,
+	            b ? GL_TRUE : GL_FALSE,
+	            a ? GL_TRUE : GL_FALSE);
+}
+
+void GLContext::SetPolygonOffset(bool enabled, float factor, float units) {
+	if (enabled) {
+		glEnable(GL_POLYGON_OFFSET_FILL);
+		glPolygonOffset(factor, units);
+	} else {
+		glDisable(GL_POLYGON_OFFSET_FILL);
+	}
+}
+
+void GLContext::SetLineWidth(float width) {
+	glLineWidth(width);
+}
+
+void GLContext::SetPointSize(float size) {
+	glPointSize(size);
+	if (size > 0.0f)
+		glEnable(GL_PROGRAM_POINT_SIZE);
+	else
+		glDisable(GL_PROGRAM_POINT_SIZE);
+}
+
+void GLContext::SetPolygonMode(PolygonMode mode) {
+	glPolygonMode(GL_FRONT_AND_BACK, ToGLPolygonMode(mode));
+}
+
+void GLContext::SetStencilTestEnabled(bool enabled) {
+	if (enabled)
+		glEnable(GL_STENCIL_TEST);
+	else
+		glDisable(GL_STENCIL_TEST);
 }
 
 // --- Sync ---

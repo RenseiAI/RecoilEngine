@@ -80,6 +80,22 @@ public:
 	virtual void SetMultisampleEnabled(bool enabled) = 0;
 	virtual void SetSampleShading(bool enabled, float minRate = 0.0f) = 0;
 
+	// --- Dynamic state convenience methods ---
+	// For per-draw state changes that don't warrant creating a full pipeline object.
+	// These wrap common GL state changes; Metal backend uses pipeline descriptors instead.
+	virtual void SetDepthWriteEnabled(bool enabled) = 0;
+	virtual void SetBlendEnabled(bool enabled) = 0;
+	virtual void SetBlendFunc(BlendFactor src, BlendFactor dst) = 0;
+	virtual void SetBlendFuncSeparate(BlendFactor srcColor, BlendFactor dstColor, BlendFactor srcAlpha, BlendFactor dstAlpha) = 0;
+	virtual void SetCullFaceEnabled(bool enabled) = 0;
+	virtual void SetCullFace(CullMode mode) = 0;
+	virtual void SetColorMask(bool r, bool g, bool b, bool a) = 0;
+	virtual void SetPolygonOffset(bool enabled, float factor = 0.0f, float units = 0.0f) = 0;
+	virtual void SetLineWidth(float width) = 0;
+	virtual void SetPointSize(float size) = 0;
+	virtual void SetPolygonMode(PolygonMode mode) = 0;
+	virtual void SetStencilTestEnabled(bool enabled) = 0;
+
 	// --- Clear ---
 	virtual void ClearColor(float r, float g, float b, float a) = 0;
 	virtual void ClearDepth(float depth) = 0;
