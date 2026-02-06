@@ -3,10 +3,12 @@
 #include "IWater.h"
 #include "ISky.h"
 #include "BasicWater.h"
-#include "AdvWater.h"
+// DEPRECATED: AdvWater, DynWater, RefractWater removed (ARM64 Metal port)
+// They use ARB programs + immediate mode with no Metal equivalent.
+// #include "AdvWater.h"
+// #include "DynWater.h"
+// #include "RefractWater.h"
 #include "BumpWater.h"
-#include "DynWater.h"
-#include "RefractWater.h"
 #include "Game/Game.h"
 #include "Game/GameHelper.h"
 #include "Map/ReadMap.h"
@@ -74,42 +76,36 @@ void IWater::SetModelClippingPlane(const double* planeEq) {
 void IWater::SetWater(int rendererMode)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI-GAP: These GLAD_GL_ARB_* capability checks have no RHI equivalent.
-	// They query legacy ARB extension support for selecting water renderer modes.
-	// On a Metal backend, all modes except BUMPMAPPED (which uses GLSL) would
-	// need to be disabled or the shaders ported. Kept as direct GL for now.
-	static std::array<bool, NUM_WATER_RENDERERS> allowedModes = {
-		true,
-		GLAD_GL_ARB_fragment_program && ProgramStringIsNative(GL_FRAGMENT_PROGRAM_ARB, "ARB/water.fp"),
-		GLAD_GL_ARB_fragment_program && ProgramStringIsNative(GL_FRAGMENT_PROGRAM_ARB, "ARB/waterDyn.fp"),
-		GLAD_GL_ARB_fragment_program && GLAD_GL_ARB_texture_rectangle,
-		GLAD_GL_ARB_shading_language_100 && GLAD_GL_ARB_fragment_shader && GLAD_GL_ARB_vertex_shader,
+	// DEPRECATED: Only BumpWater (modern GLSL) and BasicWater (fallback) are
+	// available. AdvWater/DynWater/RefractWater used ARB programs + immediate
+	// mode with no Metal equivalent. Requests for deprecated renderers are
+	// silently upgraded to BumpWater.
+	static constexpr std::array<bool, NUM_WATER_RENDERERS> allowedModes = {
+		true,   // WATER_RENDERER_BASIC
+		false,  // WATER_RENDERER_REFLECTIVE (AdvWater - deprecated)
+		false,  // WATER_RENDERER_DYNAMIC (DynWater - deprecated)
+		false,  // WATER_RENDERER_REFL_REFR (RefractWater - deprecated)
+		true,   // WATER_RENDERER_BUMPMAPPED
 	};
 
 	WATER_RENDERER selectedRendererID;
 	if (rendererMode < 0) {
 		if (water == nullptr) {
-			// just select
 			selectedRendererID = static_cast<WATER_RENDERER>(configHandler->GetInt("Water"));
-			if (!allowedModes[selectedRendererID])
-				selectedRendererID = WATER_RENDERER_BASIC;
+		} else {
+			// cycle between Basic and BumpMapped only
+			selectedRendererID = (water->GetID() == WATER_RENDERER_BUMPMAPPED)
+				? WATER_RENDERER_BASIC
+				: WATER_RENDERER_BUMPMAPPED;
 		}
-		else {
-			// cycle
-			for (int i = NUM_WATER_RENDERERS - 1; i >= 0; --i) {
-				selectedRendererID = static_cast<WATER_RENDERER>((static_cast<int>(water->GetID()) + 1 + i) % NUM_WATER_RENDERERS);
-				if (allowedModes[selectedRendererID])
-					break;
-			}
-		}
+	} else {
+		selectedRendererID = static_cast<WATER_RENDERER>(rendererMode);
 	}
-	else {
-		// select specific one
-		for (int i = 0; i < NUM_WATER_RENDERERS; ++i) {
-			selectedRendererID = static_cast<WATER_RENDERER>((rendererMode + i) % NUM_WATER_RENDERERS);
-			if (allowedModes[selectedRendererID])
-				break;
-		}
+
+	// Force deprecated modes to BumpWater
+	if (!allowedModes[selectedRendererID]) {
+		LOG("Water renderer %d deprecated (ARM64 Metal port), using BumpWater", static_cast<int>(selectedRendererID));
+		selectedRendererID = WATER_RENDERER_BUMPMAPPED;
 	}
 
 	if (water && water->GetID() == selectedRendererID)
@@ -122,20 +118,11 @@ void IWater::SetWater(int rendererMode)
 		case WATER_RENDERER_BASIC:
 			water = std::make_unique<CBasicWater>();
 			break;
-		case WATER_RENDERER_REFLECTIVE:
-			water = std::make_unique<CAdvWater>();
-			break;
-		case WATER_RENDERER_DYNAMIC:
-			water = std::make_unique<CDynWater>();
-			break;
-		case WATER_RENDERER_REFL_REFR:
-			water = std::make_unique<CRefractWater>();
-			break;
 		case WATER_RENDERER_BUMPMAPPED:
 			water = std::make_unique<CBumpWater>();
 			break;
 		default:
-			assert(false);
+			water = std::make_unique<CBumpWater>();
 			break;
 		}
 		if (water)

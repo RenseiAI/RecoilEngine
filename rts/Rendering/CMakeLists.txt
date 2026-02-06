@@ -10,7 +10,10 @@ set(sources_engine_Rendering
 		"${CMAKE_CURRENT_SOURCE_DIR}/DebugDrawerQuadField.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/QTPFSPathDrawer.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/HAPFSPathDrawer.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/Env/AdvWater.cpp"
+		# DEPRECATED: Legacy water renderers removed from build (ARM64 Metal port)
+		# They use ARB programs + immediate mode with no Metal equivalent.
+		# BumpWater is the only active water renderer. Source files preserved.
+		# "${CMAKE_CURRENT_SOURCE_DIR}/Env/AdvWater.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Env/IGroundDecalDrawer.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Env/ISky.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Env/IWater.cpp"
@@ -18,12 +21,12 @@ set(sources_engine_Rendering
 		"${CMAKE_CURRENT_SOURCE_DIR}/Env/BumpWater.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Env/CubeMapHandler.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Env/DebugCubeMapTexture.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/Env/DynWater.cpp"
+		# "${CMAKE_CURRENT_SOURCE_DIR}/Env/DynWater.cpp"  # DEPRECATED
 		"${CMAKE_CURRENT_SOURCE_DIR}/Env/GrassDrawer.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Env/MapRendering.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Env/ModernSky.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Env/NullSky.cpp"
-		"${CMAKE_CURRENT_SOURCE_DIR}/Env/RefractWater.cpp"
+		# "${CMAKE_CURRENT_SOURCE_DIR}/Env/RefractWater.cpp"  # DEPRECATED
 		"${CMAKE_CURRENT_SOURCE_DIR}/Env/SkyBox.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Env/SkyLight.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Env/SunLighting.cpp"
