@@ -18,6 +18,8 @@
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHITexture.h"
+#include "Rendering/RHI/RHITypes.h"
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Shaders/Shader.h"
@@ -187,8 +189,8 @@ CGrassDrawer::CGrassDrawer()
 , blocksX(mapDims.mapx / grassSquareSize / grassBlockSize)
 , blocksY(mapDims.mapy / grassSquareSize / grassBlockSize)
 , grassDL(0)
-, grassBladeTex(0)
-, farTex(0)
+, grassBladeTex(nullptr)
+, farTex(nullptr)
 , farnearVA(2048)
 , grassOff(false)
 , updateBillboards(false)
@@ -245,11 +247,11 @@ CGrassDrawer::CGrassDrawer()
 			}
 		}
 		//grassBladeTexBM.Save("blade.png", false);
-		grassBladeTex = grassBladeTexBM.CreateMipMapTexture();
-		// TODO [RHI cross-cutting]: texture parameter setup uses raw GL calls;
-		// needs RHI sampler state or texture creation params
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		grassBladeTex = grassBladeTexBM.CreateTextureRHI();
+		if (grassBladeTex) {
+			grassBladeTex->SetWrapS(RHI::TextureWrap::ClampToEdge);
+			grassBladeTex->SetWrapT(RHI::TextureWrap::ClampToEdge);
+		}
 	}
 
 	// create shaders and finalize
@@ -275,8 +277,7 @@ CGrassDrawer::~CGrassDrawer()
 	configHandler->RemoveObserver(this);
 
 	glDeleteLists(grassDL, 1);
-	glDeleteTextures(1, &grassBladeTex);
-	glDeleteTextures(1, &farTex);
+	// grassBladeTex and farTex are unique_ptr, auto-cleaned
 	shaderHandler->ReleaseProgramObjects("[GrassDrawer]");
 }
 
@@ -659,8 +660,9 @@ void CGrassDrawer::SetupGlStateNear()
 	RECOIL_DETAILED_TRACY_ZONE;
 	// bind textures
 	{
-		glActiveTextureARB(GL_TEXTURE0_ARB);
-			glBindTexture(GL_TEXTURE_2D, grassBladeTex);
+		if (grassBladeTex) {
+			grassBladeTex->Bind(0);
+		}
 		glActiveTextureARB(GL_TEXTURE1_ARB);
 			glBindTexture(GL_TEXTURE_2D, readMap->GetGrassShadingTexture());
 		glActiveTextureARB(GL_TEXTURE2_ARB);
@@ -740,8 +742,9 @@ void CGrassDrawer::SetupGlStateFar()
 
 	EnableShader(GRASS_PROGRAM_DIST);
 
-	glActiveTextureARB(GL_TEXTURE0_ARB);
-		glBindTexture(GL_TEXTURE_2D, farTex);
+	if (farTex) {
+		farTex->Bind(0);
+	}
 	glActiveTextureARB(GL_TEXTURE1_ARB);
 		glBindTexture(GL_TEXTURE_2D, readMap->GetGrassShadingTexture());
 	glActiveTextureARB(GL_TEXTURE2_ARB);
@@ -877,19 +880,25 @@ void CGrassDrawer::CreateFarTex()
 	const int texSizeX = billboardSize * numAngles;
 	const int texSizeY = billboardSize;
 
-	if (farTex == 0) {
-		glGenTextures(1, &farTex);
-		glBindTexture(GL_TEXTURE_2D, farTex);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		RecoilTexStorage2D(GL_TEXTURE_2D, -1, GL_RGBA8, texSizeX, texSizeY);
+	if (!farTex) {
+		auto* device = RHI::GetDevice();
+		if (device) {
+			const int mipLevels = std::ceil(std::log((float)(std::max(texSizeX, texSizeY) + 1)));
+			farTex = device->CreateTexture(RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8, texSizeX, texSizeY, 1, mipLevels);
+			if (farTex) {
+				farTex->SetMagFilter(RHI::TextureFilter::Linear);
+				farTex->SetMinFilter(RHI::TextureFilter::LinearMipmapNearest);
+				farTex->SetWrapS(RHI::TextureWrap::ClampToEdge);
+				farTex->SetWrapT(RHI::TextureWrap::ClampToEdge);
+			}
+		}
 	}
 
 	FBO fboTex;
 	fboTex.Bind();
-	fboTex.AttachTexture(farTex);
+	if (farTex) {
+		fboTex.AttachTexture(farTex->GetNativeHandle());
+	}
 	fboTex.CheckStatus("GRASSDRAWER1");
 
 	GLenum depthFormat = static_cast<GLenum>(CGlobalRendering::DepthBitsToFormat(globalRendering->supportDepthBufferBitDepth));
@@ -913,7 +922,9 @@ void CGrassDrawer::CreateFarTex()
 	glDisable(GL_FOG);
 	glDisable(GL_BLEND);
 	glDisable(GL_ALPHA_TEST);
-	glBindTexture(GL_TEXTURE_2D, grassBladeTex);
+	if (grassBladeTex) {
+		grassBladeTex->Bind(0);
+	}
 	glEnable(GL_TEXTURE_2D);
 	glEnable(GL_CLIP_PLANE0);
 	glEnable(GL_DEPTH_TEST);
@@ -963,8 +974,10 @@ void CGrassDrawer::CreateFarTex()
 		GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
 	// compute mipmaps
-	glBindTexture(GL_TEXTURE_2D, farTex);
-	glGenerateMipmap(GL_TEXTURE_2D);
+	if (farTex) {
+		farTex->Bind(0);
+		farTex->GenerateMipmaps();
+	}
 
 	// blur non-rendered areas, so in mipmaps color data isn't blurred with background color
 	{
@@ -982,7 +995,9 @@ void CGrassDrawer::CreateFarTex()
 		// -> fill background with blurred color data
 		fboTex.Bind();
 		for (int mipLevel = mipLevels - 2; mipLevel >= 0; --mipLevel) {
-			fboTex.AttachTexture(farTex, GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0_EXT, mipLevel);
+			if (farTex) {
+				fboTex.AttachTexture(farTex->GetNativeHandle(), GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0_EXT, mipLevel);
+			}
 			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_LOD, mipLevel + 1.f);
 			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_LOD, mipLevel + 1.f);
 			rhiCtx->SetViewport(RHI::Viewport{0.0f, 0.0f, static_cast<float>(texSizeX >> mipLevel), static_cast<float>(texSizeY >> mipLevel)});
@@ -1001,7 +1016,9 @@ void CGrassDrawer::CreateFarTex()
 		// recreate mipmaps from now blurred base level
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_LOD, -1000.f);
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_LOD,  1000.f);
-		glGenerateMipmap(GL_TEXTURE_2D);
+		if (farTex) {
+			farTex->GenerateMipmaps();
+		}
 	}
 
 	globalRendering->LoadViewport();

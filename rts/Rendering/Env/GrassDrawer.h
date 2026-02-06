@@ -3,6 +3,7 @@
 #ifndef GRASSDRAWER_H
 #define GRASSDRAWER_H
 
+#include <memory>
 #include <vector>
 
 #include "Rendering/GL/VertexArray.h"
@@ -11,6 +12,10 @@
 
 namespace Shader {
 	struct IProgramObject;
+}
+
+namespace RHI {
+	class IRHITexture;
 }
 
 class CVertexArray;
@@ -98,8 +103,8 @@ protected:
 	int blocksY;
 
 	unsigned int grassDL;
-	unsigned int grassBladeTex;
-	unsigned int farTex;
+	std::unique_ptr<RHI::IRHITexture> grassBladeTex;
+	std::unique_ptr<RHI::IRHITexture> farTex;
 
 	CVertexArray farnearVA;
 
