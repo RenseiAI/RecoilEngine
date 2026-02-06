@@ -147,7 +147,7 @@ void DepthBufferCopy::CreateTextureAndFBO(bool ms)
 	auto& depthFBO     = depthFBOs[ms];
 
 	const auto texType = ms ? RHI::TextureType::Texture2DMS : RHI::TextureType::Texture2D;
-	const auto depthFormat = DepthBitsToRHIFormat(globalRendering->supportDepthBufferBitDepth);
+	const auto depthFormat = DepthBitsToRHIFormat(device->GetDepthBufferBitDepth());
 
 	assert(!depthTexture);
 	depthTexture = device->CreateTexture(

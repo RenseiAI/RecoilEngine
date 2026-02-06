@@ -27,6 +27,7 @@
 #include "System/SafeUtil.h"
 #include "Rendering/ModelsDataUploader.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/GL/VBO.h"
 #include "Rendering/Models/3DModel.hpp"
 #include "Rendering/Models/ModelsMemStorage.h"
@@ -1406,12 +1407,12 @@ int LuaVBOImpl::BindBufferRangeImpl(GLuint bindingIndex,  const sol::optional<in
 
 	switch (defTarget) {
 	case GL_UNIFORM_BUFFER: {
-		if (bindingIndex < uboMinIndex || bindingIndex >= globalRendering->glslMaxUniformBufferBindings)
-			LuaUtils::SolLuaError("[LuaVBOImpl::%s] Invalid (Un)binding index [%u]. Index must be within [%u : %d)", __func__, uboMinIndex, globalRendering->glslMaxUniformBufferBindings);
+		if (bindingIndex < uboMinIndex || bindingIndex >= RHI::GetDevice()->GetMaxUniformBufferBindings())
+			LuaUtils::SolLuaError("[LuaVBOImpl::%s] Invalid (Un)binding index [%u]. Index must be within [%u : %d)", __func__, uboMinIndex, RHI::GetDevice()->GetMaxUniformBufferBindings());
 	} break;
 	case GL_SHADER_STORAGE_BUFFER: {
-		if (bindingIndex < ssboMinIndex || bindingIndex >= globalRendering->glslMaxStorageBufferBindings)
-			LuaUtils::SolLuaError("[LuaVBOImpl::%s] Invalid (Un)binding index [%u]. Index must be within [%u : %d)", __func__, ssboMinIndex, globalRendering->glslMaxStorageBufferBindings);
+		if (bindingIndex < ssboMinIndex || bindingIndex >= RHI::GetDevice()->GetMaxStorageBufferBindings())
+			LuaUtils::SolLuaError("[LuaVBOImpl::%s] Invalid (Un)binding index [%u]. Index must be within [%u : %d)", __func__, ssboMinIndex, RHI::GetDevice()->GetMaxStorageBufferBindings());
 	} break;
 	default:
 		LuaUtils::SolLuaError("[LuaVBOImpl::%s] (Un)binding target can only be equal to [%u] or [%u]", __func__, GL_UNIFORM_BUFFER, GL_SHADER_STORAGE_BUFFER);

@@ -26,6 +26,7 @@
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
 #include "Rendering/Textures/Bitmap.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/EventHandler.h"
 #include "System/Exceptions.h"
@@ -971,7 +972,7 @@ void CSMFReadMap::ConfigureTexAnisotropyLevels()
 	const std::string cfgKeys[2] = {"SMFTexAniso", "SSMFTexAniso"};
 
 	for (uint32_t i = 0; i < 2; i++) {
-		texAnisotropyLevels[i] = std::min(configHandler->GetFloat(cfgKeys[i]), globalRendering->maxTexAnisoLvl);
+		texAnisotropyLevels[i] = std::min(configHandler->GetFloat(cfgKeys[i]), static_cast<float>(RHI::GetDevice()->GetMaxTexAnisotropy()));
 		texAnisotropyLevels[i] *= (texAnisotropyLevels[i] >= 1.0f); // disable AF if less than 1
 	}
 }

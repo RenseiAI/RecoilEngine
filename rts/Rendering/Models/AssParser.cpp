@@ -16,6 +16,7 @@
 #include "Lua/LuaParser.h"
 #include "Sim/Misc/CollisionVolume.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/Textures/S3OTextureHandler.h"
 #include "System/StringUtil.h"
 #include "System/Log/ILog.h"
@@ -476,8 +477,8 @@ void CAssParser::Init()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	// FIXME: non-optimal, maybe compute these ourselves (pre-TL cache size!)
-	maxIndices = std::max(globalRendering->glslMaxRecommendedIndices, 1024);
-	maxVertices = std::max(globalRendering->glslMaxRecommendedVertices, 1024);
+	maxIndices = std::max(RHI::GetDevice()->GetMaxRecommendedIndices(), 1024);
+	maxVertices = std::max(RHI::GetDevice()->GetMaxRecommendedVertices(), 1024);
 	numPoolPieces = 0;
 
 	Assimp::DefaultLogger::create("", Assimp::Logger::VERBOSE);

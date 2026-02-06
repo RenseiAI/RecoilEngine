@@ -271,7 +271,7 @@ namespace CNamedTextures {
 		tcp.linearTextureFilter = !nearest;
 		tcp.reqNumLevels = needMipMaps ? 0 : 1;
 		if (aniso)
-			tcp.aniso = globalRendering->maxTexAnisoLvl;
+			tcp.aniso = RHI::GetDevice()->GetMaxTexAnisotropy();
 
 		if (bitmap.compressed) {
 			texID = bitmap.CreateDDSTexture(tcp);

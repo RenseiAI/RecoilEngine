@@ -405,7 +405,7 @@ bool CShadowHandler::InitFBOAndTextures()
 			smOpaqFBO->DetachAll();
 
 		//depth
-		const int depthBits = std::min(globalRendering->supportDepthBufferBitDepth, 24);
+		const int depthBits = std::min(device->GetDepthBufferBitDepth(), 24);
 		const auto depthFormat = DepthBitsToRHIFormat(depthBits);
 
 		shadowDepthTexture = device->CreateTexture(

@@ -12,6 +12,7 @@
 #include "VBO.h"
 
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/Log/ILog.h"
 #include "System/SpringMath.h"
@@ -172,12 +173,12 @@ bool VBO::BindBufferRangeImpl(GLenum target, GLuint index, GLuint _vboId, GLuint
 		return false;
 	}
 
-	if (target == GL_UNIFORM_BUFFER && index >= globalRendering->glslMaxUniformBufferBindings) {
+	if (target == GL_UNIFORM_BUFFER && index >= RHI::GetDevice()->GetMaxUniformBufferBindings()) {
 		LOG_L(L_ERROR, "[VBO::%s]: attempt to bind UBO with invalid index [%u]", __func__, index);
 		return false;
 	}
 
-	if (target == GL_SHADER_STORAGE_BUFFER && index >= globalRendering->glslMaxStorageBufferBindings) {
+	if (target == GL_SHADER_STORAGE_BUFFER && index >= RHI::GetDevice()->GetMaxStorageBufferBindings()) {
 		LOG_L(L_ERROR, "[VBO::%s]: attempt to bind SSBO with invalid index [%u]", __func__, index);
 		return false;
 	}
