@@ -3,24 +3,16 @@
 /**
  * S3OTextureHandler.cpp - S3O model texture loading and caching.
  *
- * RHI Migration Status: PARTIAL
- * ============================
- * Uses glDeleteTextures in:
- *   - Kill() - bulk deletion of all cached textures
- *
- * Uses CBitmap::CreateMipMapTexture() for texture creation in:
- *   - LoadAndCacheTexture() - initial texture creation from bitmap
- *   - Reload() - texture reload with existing texture ID
- *
- * TODO: RHI gap - When migrating:
- *   - Replace textureCache[textureName].texID storage with RHI texture ownership
- *   - Use bitmap.CreateTextureRHI() instead of CreateMipMapTexture()
- *   - glDeleteTextures becomes automatic via unique_ptr destruction
- *   - InsertTextureMat() would extract native handles for backward compatibility
+ * RHI Migration Status: COMPLETE
+ * ===============================
+ * - All texture storage migrated to std::shared_ptr<RHI::IRHITexture>
+ * - Texture creation via CBitmap::CreateTextureRHI()
+ * - Automatic cleanup via shared_ptr destruction
+ * - No remaining GL calls (glDeleteTextures removed)
  */
 
-#include "Rendering/GL/myGL.h" // TODO: RHI gap - needed for glDeleteTextures (raw texture handles from CBitmap)
 #include "S3OTextureHandler.h"
+#include "Rendering/RHI/RHITexture.h"
 
 #include "System/FileSystem/FileHandler.h"
 #include "System/FileSystem/SimpleParser.h"
@@ -56,6 +48,21 @@ LOG_REGISTER_SECTION_GLOBAL(LOG_SECTION_TEXTURE)
 // The second contains glow (R), reflectivity (G) and 1-bit Alpha (A).
 
 //////////////////////////////////////////////////////////////////////
+// S3OTexMat and CachedS3OTex method implementations
+//////////////////////////////////////////////////////////////////////
+
+void CS3OTextureHandler::S3OTexMat::UpdateNativeHandles()
+{
+	tex1 = tex1RHI ? tex1RHI->GetNativeHandle() : 0;
+	tex2 = tex2RHI ? tex2RHI->GetNativeHandle() : 0;
+}
+
+uint32_t CS3OTextureHandler::CachedS3OTex::GetNativeHandle() const
+{
+	return texture ? texture->GetNativeHandle() : 0;
+}
+
+//////////////////////////////////////////////////////////////////////
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 
@@ -74,11 +81,7 @@ void CS3OTextureHandler::Init()
 void CS3OTextureHandler::Kill()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	for (S3OTexMat& texture: textures) {
-		glDeleteTextures(1, &(texture.tex1));
-		glDeleteTextures(1, &(texture.tex2));
-	}
-
+	// Textures are now owned by shared_ptr and will be automatically cleaned up
 	textures.clear();
 	textureCache.clear();
 	textureTable.clear();
@@ -91,7 +94,7 @@ void CS3OTextureHandler::Reload()
 	auto lock = CModelsLock::GetScopedLock(); //needed?
 
 	for (auto& [texName, texData] : textureCache) {
-		if (texData.texID == 0)
+		if (!texData.texture)
 			continue;
 
 		CBitmap bitmap;
@@ -104,8 +107,11 @@ void CS3OTextureHandler::Reload()
 			if (texData.invertAxis)
 				bitmap.ReverseYAxis();
 
-			uint32_t newTexId = bitmap.CreateMipMapTexture(0.0f, 0.0f, 0, texData.texID);
-			assert(newTexId == texData.texID);
+			// Recreate the texture with RHI
+			auto newTexture = bitmap.CreateTextureRHI();
+			if (newTexture) {
+				texData.texture = std::move(newTexture);
+			}
 		}
 	}
 }
@@ -153,8 +159,8 @@ unsigned int CS3OTextureHandler::LoadAndCacheTexture(
 	const auto& textureName = model->texs[texNum];
 	const auto textureIt = textureCache.find(textureName);
 
-	if (textureIt != textureCache.end() && textureIt->second.texID > 0)
-		return textureIt->second.texID;
+	if (textureIt != textureCache.end() && textureIt->second.texture)
+		return textureIt->second.GetNativeHandle();
 
 	const auto bitmapIt = bitmapCache.find(textureName);
 
@@ -190,14 +196,21 @@ unsigned int CS3OTextureHandler::LoadAndCacheTexture(
 			bitmap->InvertAlpha();
 	}
 
-	const unsigned int texID = preloadCall ? 0 : bitmap->CreateMipMapTexture();
+	std::shared_ptr<RHI::IRHITexture> texture;
+	if (!preloadCall) {
+		auto uniqueTexture = bitmap->CreateTextureRHI();
+		if (uniqueTexture) {
+			texture = std::move(uniqueTexture);
+		}
+	}
+
 #ifndef HEADLESS
-	assert(preloadCall || texID > 0);
+	assert(preloadCall || texture);
 #endif
 
-	if (textureIt != textureCache.end() && texID > 0) {
+	if (textureIt != textureCache.end() && texture) {
 		assert(!preloadCall);
-		textureIt->second.texID = texID;
+		textureIt->second.texture = texture;
 	}
 	else {
 		//save main params from the preloadCall pass, such that data is stored correctly for Reload()
@@ -205,7 +218,7 @@ unsigned int CS3OTextureHandler::LoadAndCacheTexture(
 		assert( preloadCall);
 #endif
 		textureCache[textureName] = {
-			texID,
+			texture,
 			static_cast<uint32_t>(bitmap->xsize),
 			static_cast<uint32_t>(bitmap->ysize),
 			invertAxis,
@@ -218,7 +231,7 @@ unsigned int CS3OTextureHandler::LoadAndCacheTexture(
 		return 0;
 
 	bitmapCache.erase(textureName);
-	return texID;
+	return texture ? texture->GetNativeHandle() : 0;
 }
 
 
@@ -232,13 +245,17 @@ unsigned int CS3OTextureHandler::InsertTextureMat(const S3DModel* model)
 	S3OTexMat& texMat = textures.back();
 
 	texMat.num       = textures.size() - 1;
-	texMat.tex1      = tex1.texID;
-	texMat.tex2      = tex2.texID;
+	texMat.tex1RHI   = tex1.texture;
+	texMat.tex2RHI   = tex2.texture;
 	texMat.tex1SizeX = tex1.xsize;
 	texMat.tex1SizeY = tex1.ysize;
 	texMat.tex2SizeX = tex2.xsize;
 	texMat.tex2SizeY = tex2.ysize;
 
+	// Update backward-compatible raw handles
+	texMat.UpdateNativeHandles();
+
+	// Use native handles for the texture table UID
 	textureTable[TEX_MAT_UID(texMat.tex1, texMat.tex2)] = texMat.num;
 
 	return texMat.num;
