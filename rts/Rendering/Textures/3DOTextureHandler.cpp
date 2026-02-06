@@ -3,21 +3,16 @@
 /**
  * 3DOTextureHandler.cpp - 3DO model texture atlas creation.
  *
- * RHI Migration Status: MOSTLY COMPLETE
- * =====================================
- * Init() already uses RHI for texture creation:
- *   - RHI::GetDevice()->CreateTexture() for atlas textures
- *   - RHI texture methods: SetMagFilter, SetMinFilter, SetWrap, Upload
- *   - Extracts raw handle via GetNativeHandle(), then releases ownership
+ * RHI Migration Status: COMPLETE (Texture Ownership)
+ * ==================================================
+ * - Init() uses RHI::GetDevice()->CreateTexture() for atlas textures
+ * - RHI texture methods: SetMagFilter, SetMinFilter, SetWrap, Upload
+ * - Stores std::unique_ptr<RHI::IRHITexture> for automatic cleanup
+ * - Kill() uses unique_ptr::reset() (no manual glDeleteTextures)
  *
  * Remaining GL Dependencies:
  *   - RecoilBuildMipmaps() - used for mipmap generation (GL-only function)
- *   - Kill() - uses glDeleteTextures for cleanup
- *
- * TODO: RHI gap - Full migration requires:
- *   1. Keep unique_ptr<RHI::IRHITexture> ownership instead of releasing
- *   2. Replace RecoilBuildMipmaps with RHI GenerateMipmaps (when available)
- *   3. Remove glDeleteTextures in Kill() (automatic via destructor)
+ *   TODO: Replace with RHI GenerateMipmaps when available
  */
 
 #include <cctype>
@@ -143,39 +138,35 @@ void C3DOTextureHandler::Init()
 
 	{
 		auto* device = RHI::GetDevice();
-		auto rhiTex1 = device->CreateTexture(
+		atlas3do1 = device->CreateTexture(
 			RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
 			curAtlasSize.x, curAtlasSize.y, 1, numLevels);
-		rhiTex1->SetMagFilter(RHI::TextureFilter::Linear);
-		rhiTex1->SetMinFilter((numLevels > 1) ? RHI::TextureFilter::LinearMipmapNearest : RHI::TextureFilter::Linear);
-		rhiTex1->SetWrapS(RHI::TextureWrap::ClampToEdge);
-		rhiTex1->SetWrapT(RHI::TextureWrap::ClampToEdge);
-		rhiTex1->Bind(0);
+		atlas3do1->SetMagFilter(RHI::TextureFilter::Linear);
+		atlas3do1->SetMinFilter((numLevels > 1) ? RHI::TextureFilter::LinearMipmapNearest : RHI::TextureFilter::Linear);
+		atlas3do1->SetWrapS(RHI::TextureWrap::ClampToEdge);
+		atlas3do1->SetWrapT(RHI::TextureWrap::ClampToEdge);
+		atlas3do1->Bind(0);
 		if (numLevels > 1) {
 			RecoilBuildMipmaps(GL_TEXTURE_2D, GL_RGBA8, curAtlasSize.x, curAtlasSize.y, GL_RGBA, GL_UNSIGNED_BYTE, bigtex1.data()); //FIXME disable texcompression
 		} else {
-			rhiTex1->Upload(0, 0, 0, curAtlasSize.x, curAtlasSize.y, bigtex1.data());
+			atlas3do1->Upload(0, 0, 0, curAtlasSize.x, curAtlasSize.y, bigtex1.data());
 		}
-		atlas3do1 = rhiTex1->GetNativeHandle();
-		rhiTex1.release(); // ownership transferred to atlas3do1 (raw handle)
 	}
 	{
 		auto* device = RHI::GetDevice();
-		auto rhiTex2 = device->CreateTexture(
+		atlas3do2 = device->CreateTexture(
 			RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
 			curAtlasSize.x, curAtlasSize.y, 1, numLevels);
-		rhiTex2->SetMagFilter(RHI::TextureFilter::Linear);
-		rhiTex2->SetMinFilter((numLevels > 1) ? RHI::TextureFilter::NearestMipmapNearest : RHI::TextureFilter::Nearest);
-		rhiTex2->SetWrapS(RHI::TextureWrap::ClampToEdge);
-		rhiTex2->SetWrapT(RHI::TextureWrap::ClampToEdge);
-		rhiTex2->Bind(0);
+		atlas3do2->SetMagFilter(RHI::TextureFilter::Linear);
+		atlas3do2->SetMinFilter((numLevels > 1) ? RHI::TextureFilter::NearestMipmapNearest : RHI::TextureFilter::Nearest);
+		atlas3do2->SetWrapS(RHI::TextureWrap::ClampToEdge);
+		atlas3do2->SetWrapT(RHI::TextureWrap::ClampToEdge);
+		atlas3do2->Bind(0);
 		if (numLevels > 0) {
 			RecoilBuildMipmaps(GL_TEXTURE_2D, GL_RGBA8, curAtlasSize.x, curAtlasSize.y, GL_RGBA, GL_UNSIGNED_BYTE, bigtex2.data()); //FIXME disable texcompression
 		} else {
-			rhiTex2->Upload(0, 0, 0, curAtlasSize.x, curAtlasSize.y, bigtex2.data());
+			atlas3do2->Upload(0, 0, 0, curAtlasSize.x, curAtlasSize.y, bigtex2.data());
 		}
-		atlas3do2 = rhiTex2->GetNativeHandle();
-		rhiTex2.release(); // ownership transferred to atlas3do2 (raw handle)
 	}
 
 	if (CTextureAtlas::GetDebug()) {
@@ -190,11 +181,9 @@ void C3DOTextureHandler::Init()
 void C3DOTextureHandler::Kill()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glDeleteTextures(1, &atlas3do1);
-	glDeleteTextures(1, &atlas3do2);
-
-	atlas3do1 = 0;
-	atlas3do2 = 0;
+	// RHI textures cleaned up automatically via unique_ptr destructors
+	atlas3do1.reset();
+	atlas3do2.reset();
 
 	textures.clear();
 }

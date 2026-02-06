@@ -3,17 +3,12 @@
 /**
  * C3DOTextureHandler - Manages 3DO (Total Annihilation) model texture atlases.
  *
- * RHI Migration Status: MOSTLY COMPLETE
- * =====================================
- * - Init() already uses RHI::GetDevice()->CreateTexture() for atlas creation
- * - Stores raw GLuint handles (atlas3do1, atlas3do2) extracted via GetNativeHandle()
- * - Kill() still uses glDeleteTextures for cleanup
- *
- * Remaining Migration Work:
- * 1. Store std::unique_ptr<RHI::IRHITexture> instead of raw handles
- *    (currently ownership is released after GetNativeHandle())
- * 2. Replace glDeleteTextures in Kill() with unique_ptr destruction
- * 3. GetAtlasTex1ID/GetAtlasTex2ID would return GetNativeHandle() for compat
+ * RHI Migration Status: COMPLETE (Texture Ownership)
+ * ==================================================
+ * - Init() uses RHI::GetDevice()->CreateTexture() for atlas creation
+ * - Stores std::unique_ptr<RHI::IRHITexture> (atlas3do1, atlas3do2) for ownership
+ * - Automatic cleanup via unique_ptr destructors (no manual glDeleteTextures)
+ * - GetAtlasTex1ID/GetAtlasTex2ID provide backward compat via GetNativeHandle()
  *
  * Note: Still depends on GL for RecoilBuildMipmaps() - see 3DOTextureHandler.cpp
  */
@@ -22,6 +17,7 @@
 #define _3DO_TEXTURE_HANDLER_H
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -30,6 +26,8 @@
 #include "Rendering/Textures/TAPalette.h"
 #include "System/float4.h"
 #include "System/UnorderedMap.hpp"
+
+namespace RHI { class IRHITexture; }
 
 struct TexFile;
 
@@ -44,8 +42,14 @@ public:
 	// NOTE: safe with unordered_map after all textures have been loaded
 	UnitTexture* Get3DOTexture(const std::string& name);
 
-	unsigned int GetAtlasTex1ID() const { return atlas3do1; }
-	unsigned int GetAtlasTex2ID() const { return atlas3do2; }
+	// Legacy interface - returns native GL handle for backward compat
+	unsigned int GetAtlasTex1ID() const { return atlas3do1 ? atlas3do1->GetNativeHandle() : 0; }
+	unsigned int GetAtlasTex2ID() const { return atlas3do2 ? atlas3do2->GetNativeHandle() : 0; }
+
+	// RHI interface - preferred for new code
+	RHI::IRHITexture* GetAtlasTex1() const { return atlas3do1.get(); }
+	RHI::IRHITexture* GetAtlasTex2() const { return atlas3do2.get(); }
+
 	unsigned int GetAtlasTexSizeX() const { return bigTexX; }
 	unsigned int GetAtlasTexSizeY() const { return bigTexY; }
 
@@ -61,8 +65,8 @@ private:
 
 	CTAPalette palette;
 
-	uint32_t atlas3do1 = 0;
-	uint32_t atlas3do2 = 0;
+	std::unique_ptr<RHI::IRHITexture> atlas3do1;
+	std::unique_ptr<RHI::IRHITexture> atlas3do2;
 	int bigTexX = 0;
 	int bigTexY = 0;
 };
