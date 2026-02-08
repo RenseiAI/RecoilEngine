@@ -1,9 +1,14 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+// RHI Migration Status: GL state calls migrated to RHI dynamic state context methods
+// Remaining: FFP calls (glPushAttrib/glPopAttrib, glPushMatrix/glPopMatrix, glColor*, glVertex*, etc.)
+
 #include "GuiHandler.h"
 
 #include <Rml/Backends/RmlUi_Backend.h>
 #include "CommandColors.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "KeyBindings.h"
 #include "KeyCodes.h"
 #include "MiniMap.h"
@@ -3033,6 +3038,8 @@ void CGuiHandler::DrawSEtext(const IconInfo& icon, const std::string& text)
 void CGuiHandler::DrawHilightQuad(const IconInfo& icon)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	if (icon.commandsID == inCommand) {
 		glColor4f(0.3f, 0.0f, 0.0f, 1.0f);
 	} else if (mouse->buttons[SDL_BUTTON_LEFT].pressed) {
@@ -3042,21 +3049,23 @@ void CGuiHandler::DrawHilightQuad(const IconInfo& icon)
 	}
 	const Box& b = icon.visual;
 	glDisable(GL_TEXTURE_2D);
-	glBlendFunc(GL_ONE, GL_ONE); // additive blending
+	ctx->SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One); // additive blending
 	glBegin(GL_QUADS);
 		glVertex2f(b.x1, b.y1);
 		glVertex2f(b.x2, b.y1);
 		glVertex2f(b.x2, b.y2);
 		glVertex2f(b.x1, b.y2);
 	glEnd();
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 }
 
 
 void CGuiHandler::DrawButtons() // Only called by Draw
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glLineWidth(1.0f);
+	auto* ctx = RHI::GetDevice()->GetContext();
+
+	ctx->SetLineWidth(1.0f);
 	font->Begin();
 
 	// frame box
@@ -3168,11 +3177,11 @@ void CGuiHandler::DrawButtons() // Only called by Draw
 		// darken disabled commands
 		if (cmdDesc.disabled) {
 			glDisable(GL_TEXTURE_2D);
-			glBlendFunc(GL_DST_COLOR, GL_ZERO);
+			ctx->SetBlendFunc(RHI::BlendFactor::DstColor, RHI::BlendFactor::Zero);
 			glColor4f(0.5f, 0.5f, 0.5f, 0.5f);
 			const Box& vb = icon.visual;
 			glRectf(vb.x1, vb.y1, vb.x2, vb.y2);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 		}
 
 		// highlight outline
@@ -3185,9 +3194,9 @@ void CGuiHandler::DrawButtons() // Only called by Draw
 			} else {
 				glColor4f(1.0f, 1.0f, 1.0f, 0.50f);
 			}
-			glLineWidth(1.49f);
+			ctx->SetLineWidth(1.49f);
 			DrawIconFrame(icon);
-			glLineWidth(1.0f);
+			ctx->SetLineWidth(1.0f);
 		}
 	}
 
@@ -3354,6 +3363,8 @@ void CGuiHandler::DrawNextArrow(const IconInfo& icon)
 void CGuiHandler::DrawOptionLEDs(const IconInfo& icon)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	const SCommandDescription& cmdDesc = commands[icon.commandsID];
 
 	const int pCount = (int)cmdDesc.params.size() - 1;
@@ -3400,10 +3411,10 @@ void CGuiHandler::DrawOptionLEDs(const IconInfo& icon)
 
 		glRectf(startx, starty, startx + xs, starty + ys);
 
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+		ctx->SetPolygonMode(RHI::PolygonMode::Line);
 		glColor4f(1.0f, 1.0f, 1.0f, 0.5f);
 		glRectf(startx, starty, startx + xs, starty + ys);
-		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+		ctx->SetPolygonMode(RHI::PolygonMode::Fill);
 	}
 }
 
@@ -3492,6 +3503,8 @@ static inline GLuint GetConeList()
 static void DrawWeaponCone(const float3& pos, float len, float hrads, float heading, float pitch)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	glPushMatrix();
 
 	const float xlen = len * std::cos(hrads);
@@ -3502,17 +3515,17 @@ static void DrawWeaponCone(const float3& pos, float len, float hrads, float head
 	glRotatef(pitch   * math::RAD_TO_DEG, 0.0f, 0.0f, 1.0f);
 	glScalef(xlen, yzlen, yzlen);
 
-	glEnable(GL_CULL_FACE);
+	ctx->SetCullFaceEnabled(true);
 
-	glCullFace(GL_FRONT);
+	ctx->SetCullFace(RHI::CullMode::Front);
 	glColor4f(1.0f, 0.0f, 0.0f, 0.25f);
 	glCallList(GetConeList());
 
-	glCullFace(GL_BACK);
+	ctx->SetCullFace(RHI::CullMode::Back);
 	glColor4f(0.0f, 1.0f, 0.0f, 0.25f);
 	glCallList(GetConeList());
 
-	glDisable(GL_CULL_FACE);
+	ctx->SetCullFaceEnabled(false);
 
 	glPopMatrix();
 }
@@ -3541,12 +3554,14 @@ static inline void DrawWeaponArc(const CUnit* unit)
 void CGuiHandler::DrawMapStuff(bool onMiniMap)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	if (!onMiniMap) {
-		glEnable(GL_DEPTH_TEST);
-		glDepthMask(GL_FALSE);
+		ctx->SetDepthTestEnabled(true);
+		ctx->SetDepthWriteEnabled(false);
 		glDisable(GL_TEXTURE_2D);
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		ctx->SetBlendEnabled(true);
+		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 		glDisable(GL_ALPHA_TEST);
 	}
 
@@ -3712,10 +3727,10 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap)
 	}
 
 	if (!onMiniMap) {
-		glBlendFunc((GLenum) cmdColors.SelectedBlendSrc(), (GLenum) cmdColors.SelectedBlendDst());
-		glLineWidth(cmdColors.SelectedLineWidth());
+		ctx->SetBlendFunc((RHI::BlendFactor) cmdColors.SelectedBlendSrc(), (RHI::BlendFactor) cmdColors.SelectedBlendDst());
+		ctx->SetLineWidth(cmdColors.SelectedLineWidth());
 	} else {
-		glLineWidth(1.49f);
+		ctx->SetLineWidth(1.49f);
 	}
 
 	// draw the ranges for the unit that is being pointed at
@@ -3749,9 +3764,9 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap)
 
 			// draw (primary) weapon range
 			if (!unit->weapons.empty()) {
-				glDisable(GL_DEPTH_TEST);
+				ctx->SetDepthTestEnabled(false);
 				glBallisticCircle(unit->weapons[0], { cmdColors.rangeAttack }, 40, unit->pos, {unit->maxRange, 0.0f, mapInfo->map.gravity});
-				glEnable(GL_DEPTH_TEST);
+				ctx->SetDepthTestEnabled(true);
 			}
 			// draw decloak distance
 			if (pointeeUnit->decloakDistance > 0.0f) {
@@ -3838,9 +3853,9 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap)
 
 					// draw (primary) weapon range
 					if (buildeeDef->HasWeapons()) {
-						glDisable(GL_DEPTH_TEST);
+						ctx->SetDepthTestEnabled(false);
 						glBallisticCircle(buildeeDef->weapons[0].def, { cmdColors.rangeAttack }, 40, buildPos, { buildeeDef->weapons[0].def->range, buildeeDef->weapons[0].def->heightmod, mapInfo->map.gravity });
-						glEnable(GL_DEPTH_TEST);
+						ctx->SetDepthTestEnabled(true);
 					}
 
 					// draw extraction range
@@ -3886,7 +3901,7 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap)
 						unitDrawer->DrawIndividualDefAlpha(bi.def, gu->myTeam, false);
 
 						glPopMatrix();
-						glBlendFunc((GLenum)cmdColors.SelectedBlendSrc(), (GLenum)cmdColors.SelectedBlendDst());
+						ctx->SetBlendFunc((RHI::BlendFactor)cmdColors.SelectedBlendSrc(), (RHI::BlendFactor)cmdColors.SelectedBlendDst());
 					}
 				}
 			}
@@ -3920,9 +3935,9 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap)
 				if (!gu->spectatingFullView && !unit->IsInLosForAllyTeam(gu->myAllyTeam))
 					continue;
 
-				glDisable(GL_DEPTH_TEST);
+				ctx->SetDepthTestEnabled(false);
 				glBallisticCircle(unit->weapons[0], { cmdColors.rangeAttack }, 40, unit->pos, { unit->maxRange, 0.0f, mapInfo->map.gravity });
-				glEnable(GL_DEPTH_TEST);
+				ctx->SetDepthTestEnabled(true);
 
 				if (!drawWeaponArcs)
 					continue;
@@ -3932,11 +3947,11 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap)
 		}
 	}
 
-	glLineWidth(1.0f);
+	ctx->SetLineWidth(1.0f);
 
 	if (!onMiniMap) {
-		glDepthMask(GL_TRUE);
-		glDisable(GL_BLEND);
+		ctx->SetDepthWriteEnabled(true);
+		ctx->SetBlendEnabled(false);
 	}
 }
 
@@ -3944,6 +3959,8 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap)
 void CGuiHandler::DrawMiniMapMarker(const float3& cameraPos)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	const float w = 10.0f;
 	const float h = 30.0f;
 
@@ -3969,9 +3986,9 @@ void CGuiHandler::DrawMiniMapMarker(const float3& cameraPos)
 	glTranslatef(cameraPos.x, groundLevel, cameraPos.z);
 	glRotatef(360.0f * (spinTime / 2.0f), 0.0f, 1.0f, 0.0f);
 
-	glEnable(GL_BLEND);
+	ctx->SetBlendEnabled(true);
 	glShadeModel(GL_FLAT);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::One);
 	glBegin(GL_TRIANGLE_FAN);
 		                       glVertex3f(0.0f, 0.0f, 0.0f);
 		                       glVertex3f(  +w,   +h, 0.0f);
@@ -3988,7 +4005,7 @@ void CGuiHandler::DrawMiniMapMarker(const float3& cameraPos)
 		glColor4fv(colors[1]); glVertex3f(0.0f,   +h,   +w);
 		glColor4fv(colors[0]); glVertex3f(  +w,   +h, 0.0f);
 	glEnd();
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 	glShadeModel(GL_SMOOTH);
 	glPopMatrix();
 }
@@ -4036,13 +4053,15 @@ void CGuiHandler::DrawCentroidCursor()
 	}
 	pos /= (float)selUnits.size();
 
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	const float3 vpPos = camera->CalcViewPortCoordinates(pos);
 	if (vpPos.z <= 1.0f) {
 		const CMouseCursor* mc = mouse->FindCursor("Centroid");
 		if (mc != nullptr) {
-			glDisable(GL_DEPTH_TEST);
+			ctx->SetDepthTestEnabled(false);
 			mc->Draw((int)vpPos.x, globalRendering->viewSizeY - (int)vpPos.y, 1.0f);
-			glEnable(GL_DEPTH_TEST);
+			ctx->SetDepthTestEnabled(true);
 		}
 	}
 }
@@ -4051,17 +4070,19 @@ void CGuiHandler::DrawCentroidCursor()
 void CGuiHandler::DrawArea(float3 pos, float radius, const float* color)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	if (useStencil) {
 		DrawSelectCircle(pos, radius, color);
 		return;
 	}
 
 	glDisable(GL_TEXTURE_2D);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 	glColor4f(color[0], color[1], color[2], 0.25f);
 
-	glDisable(GL_DEPTH_TEST);
+	ctx->SetDepthTestEnabled(false);
 	glDisable(GL_FOG);
 	glBegin(GL_TRIANGLE_FAN);
 		glVertexf3(pos);
@@ -4072,7 +4093,7 @@ void CGuiHandler::DrawArea(float3 pos, float radius, const float* color)
 			glVertexf3(p);
 		}
 	glEnd();
-	glEnable(GL_DEPTH_TEST);
+	ctx->SetDepthTestEnabled(true);
 	glEnable(GL_FOG);
 }
 
@@ -4086,6 +4107,8 @@ void CGuiHandler::DrawFormationFrontOrder(
 	const float3& mouseDir
 ) {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	const CMouseHandler::ButtonPressEvt& bp = mouse->buttons[button];
 
 	const float buttonDist = CGround::LineGroundCol(bp.camPos, bp.camPos + bp.dir * camera->GetFarPlaneDist() * 1.4f, false);
@@ -4115,7 +4138,7 @@ void CGuiHandler::DrawFormationFrontOrder(
 
 	if (onMinimap) {
 		pos1 += (pos1 - pos2);
-		glLineWidth(2.0f);
+		ctx->SetLineWidth(2.0f);
 		glBegin(GL_LINES);
 		glVertexf3(pos1);
 		glVertexf3(pos2);
@@ -4124,12 +4147,12 @@ void CGuiHandler::DrawFormationFrontOrder(
 	}
 
 	glDisable(GL_TEXTURE_2D);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
 	{
 		// direction arrow
-		glDisable(GL_DEPTH_TEST);
+		ctx->SetDepthTestEnabled(false);
 		glBegin(GL_QUADS);
 			glVertexf3(pos1 + side * 25.0f                   );
 			glVertexf3(pos1 - side * 25.0f                   );
@@ -4141,7 +4164,7 @@ void CGuiHandler::DrawFormationFrontOrder(
 			glVertexf3(pos1 +                forward * 100.0f);
 			glVertexf3(pos1 +                forward * 100.0f);
 		glEnd();
-		glEnable(GL_DEPTH_TEST);
+		ctx->SetDepthTestEnabled(true);
 	}
 
 	pos1 += (pos1 - pos2);
@@ -4217,14 +4240,16 @@ static void DrawBoxShape(const void* data)
 static void DrawCornerPosts(const float3& pos0, const float3& pos1)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	const float3 lineVector(0.0f, 128.0f, 0.0f);
 	const float3 corner0(pos0.x, CGround::GetHeightAboveWater(pos0.x, pos0.z, false), pos0.z);
 	const float3 corner1(pos1.x, CGround::GetHeightAboveWater(pos1.x, pos1.z, false), pos1.z);
 	const float3 corner2(pos0.x, CGround::GetHeightAboveWater(pos0.x, pos1.z, false), pos1.z);
 	const float3 corner3(pos1.x, CGround::GetHeightAboveWater(pos1.x, pos0.z, false), pos0.z);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glLineWidth(2.0f);
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+	ctx->SetLineWidth(2.0f);
 	glBegin(GL_LINES);
 		glColor4f(1.0f, 1.0f, 0.0f, 0.9f);
 		glVertexf3(corner0); glVertexf3(corner0 + lineVector);
@@ -4234,7 +4259,7 @@ static void DrawCornerPosts(const float3& pos0, const float3& pos1)
 		glVertexf3(corner2); glVertexf3(corner2 + lineVector);
 		glVertexf3(corner3); glVertexf3(corner3 + lineVector);
 	glEnd();
-	glLineWidth(1.0f);
+	ctx->SetLineWidth(1.0f);
 }
 
 
@@ -4242,16 +4267,18 @@ static void StencilDrawSelectBox(const float3& pos0, const float3& pos1,
 		bool invColorSelect)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	BoxData boxData;
 	boxData.mins = float3(std::min(pos0.x, pos1.x), readMap->GetCurrMinHeight() -   250.0f, std::min(pos0.z, pos1.z));
 	boxData.maxs = float3(std::max(pos0.x, pos1.x), readMap->GetCurrMaxHeight() + 10000.0f, std::max(pos0.z, pos1.z));
 
 	glDisable(GL_TEXTURE_2D);
 	glDisable(GL_FOG);
-	glEnable(GL_BLEND);
+	ctx->SetBlendEnabled(true);
 
 	if (!invColorSelect) {
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::One);
 		glColor4f(1.0f, 0.0f, 0.0f, 0.25f);
 		glDrawVolume(DrawBoxShape, &boxData);
 	} else {
@@ -4312,6 +4339,8 @@ static void DrawMinMaxBox(const float3& mins, const float3& maxs)
 void CGuiHandler::DrawSelectBox(const float3& pos0, const float3& pos1, const float3& cameraPos)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	if (useStencil) {
 		StencilDrawSelectBox(pos0, pos1, invColorSelect);
 		return;
@@ -4322,33 +4351,33 @@ void CGuiHandler::DrawSelectBox(const float3& pos0, const float3& pos1, const fl
 
 	glDisable(GL_TEXTURE_2D);
 	glDisable(GL_FOG);
-	glDisable(GL_BLEND);
+	ctx->SetBlendEnabled(false);
 
-	glDepthMask(GL_FALSE);
-	glEnable(GL_CULL_FACE);
+	ctx->SetDepthWriteEnabled(false);
+	ctx->SetCullFaceEnabled(true);
 
 	glEnable(GL_COLOR_LOGIC_OP);
 	glLogicOp(GL_INVERT);
 
 	// invert the color for objects within the box
-	glCullFace(GL_FRONT); DrawMinMaxBox(mins, maxs);
-	glCullFace(GL_BACK);  DrawMinMaxBox(mins, maxs);
+	ctx->SetCullFace(RHI::CullMode::Front); DrawMinMaxBox(mins, maxs);
+	ctx->SetCullFace(RHI::CullMode::Back);  DrawMinMaxBox(mins, maxs);
 
-	glDisable(GL_CULL_FACE);
+	ctx->SetCullFaceEnabled(false);
 
 	// do a full screen inversion if the camera is within the box
 	if ((cameraPos.x > mins.x) && (cameraPos.x < maxs.x) &&
 	    (cameraPos.y > mins.y) && (cameraPos.y < maxs.y) &&
 	    (cameraPos.z > mins.z) && (cameraPos.z < maxs.z)) {
-		glDisable(GL_DEPTH_TEST);
+		ctx->SetDepthTestEnabled(false);
 		FullScreenDraw();
-		glEnable(GL_DEPTH_TEST);
+		ctx->SetDepthTestEnabled(true);
 	}
 
 	glDisable(GL_COLOR_LOGIC_OP);
 
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 	DrawCornerPosts(pos0, pos1);
 
 //	glDepthMask(GL_TRUE);
@@ -4403,6 +4432,8 @@ void CGuiHandler::DrawSelectCircle(const float3& pos, float radius,
                                    const float* color)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	CylinderData cylData;
 	cylData.xc = pos.x;
 	cylData.zc = pos.z;
@@ -4413,22 +4444,22 @@ void CGuiHandler::DrawSelectCircle(const float3& pos, float radius,
 
 	glDisable(GL_TEXTURE_2D);
 	glDisable(GL_FOG);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::One);
 	glColor4f(color[0], color[1], color[2], 0.25f);
 
 	glDrawVolume(DrawCylinderShape, &cylData);
 
 	// draw the center line
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 	glColor4f(color[0], color[1], color[2], 0.9f);
-	glLineWidth(2.0f);
+	ctx->SetLineWidth(2.0f);
 	const float3 base(pos.x, CGround::GetHeightAboveWater(pos.x, pos.z, false), pos.z);
 	glBegin(GL_LINES);
 		glVertexf3(base);
 		glVertexf3(base + float3(0.0f, 128.0f, 0.0f));
 	glEnd();
-	glLineWidth(1.0f);
+	ctx->SetLineWidth(1.0f);
 
 	glEnable(GL_FOG);
 }
