@@ -30,26 +30,15 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
 #include "System/StringUtil.h"
 
-// RHI Migration Notes (QTPFSPathDrawer):
-// Mappable pipeline state in DrawAll():
-//   glPushAttrib(GL_ENABLE_BIT | GL_POLYGON_BIT) / glPopAttrib
-//     -> replace with scoped RHI::PipelineDesc save/restore
-//   glDisable(GL_DEPTH_TEST) -> RHI::DepthStencilState{depthTestEnabled=false}
-//   glEnable(GL_BLEND) -> RHI::BlendState{enabled=true}
-// Mappable state in DrawNodes():
-//   glLineWidth(2.0f) -> RHI::RasterizerState{lineWidth=2.0f}
-//   glPolygonMode(GL_FRONT_AND_BACK, GL_LINE) -> RHI::RasterizerState{polygonMode=Line}
-// Mappable state in DrawPaths()/DrawSearchIteration():
-//   glLineWidth(4.0f/2.0f) -> RHI::RasterizerState{lineWidth}
-// Non-mappable legacy FFP in DrawInMiniMap():
-//   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity, glOrtho,
-//   glTranslatef3, glScalef -> matrix stack (no RHI equivalent)
-//   glColor4f -> FFP per-vertex color
-//   glRectf -> FFP immediate-mode rectangle
-//   glDisable/glEnable(GL_TEXTURE_2D) -> FFP texture unit
+// RHI Migration Status (QTPFSPathDrawer):
+// - MIGRATED: depth test, blend enable, line width, polygon mode via ctx->SetXxx()
+// - LEGACY FFP in DrawInMiniMap(): glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity,
+//   glOrtho, glTranslatef3, glScalef, glColor4f, glRectf, glEnable/Disable(GL_TEXTURE_2D)
 
 static std::vector<const QTPFS::QTNode*> visibleNodes;
 
@@ -81,9 +70,11 @@ void QTPFSPathDrawer::DrawAll() const {
 	if (!gs->cheatEnabled && !gu->spectating)
 		return;
 
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	glPushAttrib(GL_ENABLE_BIT | GL_POLYGON_BIT);
-	glDisable(GL_DEPTH_TEST);
-	glEnable(GL_BLEND);
+	ctx->SetDepthTestEnabled(false);
+	ctx->SetBlendEnabled(true);
 
 	visibleNodes.clear();
 	visibleNodes.reserve(256);
@@ -113,19 +104,20 @@ void QTPFSPathDrawer::DrawAll() const {
 }
 
 void QTPFSPathDrawer::DrawNodes(const MoveDef* md, TypedRenderBuffer<VA_TYPE_C>& rb, const std::vector<const QTPFS::QTNode*>& nodes, const QTPFS::NodeLayer& nodeLayer) const {
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	for (const QTPFS::QTNode* node: nodes) {
 		int nodeColour = node->AllSquaresImpassable() ? 0 : node->IsExitOnly() ? 2 : 1;
 		DrawNodeW(md, node, rb, &NODE_COLORS[nodeColour][0], 0.f);
 	}
 
-	glLineWidth(2.0f);
-
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	ctx->SetLineWidth(2.0f);
+	ctx->SetPolygonMode(RHI::PolygonMode::Line);
 
 	rb.DrawArrays(GL_QUADS);
 
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	glLineWidth(1.0f);
+	ctx->SetPolygonMode(RHI::PolygonMode::Fill);
+	ctx->SetLineWidth(1.0f);
 }
 
 void QTPFSPathDrawer::DrawCosts(const std::vector<const QTPFS::QTNode*>& nodes) const {
@@ -171,7 +163,9 @@ void QTPFSPathDrawer::GetVisibleNodes(const QTPFS::QTNode* nt, const QTPFS::Node
 
 
 void QTPFSPathDrawer::DrawPaths(const MoveDef* md, TypedRenderBuffer<VA_TYPE_C>& rb) const {
-	glLineWidth(4.0f);
+	auto* ctx = RHI::GetDevice()->GetContext();
+
+	ctx->SetLineWidth(4.0f);
 
 	const auto pathView = QTPFS::registry.view<QTPFS::IPath>();
 	for (const auto& pathEntity : pathView) {
@@ -195,7 +189,7 @@ void QTPFSPathDrawer::DrawPaths(const MoveDef* md, TypedRenderBuffer<VA_TYPE_C>&
 		#endif
 	}
 
-	glLineWidth(1.0f);
+	ctx->SetLineWidth(1.0f);
 
 	#ifdef QTPFS_TRACE_PATH_SEARCHES
 	const auto& pathTraces = pm->GetPathTraces();
@@ -299,6 +293,8 @@ void QTPFSPathDrawer::DrawSearchExecution(unsigned int pathType, const QTPFS::Pa
 }
 
 void QTPFSPathDrawer::DrawSearchIteration(unsigned int pathType, const std::vector<unsigned int>& nodeIndices, TypedRenderBuffer<VA_TYPE_C>& rb) const {
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	unsigned int hmx = nodeIndices[0] % mapDims.mapx;
 	unsigned int hmz = nodeIndices[0] / mapDims.mapx;
 
@@ -322,7 +318,7 @@ void QTPFSPathDrawer::DrawSearchIteration(unsigned int pathType, const std::vect
 		rb.DrawElements(GL_TRIANGLES);
 	}
 	{
-		glLineWidth(2.0f);
+		ctx->SetLineWidth(2.0f);
 
 		for (size_t i = 1, n = nodeIndices.size(); i < n; i++) {
 			hmx = nodeIndices[i] % mapDims.mapx;
@@ -332,7 +328,7 @@ void QTPFSPathDrawer::DrawSearchIteration(unsigned int pathType, const std::vect
 		}
 
 		rb.DrawArrays(GL_LINES);
-		glLineWidth(1.0f);
+		ctx->SetLineWidth(1.0f);
 	}
 }
 
