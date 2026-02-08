@@ -31,27 +31,25 @@
 #include "Rendering/GL/glExtra.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
 #include "System/SpringMath.h"
 #include "System/StringUtil.h"
 
-// RHI Migration Notes (HAPFSPathDrawer):
-// Mappable pipeline state:
-//   glPushAttrib(GL_ENABLE_BIT) / glPopAttrib -> scoped RHI::PipelineDesc
-//   glDisable(GL_DEPTH_TEST) -> RHI::DepthStencilState{depthTestEnabled=false}  [implicit in Draw(PE)]
-//   glLineWidth(3) -> RHI::RasterizerState{lineWidth=3.0f}
-// Non-mappable legacy FFP in Draw() [paths]:
-//   glBegin(GL_LINE_STRIP)/glEnd, glColor4f, glVertexf3 -> immediate-mode
-//     requires conversion to vertex buffer with per-vertex color
-// Non-mappable legacy FFP in Draw(PE):
-//   glBegin(GL_LINES)/glEnd, glColor3f, glVertexf3 -> immediate-mode
-// Non-mappable legacy FFP in DrawInMiniMap():
-//   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity, glOrtho,
-//   glTranslatef3, glScalef -> matrix stack
-//   glColor4f, glRectf -> FFP immediate-mode
-//   glDisable/glEnable(GL_TEXTURE_2D) -> FFP texture unit
-// Non-mappable:
+// RHI Migration Status (HAPFSPathDrawer):
+// MIGRATED:
+//   glLineWidth(3) -> ctx->SetLineWidth(3.0f)
+//   glLineWidth(1) -> ctx->SetLineWidth(1.0f)
+// Not migrated (FFP):
+//   glPushAttrib(GL_ENABLE_BIT) / glPopAttrib -> FFP attribute stack
+//   glDisable(GL_DEPTH_TEST) -> FFP depth test state
 //   glDisable(GL_TEXTURE_2D), glDisable(GL_LIGHTING) -> FFP state
+//   glBegin(GL_LINE_STRIP)/glEnd, glColor4f, glVertexf3 -> immediate-mode (Draw paths)
+//   glBegin(GL_LINES)/glEnd, glColor3f, glVertexf3 -> immediate-mode (Draw PE)
+//   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity, glOrtho -> matrix stack (DrawInMiniMap)
+//   glTranslatef3, glScalef, glRectf -> FFP immediate-mode (DrawInMiniMap)
+//   glDisable/glEnable(GL_TEXTURE_2D) -> FFP texture unit (DrawInMiniMap)
 
 #define PE_EXTRA_DEBUG_OVERLAYS 1
 
@@ -311,9 +309,11 @@ void HAPFSPathDrawer::UpdateExtraTexture(int extraTex, int starty, int endy, int
 
 
 void HAPFSPathDrawer::Draw() const {
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	glDisable(GL_TEXTURE_2D);
 	glDisable(GL_LIGHTING);
-	glLineWidth(3);
+	ctx->SetLineWidth(3.0f);
 
 	for (const auto& p: pm->GetPathMap()) {
 		const HAPFS::CPathManager::MultiPath& multiPath = p.second;
@@ -346,7 +346,7 @@ void HAPFSPathDrawer::Draw() const {
 		Draw(&p.second.peDef);
 	}
 
-	glLineWidth(1);
+	ctx->SetLineWidth(1.0f);
 }
 
 
