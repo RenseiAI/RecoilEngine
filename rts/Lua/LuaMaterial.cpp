@@ -8,6 +8,10 @@
  * glEnable/glDisable(GL_CULL_FACE), glCullFace, glGetProgramiv, glGetActiveUniform
  *
  * See LuaMaterial.h for detailed migration strategy.
+ *
+ * MIGRATED (partial):
+ * - glEnable(GL_CULL_FACE) / glDisable(GL_CULL_FACE) → ctx->SetCullFaceEnabled()
+ * - glCullFace(GL_FRONT/GL_BACK) → ctx->SetCullFace(RHI::CullMode::Front/Back)
  */
 
 #include "LuaMaterial.h"
@@ -18,6 +22,10 @@
 #include "Game/Camera.h"
 #include "Game/GlobalUnsynced.h" // randVector
 #include "Rendering/GlobalRendering.h" // drawFrame
+#ifndef HEADLESS
+	#include "Rendering/RHI/RHIFactory.h"
+	#include "Rendering/RHI/RHIContext.h"
+#endif
 #include "Rendering/ShadowHandler.h"
 #include "Rendering/Models/3DModelDefs.hpp"
 #include "Rendering/Common/ModelDrawerState.hpp"
@@ -385,12 +393,22 @@ void LuaMaterial::Execute(const LuaMaterial& prev, bool deferredPass) const
 	}
 
 	if (cullingMode != prev.cullingMode) {
+#ifndef HEADLESS
+		auto* ctx = RHI::GetDevice()->GetContext();
+		if (cullingMode != 0) {
+			ctx->SetCullFaceEnabled(true);
+			ctx->SetCullFace(cullingMode == GL_FRONT ? RHI::CullMode::Front : RHI::CullMode::Back);
+		} else {
+			ctx->SetCullFaceEnabled(false);
+		}
+#else
 		if (cullingMode != 0) {
 			glEnable(GL_CULL_FACE);
 			glCullFace(cullingMode);
 		} else {
 			glDisable(GL_CULL_FACE);
 		}
+#endif
 	}
 }
 
