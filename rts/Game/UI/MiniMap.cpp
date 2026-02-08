@@ -1,4 +1,10 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
+/* RHI Migration Status: PARTIAL - GL dynamic state calls migrated to RHI context methods
+ * - Migrated: glEnable/glDisable(GL_BLEND), glBlendFunc, glDepthMask, glLineWidth, glDisable(GL_DEPTH_TEST)
+ * - Not migrated: GL_TEXTURE_2D (FFP), GL_SCISSOR_TEST, glPushAttrib/glPopAttrib (FFP state stack)
+ * - Not migrated: glViewport, glClearColor, glClear (boundary with GlobalRendering)
+ * - Not migrated: FFP matrix operations, texture binding (non-state operations)
+ */
 
 #include <array>
 #include <tuple>
@@ -38,6 +44,7 @@
 #include "Rendering/GL/SubState.h"
 #include "Rendering/Textures/Bitmap.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Sim/Units/CommandAI/CommandAI.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Units/UnitHandler.h"
@@ -1206,8 +1213,9 @@ void CMiniMap::Draw()
 
 	// Draw Border
 	{
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		auto* ctx = RHI::GetDevice()->GetContext();
+		ctx->SetBlendEnabled(true);
+		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
 		auto state = GL::SubState(
 			DepthTest(GL_FALSE),
@@ -1318,12 +1326,14 @@ void CMiniMap::DrawForReal(bool useNormalizedCoors, bool updateTex, bool luaCall
 		return;
 	}
 
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	glPushAttrib(GL_DEPTH_BUFFER_BIT);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glDisable(GL_DEPTH_TEST);
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+	ctx->SetDepthTestEnabled(false);
 	glDepthFunc(GL_LEQUAL);
-	glDepthMask(GL_FALSE);
+	ctx->SetDepthWriteEnabled(false);
 	glDisable(GL_TEXTURE_2D);
 	glMatrixMode(GL_MODELVIEW);
 
@@ -1475,20 +1485,21 @@ void CMiniMap::DrawCameraFrustumAndMouseSelection()
 			rb.AddVertex({ pts[i].first, pts[i].second });
 		}
 
-		glLineWidth(2.5f);
+		auto* ctx = RHI::GetDevice()->GetContext();
+		ctx->SetLineWidth(2.5f);
 		sh.Enable();
 
 		sh.SetUniform("ucolor", 0.0f, 0.0f, 0.0f, 0.5f);
 		rb.DrawArrays(GL_LINE_LOOP, false);
 
-		glLineWidth(1.5f);
+		ctx->SetLineWidth(1.5f);
 		sh.SetUniform("ucolor", 1.0f, 1.0f, 1.0f, 0.75f);
 		rb.DrawArrays(GL_LINE_LOOP);
 
 		sh.SetUniform("ucolor", 1.0f, 1.0f, 1.0f, 1.0f);
 		sh.Disable();
 
-		glLineWidth(1.0f);
+		ctx->SetLineWidth(1.0f);
 	}
 
 
@@ -1498,9 +1509,11 @@ void CMiniMap::DrawCameraFrustumAndMouseSelection()
 		const float3 oldMapPos = GetMapPosition(bp.x, bp.y);
 		const float3 newMapPos = GetMapPosition(mouse->lastx, mouse->lasty);
 
+		auto* ctx = RHI::GetDevice()->GetContext();
+
 		//glBlendFunc((GLenum)cmdColors.MouseBoxBlendSrc(),
 		//            (GLenum)cmdColors.MouseBoxBlendDst());
-		glLineWidth(cmdColors.MouseBoxLineWidth());
+		ctx->SetLineWidth(cmdColors.MouseBoxLineWidth());
 
 		rb.AddVertices({
 			{oldMapPos.x, oldMapPos.z},
@@ -1514,7 +1527,7 @@ void CMiniMap::DrawCameraFrustumAndMouseSelection()
 		rb.DrawArrays(GL_LINE_LOOP);
 		sh.SetUniform("ucolor", 1.0f, 1.0f, 1.0f, 1.0f);
 		sh.Disable();
-		glLineWidth(1.0f);
+		ctx->SetLineWidth(1.0f);
 		//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	}
 
@@ -1780,8 +1793,9 @@ bool CMiniMap::RenderCachedTexture(bool useNormalizedCoors)
 	rb.DrawElements(GL_TRIANGLES);
 	sh.Disable();
 
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
 	DrawCameraFrustumAndMouseSelection();
 
@@ -1981,10 +1995,10 @@ void CMiniMap::DrawWorldStuff() const
 		}
 	}
 
-
-	glLineWidth(2.5f);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetLineWidth(2.5f);
 	lineDrawer.DrawAll();
-	glLineWidth(1.0f);
+	ctx->SetLineWidth(1.0f);
 
 	// draw the selection shape, and some ranges
 	if (drawCommands > 0)
