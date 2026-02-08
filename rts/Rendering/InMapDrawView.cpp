@@ -6,6 +6,8 @@
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 
 #include "Game/Camera.h"
 #include "Game/InMapDrawModel.h"
@@ -202,31 +204,33 @@ void InMapDraw_QuadDrawer::DrawQuad(int x, int y)
 
 void CInMapDrawView::Draw()
 {
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	InMapDraw_QuadDrawer drawer;
 	drawer.visibleLabels = &visibleLabels;
 	drawer.rbl = &rbl;
 	drawer.rbp = &rbp;
 
-	glDepthMask(GL_FALSE);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glEnable(GL_BLEND);
+	ctx->SetDepthWriteEnabled(false);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+	ctx->SetBlendEnabled(true);
 
 	readMap->GridVisibility(nullptr, &drawer, 1e9, CInMapDrawModel::DRAW_QUAD_SIZE);
 
 	{
-		glLineWidth(3.0f);
+		ctx->SetLineWidth(3.0f);
 		auto& sh = rbl.GetShader();
 		sh.Enable();
 		if (globalRendering->amdHacks) {
 			rbl.DrawArrays(GL_LINES, false); //! draw lines
-			glLineWidth(1.0f);
+			ctx->SetLineWidth(1.0f);
 			rbl.DrawArrays(GL_LINES, true ); // width greater than 2 causes GUI flicker on ATI hardware as of driver version 9.3
 		}
 		else {
 			rbl.DrawArrays(GL_LINES, true ); //! draw lines
 		}
 		sh.Disable();
-		glLineWidth(1.0f);
+		ctx->SetLineWidth(1.0f);
 	}
 
 	// draw points
@@ -259,5 +263,5 @@ void CInMapDrawView::Draw()
 		font->SetColors(); // default
 	}
 
-	glDepthMask(GL_TRUE);
+	ctx->SetDepthWriteEnabled(true);
 }
