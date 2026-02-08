@@ -11,37 +11,28 @@
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 
 /**
- * RHI_MIGRATION_DOCS(CommandDrawer)
+ * RHI_MIGRATION_STATUS(CommandDrawer)
  *
- * Migration Status: PARTIAL - Pipeline state documented, client arrays need conversion
+ * Migration Status: PARTIAL - Dynamic state migrated, FFP client arrays remain
  *
- * Pipeline State Mapping (DrawLuaQueuedUnitSetCommands):
- *   glDisable(GL_DEPTH_TEST) -> RHI::DepthStencilState{depthTestEnabled=false}
- *   glEnable(GL_BLEND) + glBlendFunc -> RHI::BlendState{enabled=true, srcColor, dstColor}
- *   glLineWidth(w) -> RHI::RasterizerState{lineWidth=w}
- *   glEnable(GL_DEPTH_TEST) -> restore to default pipeline
+ * Migrated:
+ *   [x] glDisable/glEnable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled()
+ *   [x] glEnable(GL_BLEND) + glBlendFunc -> ctx->SetBlendEnabled() + ctx->SetBlendFunc()
+ *   [x] glLineWidth() -> ctx->SetLineWidth()
+ *   [x] glPolygonMode() -> ctx->SetPolygonMode()
  *
- * Pipeline State Mapping (DrawQuedBuildingSquares):
- *   glPolygonMode(GL_FRONT_AND_BACK, GL_LINE) -> RHI::RasterizerState{polygonMode=Line}
- *   glDrawArrays(GL_QUADS, 0, n) -> IRHIContext::Draw(PrimitiveType::Triangles, ...)
- *     Note: GL_QUADS deprecated, should convert to triangles
+ * Remaining (FFP - requires vertex buffer refactor):
+ *   - glDisable(GL_TEXTURE_2D) - FFP texture state
+ *   - glEnableClientState, glVertexPointer, glColorPointer - FFP client arrays
+ *   - glPushAttrib/glPopAttrib - FFP state stack
+ *   - glColor4f - FFP vertex color
+ *   - glDrawArrays(GL_QUADS) - deprecated primitive type
  *
- * Legacy FFP (requires vertex buffer conversion):
- *   - Client arrays: glEnableClientState, glVertexPointer, glColorPointer
- *     -> TypedRenderBuffer<VA_TYPE_C> or IRHIBuffer
- *   - State stack: glPushAttrib/glPopAttrib
- *     -> RHI::ScopedPipeline
- *   - FFP color: glColor4f
- *     -> Per-vertex color in buffer or uniform
- *   - FFP texture: glDisable(GL_TEXTURE_2D)
- *     -> Shader-based (no texture binding)
- *
- * Completion Criteria:
- *   [ ] Convert DrawQuedBuildingSquares to TypedRenderBuffer
- *   [ ] Replace glPushAttrib/glPopAttrib with ScopedPipeline
- *   [x] Document pipeline state mapping
+ * Note: DrawQuedBuildingSquares uses FFP client arrays and needs full refactor
+ * to TypedRenderBuffer or IRHIBuffer before further migration is possible.
  */
 #include "Sim/Features/Feature.h"
 #include "Sim/Features/FeatureHandler.h"
@@ -57,6 +48,22 @@
 #include "Sim/Units/UnitDefHandler.h"
 #include "System/SpringMath.h"
 #include "System/Log/ILog.h"
+
+static RHI::BlendFactor GLBlendToRHI(unsigned int glBlend) {
+	switch (glBlend) {
+		case GL_ZERO:                return RHI::BlendFactor::Zero;
+		case GL_ONE:                 return RHI::BlendFactor::One;
+		case GL_SRC_COLOR:           return RHI::BlendFactor::SrcColor;
+		case GL_ONE_MINUS_SRC_COLOR: return RHI::BlendFactor::OneMinusSrcColor;
+		case GL_DST_COLOR:           return RHI::BlendFactor::DstColor;
+		case GL_ONE_MINUS_DST_COLOR: return RHI::BlendFactor::OneMinusDstColor;
+		case GL_SRC_ALPHA:           return RHI::BlendFactor::SrcAlpha;
+		case GL_ONE_MINUS_SRC_ALPHA: return RHI::BlendFactor::OneMinusSrcAlpha;
+		case GL_DST_ALPHA:           return RHI::BlendFactor::DstAlpha;
+		case GL_ONE_MINUS_DST_ALPHA: return RHI::BlendFactor::OneMinusDstAlpha;
+		default:                     return RHI::BlendFactor::One;
+	}
+}
 
 static const CUnit* GetTrackableUnit(const CUnit* caiOwner, const CUnit* cmdUnit)
 {
@@ -98,8 +105,10 @@ void CommandDrawer::DrawLuaQueuedUnitSetCommands() const
 	if (luaQueuedUnitSet.empty())
 		return;
 
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	glDisable(GL_TEXTURE_2D);
-	glDisable(GL_DEPTH_TEST);
+	ctx->SetDepthTestEnabled(false);
 
 	lineDrawer.Configure(cmdColors.UseColorRestarts(),
 	                     cmdColors.UseRestartColor(),
@@ -107,11 +116,12 @@ void CommandDrawer::DrawLuaQueuedUnitSetCommands() const
 	                     cmdColors.RestartAlpha());
 	lineDrawer.SetupLineStipple();
 
-	glEnable(GL_BLEND);
-	glBlendFunc((GLenum)cmdColors.QueuedBlendSrc(),
-	            (GLenum)cmdColors.QueuedBlendDst());
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(
+		GLBlendToRHI(cmdColors.QueuedBlendSrc()),
+		GLBlendToRHI(cmdColors.QueuedBlendDst()));
 
-	glLineWidth(cmdColors.QueuedLineWidth());
+	ctx->SetLineWidth(cmdColors.QueuedLineWidth());
 
 	for (const auto& [unitID, qDrawDepth] : luaQueuedUnitSet) {
 		const CUnit* unit = unitHandler.GetUnit(unitID);
@@ -122,8 +132,8 @@ void CommandDrawer::DrawLuaQueuedUnitSetCommands() const
 		Draw(unit->commandAI, qDrawDepth);
 	}
 
-	glLineWidth(1.0f);
-	glEnable(GL_DEPTH_TEST);
+	ctx->SetLineWidth(1.0f);
+	ctx->SetDepthTestEnabled(true);
 }
 
 void CommandDrawer::DrawCommands(const CCommandAI* cai, int queueDrawDepth) const
@@ -809,8 +819,10 @@ void CommandDrawer::DrawQuedBuildingSquares(const CBuilderCAI* cai) const
 	}
 
 	if (quadcounter > 0) {
+		auto* ctx = RHI::GetDevice()->GetContext();
+
 		glEnableClientState(GL_VERTEX_ARRAY);
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+		ctx->SetPolygonMode(RHI::PolygonMode::Line);
 		glVertexPointer(3, GL_FLOAT, 0, &quadVerts[0]);
 		glDrawArrays(GL_QUADS, 0, quadcounter / 3);
 
@@ -829,6 +841,7 @@ void CommandDrawer::DrawQuedBuildingSquares(const CBuilderCAI* cai) const
 		}
 
 		glDisableClientState(GL_VERTEX_ARRAY);
+		ctx->SetPolygonMode(RHI::PolygonMode::Fill);
 	}
 }
 
