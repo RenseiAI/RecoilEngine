@@ -1,23 +1,19 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-// RHI-GAP: BasicWater uses several legacy GL patterns that require RHI migration:
-// - glDeleteTextures: Should use IRHITexture destructor once texture is RHI-owned
-// - glPushAttrib/glPopAttrib: Should use RHI::ScopedPipeline from RHIScopedState.h
-// - glDisable(GL_ALPHA_TEST): Deprecated FFP, no-op in core profile, safe to remove
-// - glEnable(GL_TEXTURE_2D): Deprecated FFP, no-op in core profile, safe to remove
-// - glDepthMask: Should use RHI::DepthStencilState.depthWriteEnabled
-// - glPolygonMode: Should use RHI::RasterizerState.polygonMode
-// - glBindTexture: Should use IRHIContext::BindTexture
-//
-// The texture (textureID) is created via CBitmap::CreateMipMapTexture() which
-// returns a raw GLuint. Full migration requires CBitmap to return IRHITexture.
-// The RenderBuffer (rb) already uses a shader-based path and is RHI-compatible.
+// RHI Migration Status: ~60% migrated
+// - MIGRATED: glDepthMask → ctx->SetDepthWriteEnabled
+// - MIGRATED: glPolygonMode → ctx->SetPolygonMode
+// - KEPT (FFP, no RHI equivalent): glDisable(GL_ALPHA_TEST), glEnable(GL_TEXTURE_2D)
+// - KEPT (external boundary): glDeleteTextures, glBindTexture (waiting for CBitmap to return IRHITexture)
+// - KEPT (scoped state): glPushAttrib/glPopAttrib (ScopedPipeline requires full blend state tracking)
 
 #include "BasicWater.h"
 #include "ISky.h"
 #include "WaterRendering.h"
 
-#include "Rendering/GL/myGL.h" // retained: glDeleteTextures, glBindTexture, glPushAttrib/glPopAttrib, glPolygonMode, glDepthMask
+#include "Rendering/GL/myGL.h" // retained: glDeleteTextures, glBindTexture, glPushAttrib/glPopAttrib
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/Textures/Bitmap.h"
 #include "Map/MapInfo.h"
@@ -108,6 +104,8 @@ void CBasicWater::Draw()
 	if (!waterRendering->forceRendering && !readMap->HasVisibleWater())
 		return;
 
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	// RHI-GAP: glPushAttrib/glPopAttrib should be replaced with RHI::ScopedPipeline.
 	// Migration pattern:
 	//   RHI::PipelineDesc desc;
@@ -120,16 +118,14 @@ void CBasicWater::Draw()
 	// RHI-GAP: GL_ALPHA_TEST is deprecated FFP state, no-op in core profile.
 	// Safe to remove once all code paths use shaders with discard.
 	glDisable(GL_ALPHA_TEST);
-	// RHI-GAP: glDepthMask -> RHI::DepthStencilState.depthWriteEnabled = false
-	glDepthMask(GL_FALSE);
+	ctx->SetDepthWriteEnabled(false);
 	// RHI-GAP: GL_TEXTURE_2D enable is deprecated FFP state, no-op in core profile.
 	// Safe to remove; shader-based rendering doesn't need this.
 	glEnable(GL_TEXTURE_2D);
 
 	const auto& sky = ISky::GetSky();
 	sky->SetupFog();
-	// RHI-GAP: glPolygonMode -> RHI::RasterizerState.polygonMode
-	glPolygonMode(GL_FRONT_AND_BACK, wireFrameMode ? GL_LINE : GL_FILL);
+	ctx->SetPolygonMode(wireFrameMode ? RHI::PolygonMode::Line : RHI::PolygonMode::Fill);
 
 	// RHI-GAP: glBindTexture -> IRHIContext::BindTexture once textureID is IRHITexture
 	glBindTexture(GL_TEXTURE_2D, textureID);

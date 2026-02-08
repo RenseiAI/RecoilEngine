@@ -15,6 +15,8 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/glExtra.h"
 #include "Rendering/Fonts/glFont.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Net/Protocol/NetProtocol.h"
 #include "Sim/Misc/TeamHandler.h"
 #include "Sim/Misc/ModInfo.h"
@@ -128,7 +130,9 @@ void CStartPosSelecter::Draw()
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
 	auto& shader = rb.GetShader();
 
-	glEnable(GL_BLEND);
+	auto* ctx = RHI::GetDevice()->GetContext();
+
+	ctx->SetBlendEnabled(true);
 
 	// lua-fied!
 	// DrawStartBox(buffer, shader);
@@ -142,15 +146,15 @@ void CStartPosSelecter::Draw()
 	{
 		gleDrawQuadC(readyBox, InBox(mx, my, readyBox)? SColor{0.7f, 0.2f, 0.2f, guiAlpha}: SColor{0.7f, 0.7f, 0.2f, guiAlpha}, rb);
 
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::One);
+		ctx->SetPolygonMode(RHI::PolygonMode::Line);
 	}
 
 	{
 		gleDrawQuadC(readyBox, InBox(mx, my, readyBox)? SColor{0.7f, 0.2f, 0.2f, guiAlpha}: SColor{0.7f, 0.7f, 0.2f, guiAlpha}, rb);
 
-		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		ctx->SetPolygonMode(RHI::PolygonMode::Fill);
+		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 	}
 	{
 		shader.Enable();

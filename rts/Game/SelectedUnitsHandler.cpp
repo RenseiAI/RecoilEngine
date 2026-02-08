@@ -1,5 +1,8 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+// RHI migration status: GL state calls migrated to RHI dynamic state context methods
+// Remaining: FFP texture/color calls (glDisable(GL_TEXTURE_2D), glColor4fv)
+
 #include "SelectedUnitsHandler.h"
 #include "SelectedUnitsAI.h"
 #include "Camera.h"
@@ -16,6 +19,8 @@
 #include "Rendering/LineDrawer.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Sim/Misc/TeamHandler.h"
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/MoveTypes/MoveDefHandler.h"
@@ -605,13 +610,15 @@ void CSelectedUnitsHandler::SelectCycle(const std::string& command)
 void CSelectedUnitsHandler::Draw()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	glDisable(GL_TEXTURE_2D);
-	glDepthMask(false);
-	glDisable(GL_DEPTH_TEST);
-	glEnable(GL_BLEND); // for line smoothing
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-	glLineWidth(cmdColors.UnitBoxLineWidth());
+	ctx->SetDepthWriteEnabled(false);
+	ctx->SetDepthTestEnabled(false);
+	ctx->SetBlendEnabled(true); // for line smoothing
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+	ctx->SetPolygonMode(RHI::PolygonMode::Line);
+	ctx->SetLineWidth(cmdColors.UnitBoxLineWidth());
 
 	SColor color1(cmdColors.unitBox);
 	SColor color2(cmdColors.unitBox);
@@ -716,11 +723,11 @@ void CSelectedUnitsHandler::Draw()
 		}
 	}
 
-	glLineWidth(1.0f);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	glDisable(GL_BLEND);
-	glEnable(GL_DEPTH_TEST);
-	glDepthMask(true);
+	ctx->SetLineWidth(1.0f);
+	ctx->SetPolygonMode(RHI::PolygonMode::Fill);
+	ctx->SetBlendEnabled(false);
+	ctx->SetDepthTestEnabled(true);
+	ctx->SetDepthWriteEnabled(true);
 	glEnable(GL_TEXTURE_2D);
 }
 
@@ -916,8 +923,10 @@ void CSelectedUnitsHandler::PossibleCommandChange(CUnit* sender)
 // CMiniMap::DrawForReal --> DrawCommands
 void CSelectedUnitsHandler::DrawCommands()
 {
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	glDisable(GL_TEXTURE_2D);
-	glDisable(GL_DEPTH_TEST);
+	ctx->SetDepthTestEnabled(false);
 
 	lineDrawer.Configure(cmdColors.UseColorRestarts(),
 	                     cmdColors.UseRestartColor(),
@@ -925,10 +934,10 @@ void CSelectedUnitsHandler::DrawCommands()
 	                     cmdColors.RestartAlpha());
 	lineDrawer.SetupLineStipple();
 
-	glEnable(GL_BLEND);
-	glBlendFunc((GLenum) cmdColors.QueuedBlendSrc(), (GLenum) cmdColors.QueuedBlendDst());
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc((RHI::BlendFactor) cmdColors.QueuedBlendSrc(), (RHI::BlendFactor) cmdColors.QueuedBlendDst());
 
-	glLineWidth(cmdColors.QueuedLineWidth());
+	ctx->SetLineWidth(cmdColors.QueuedLineWidth());
 
 	if (selectedGroup != -1) {
 		const auto& groupHandler = uiGroupHandlers[gu->myTeam];
@@ -946,9 +955,9 @@ void CSelectedUnitsHandler::DrawCommands()
 	// draw the commands from AIs
 	waitCommandsAI.DrawCommands();
 
-	glLineWidth(1.0f);
+	ctx->SetLineWidth(1.0f);
 
-	glEnable(GL_DEPTH_TEST);
+	ctx->SetDepthTestEnabled(true);
 }
 
 
