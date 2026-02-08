@@ -7,28 +7,29 @@
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHITypes.h"
 #include "Sim/Misc/TeamHandler.h"
 
 #include <algorithm>
 
-// RHI Migration Notes (DebugDrawerAI):
-// Texture lifecycle in TexSet::Texture constructor/destructor:
+// RHI Migration Status (DebugDrawerAI):
+// MIGRATED:
+//   glDisable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled(false) [line 78]
+//   glLineWidth -> ctx->SetLineWidth() [lines 362, 380]
+// PENDING (texture management):
 //   glGenTextures + glBindTexture + glTexParameteri + glTexImage2D
 //     -> IRHIDevice::CreateTexture + IRHITexture::Upload/SetMinFilter/SetMagFilter/SetWrapS/SetWrapT
 //   glDeleteTextures -> IRHITexture destructor
 //   glTexSubImage2D -> IRHITexture::Upload (sub-region)
+//   glBindTexture(GL_TEXTURE_2D, id) -> texture->Bind(unit)
 //   Requires: changing `uint32_t id` member to std::unique_ptr<RHI::IRHITexture>
-// Pipeline state in Draw():
-//   glDisable(GL_DEPTH_TEST) -> RHI::DepthStencilState{depthTestEnabled=false}
-//   glLineWidth -> RHI::RasterizerState{lineWidth}
-// Texture binding in TexSet::Draw():
-//   glEnable/glDisable(GL_TEXTURE_2D) -> FFP texture unit (no RHI equivalent)
-//   glBindTexture(GL_TEXTURE_2D, id) -> IRHIContext::BindTexture(tex, 0)
-// Non-mappable legacy FFP:
-//   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity -> matrix stack
-//   glPushAttrib/glPopAttrib -> state stack
-//   glDisable(GL_LIGHTING) -> FFP lighting
+// NON-MIGRATABLE (FFP - no RHI equivalent):
+//   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity (matrix stack)
+//   glPushAttrib/glPopAttrib (state stack)
+//   glDisable(GL_LIGHTING) (FFP lighting)
+//   glEnable/glDisable(GL_TEXTURE_2D) (FFP texture unit)
 
 static constexpr float3 GRAPH_MIN_SCALE( 1e9,  1e9, 0.0f);
 static constexpr float3 GRAPH_MAX_SCALE(-1e9, -1e9, 0.0f);
@@ -74,8 +75,10 @@ void DebugDrawerAI::Draw() {
 
 	glPushAttrib(GL_CURRENT_BIT | GL_ENABLE_BIT);
 
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	glDisable(GL_LIGHTING);
-	glDisable(GL_DEPTH_TEST);
+	ctx->SetDepthTestEnabled(false);
 	glDisable(GL_TEXTURE_2D);
 
 	// draw data for the (AI) team being spectated
@@ -334,6 +337,8 @@ void DebugDrawerAI::Graph::Draw()
 		if (!lines.empty()) {
 			font->Begin();
 
+			auto* ctx = RHI::GetDevice()->GetContext();
+
 			int lineNum = 0;
 			float linePad = (1.0f / lines.size()) * 0.5f;
 
@@ -359,7 +364,7 @@ void DebugDrawerAI::Graph::Draw()
 					1.0f
 				};
 
-				glLineWidth(line.lineWidth);
+				ctx->SetLineWidth(line.lineWidth);
 
 				for (auto pit = data.begin(); pit != data.end(); ++pit) {
 					auto npit = pit; ++npit;
@@ -377,7 +382,7 @@ void DebugDrawerAI::Graph::Draw()
 				rb.DrawArrays(GL_LINE_STRIP);
 				sh.Disable();
 
-				glLineWidth(1.0f);
+				ctx->SetLineWidth(1.0f);
 
 				lineNum += 1;
 			}
