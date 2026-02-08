@@ -1,5 +1,19 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * RHI Migration Status (LineDrawer)
+ *
+ * MIGRATED:
+ * - Dynamic state: glDisable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled(false)
+ *
+ * REMAINING (NOT MIGRATED):
+ * - FFP client-state vertex arrays: glEnableClientState(GL_VERTEX_ARRAY/GL_COLOR_ARRAY),
+ *   glVertexPointer, glColorPointer, glDrawArrays (requires conversion to IRHIBuffer)
+ * - FFP state: glPushAttrib/glPopAttrib (no RHI equivalent)
+ * - FFP deprecated: glDisable(GL_TEXTURE_2D) (FFP texture unit, no RHI equivalent)
+ * - Line stipple: glEnable/glDisable(GL_LINE_STIPPLE), glLineStipple() (no RHI equivalent, deprecated in GL3+)
+ */
+
 // TODO: move this out of Sim, this is rendering code!
 
 #include "LineDrawer.h"
@@ -8,21 +22,9 @@
 
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Game/UI/CommandColors.h"
-
-// RHI Migration Notes (LineDrawer):
-// DrawAll() uses legacy client-state vertex arrays:
-//   glEnableClientState(GL_VERTEX_ARRAY/GL_COLOR_ARRAY), glVertexPointer,
-//   glColorPointer, glDrawArrays -> requires conversion to IRHIBuffer
-//     vertex/index buffers + IRHIContext::Draw()
-// State management:
-//   glPushAttrib/glPopAttrib -> no RHI equivalent; replace with scoped pipeline state
-//   glDisable(GL_TEXTURE_2D) -> FFP texture unit (no RHI equivalent)
-//   glDisable(GL_DEPTH_TEST) -> RHI::DepthStencilState{depthTestEnabled=false}
-//   glDisable/glEnable(GL_LINE_STIPPLE) -> no RHI equivalent (deprecated in GL3+)
-// SetupLineStipple():
-//   glLineStipple -> no RHI equivalent (line stipple is legacy GL only)
-// Header types GLenum, GLfloat used in LinePair -> should become RHI::PrimitiveType, float
 
 CLineDrawer lineDrawer;
 
@@ -68,13 +70,15 @@ void CLineDrawer::DrawAll()
 {
 	if (lines.empty() && stippled.empty())
 		return;
-	
+
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glEnableClientState(GL_COLOR_ARRAY);
 
 	glPushAttrib(GL_ENABLE_BIT);
 	glDisable(GL_TEXTURE_2D);
-	glDisable(GL_DEPTH_TEST);
+	ctx->SetDepthTestEnabled(false);
 	glDisable(GL_LINE_STIPPLE);
 
 	for (int i = 0; i<lines.size(); ++i) {
