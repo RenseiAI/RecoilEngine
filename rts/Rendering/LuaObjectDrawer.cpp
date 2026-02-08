@@ -8,12 +8,12 @@
  * Migrated patterns:
  *   - Pipeline state (blend, alpha) -> RHI::PipelineDesc + ctx->BindPipeline()
  *   - RHI device/context access     -> RHI::CreateDevice(), GetContext()
+ *   - Polygon offset state          -> ctx->SetPolygonOffset()
  *
  * Remaining GL calls (with RHI_TODO comments):
  *   - glAlphaFunc()/GL_ALPHA_TEST: Legacy FFP alpha test (shaders use discard)
  *   - glColor3f: Legacy FFP vertex color
  *   - glDisable(GL_TEXTURE_2D): Legacy FFP texture state
- *   - glPolygonOffset/GL_POLYGON_OFFSET_FILL: Could use PipelineDesc rasterizer
  *
  * Dependencies blocking full migration:
  *   - Alpha test is legacy FFP; modern shaders handle via discard
@@ -186,14 +186,12 @@ static void ResetAlphaFeatureDrawState(unsigned int modelType, bool deferredPass
 // FIXME: setup face culling for S3O?
 static void SetupShadowUnitDrawState(unsigned int modelType, bool deferredPass) {
 	// RHI_TODO: glColor3f is legacy FFP. glDisable(GL_TEXTURE_2D) is legacy FFP.
-	// glPolygonOffset/GL_POLYGON_OFFSET_FILL has no direct RHI equivalent yet.
-	// These should be handled by the shadow pipeline state once RHI supports
-	// polygon offset in PipelineDesc::rasterizer.
+	// These should be handled by the shadow pipeline state.
 	glColor3f(1.0f, 1.0f, 1.0f);
 	glDisable(GL_TEXTURE_2D);
 
-	glPolygonOffset(1.0f, 1.0f);
-	glEnable(GL_POLYGON_OFFSET_FILL);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetPolygonOffset(true, 1.0f, 1.0f);
 
 	Shader::IProgramObject* po = shadowHandler.GetShadowGenProg(CShadowHandler::SHADOWGEN_PROGRAM_MODEL);
 	po->Enable();
@@ -203,8 +201,8 @@ static void ResetShadowUnitDrawState(unsigned int modelType, bool deferredPass) 
 	Shader::IProgramObject* po = shadowHandler.GetShadowGenProg(CShadowHandler::SHADOWGEN_PROGRAM_MODEL);
 
 	po->Disable();
-	// RHI_TODO: see SetupShadowUnitDrawState note
-	glDisable(GL_POLYGON_OFFSET_FILL);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetPolygonOffset(false, 0.0f, 0.0f);
 }
 
 // NOTE: incomplete (FeatureDrawer::DrawShadowPass sets more state)
