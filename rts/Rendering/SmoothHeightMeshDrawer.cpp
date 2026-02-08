@@ -90,11 +90,11 @@ void SmoothHeightMeshDrawer::Draw(float yoffset) {
 	if (!drawEnabled)
 		return;
 
-	// TODO [RHI cross-cutting]: glPolygonMode (wireframe) needs RHI RasterizerState,
-	// glDisable(GL_TEXTURE_*) and glDisable(GL_CULL_FACE) are fixed-function no-ops
+	// TODO [RHI cross-cutting]: glDisable(GL_TEXTURE_*) and glDisable(GL_CULL_FACE) are fixed-function no-ops
 	// with modern shaders. rb.DrawElements still uses raw GL_TRIANGLES enum.
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-	glLineWidth(1.0f);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetPolygonMode(RHI::PolygonMode::Line);
+	ctx->SetLineWidth(1.0f);
 	glDisable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE0);
 	glDisable(GL_TEXTURE_1D);
@@ -133,5 +133,5 @@ void SmoothHeightMeshDrawer::Draw(float yoffset) {
 	sh.SetUniform("ucolor", 1.0f, 1.0f, 1.0f, 1.0f);
 	sh.Disable();
 
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	ctx->SetPolygonMode(RHI::PolygonMode::Fill);
 }
