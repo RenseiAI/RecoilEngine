@@ -9,10 +9,10 @@
  *   - Pipeline state (cull, depth, blend) -> RHI::PipelineDesc + ctx->BindPipeline()
  *   - Polygon mode (wireframe)            -> RHI::PipelineDesc::rasterizer.polygonMode
  *   - RHI device/context access           -> RHI::CreateDevice(), GetContext()
+ *   - Clip distance enable/disable        -> ctx->SetClipDistanceEnabled(index, bool)
  *
  * Remaining GL calls (with RHI_TODO comments):
  *   - glAlphaFunc()/GL_ALPHA_TEST: Legacy FFP alpha test (shaders use discard)
- *   - GL_CLIP_DISTANCE0/1: User clip planes need RHI support
  *
  * Dependencies blocking full migration:
  *   - Alpha test is legacy FFP; modern shaders handle via discard
@@ -359,17 +359,17 @@ void CModelDrawerStateGL4::Enable(bool deferredPass, bool alphaPass) const
 	assert(modelShader != nullptr);
 	modelShader->Enable();
 
+	auto* device = RHI::GetDevice();
+	auto* ctx = device->GetContext();
+
 	switch (game->GetDrawMode())
 	{
 	case CGame::GameDrawMode::gameReflectionDraw: {
-		// RHI_TODO: GL_CLIP_DISTANCE is a per-shader feature, not pipeline state.
-		// The RHI would need a ClipDistance enable/disable on context or pipeline.
-		// Using GL fallback for now.
-		glEnable(GL_CLIP_DISTANCE2);
+		ctx->SetClipDistanceEnabled(2, true);
 		SetCameraMode(ShaderCameraModes::REFLCT_CAMERA);
 	} break;
 	case CGame::GameDrawMode::gameRefractionDraw: {
-		glEnable(GL_CLIP_DISTANCE2);
+		ctx->SetClipDistanceEnabled(2, true);
 		SetCameraMode(ShaderCameraModes::REFRAC_CAMERA);
 	} break;
 	default: SetCameraMode(ShaderCameraModes::NORMAL_CAMERA); break;
@@ -390,13 +390,16 @@ void CModelDrawerStateGL4::Disable(bool deferredPass) const
 
 	SetActiveShader(shadowHandler.ShadowsLoaded(), deferredPass);
 
+	auto* device = RHI::GetDevice();
+	auto* ctx = device->GetContext();
+
 	switch (game->GetDrawMode())
 	{
 	case CGame::GameDrawMode::gameReflectionDraw: {
-		glDisable(GL_CLIP_DISTANCE2);
+		ctx->SetClipDistanceEnabled(2, false);
 	} break;
 	case CGame::GameDrawMode::gameRefractionDraw: {
-		glDisable(GL_CLIP_DISTANCE2);
+		ctx->SetClipDistanceEnabled(2, false);
 	} break;
 	default: {} break;
 	}
