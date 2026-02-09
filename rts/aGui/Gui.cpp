@@ -8,6 +8,8 @@
 #include "GuiElement.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "System/Log/ILog.h"
 
 
@@ -26,9 +28,11 @@ void Gui::Draw()
 {
 	Clean();
 
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	glDisable(GL_TEXTURE_2D);
 	glDisable(GL_ALPHA_TEST);
-	glEnable(GL_BLEND);
+	ctx->SetBlendEnabled(true);
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	gluOrtho2D(0, 1, 0, 1);

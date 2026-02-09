@@ -3,6 +3,8 @@
 #include "VerticalLayout.h"
 
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 
 namespace agui
 {
@@ -18,7 +20,9 @@ void VerticalLayout::DrawSelf()
 {
 	if (borderWidth > 0)
 	{
-		glLineWidth(borderWidth);
+		auto* ctx = RHI::GetDevice()->GetContext();
+
+		ctx->SetLineWidth(borderWidth);
 		DrawBox(GL_LINE_LOOP, {1.f, 1.f, 1.f, Opacity()});
 	}
 }

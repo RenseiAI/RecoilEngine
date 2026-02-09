@@ -3,6 +3,8 @@
 #include "LineEdit.h"
 
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Rendering/Fonts/glFont.h"
 #include "System/Misc/SpringTime.h"
 
@@ -42,9 +44,12 @@ void LineEdit::DrawSelf() {}
 void LineEdit::DrawSelf()
 {
 	const float opacity = Opacity();
+
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	DrawBox(GL_QUADS, { 1.0f, 1.0f, 1.0f, opacity });
 
-	glLineWidth(1.49f);
+	ctx->SetLineWidth(1.49f);
 	if (hasFocus) {
 		DrawBox(GL_LINE_LOOP, { 0.0f, 0.0f, 0.0f, opacity });
 	} else {

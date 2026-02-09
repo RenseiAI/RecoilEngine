@@ -4,6 +4,8 @@
 #include "HorizontalLayout.h"
 
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 
 namespace agui
 {
@@ -20,7 +22,9 @@ void HorizontalLayout::DrawSelf()
 	if (borderWidth <= 0.0f)
 		return;
 
-	glLineWidth(borderWidth);
+	auto* ctx = RHI::GetDevice()->GetContext();
+
+	ctx->SetLineWidth(borderWidth);
 	DrawBox(GL_LINE_LOOP, { 1.0f, 1.0f, 1.0f, Opacity() });
 }
 #endif
