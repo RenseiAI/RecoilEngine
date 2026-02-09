@@ -5,6 +5,8 @@
 #include "Gui.h"
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "System/Log/ILog.h"
 
 namespace agui
@@ -28,25 +30,26 @@ void Button::DrawSelf() {}
 #else
 void Button::DrawSelf()
 {
+	auto* ctx = RHI::GetDevice()->GetContext();
 	const float opacity = Opacity();
 
 	DrawBox(GL_QUADS, { 0.8f, 0.8f, 0.8f, opacity });
 
 	if (clicked) {
-		glBlendFunc(GL_ONE, GL_ONE); // additive blending
+		ctx->SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One); // additive blending
 
 		DrawBox(GL_QUADS, { 0.2f, 0.0f, 0.0f, opacity });
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glLineWidth(1.49f);
+		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+		ctx->SetLineWidth(1.49f);
 		DrawBox(GL_LINE_LOOP, { 1.0f, 0.0f, 0.0f, opacity / 2.f });
-		glLineWidth(1.0f);
+		ctx->SetLineWidth(1.0f);
 	} else if (hovered) {
-		glBlendFunc(GL_ONE, GL_ONE); // additive blending
+		ctx->SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One); // additive blending
 		DrawBox(GL_QUADS, { 0.0f, 0.0f, 0.2f, opacity });
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glLineWidth(1.49f);
+		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+		ctx->SetLineWidth(1.49f);
 		DrawBox(GL_LINE_LOOP, { 1.0f, 1.0f, 1.0f, opacity / 2.0f });
-		glLineWidth(1.0f);
+		ctx->SetLineWidth(1.0f);
 	}
 
 	font->Begin();
