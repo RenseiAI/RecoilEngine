@@ -13,8 +13,7 @@
  *   - glCallList: Display lists are legacy GL with no RHI equivalent
  *   - glPushMatrix/glPopMatrix/glMultMatrixf: FFP matrix stack (GL4 uses uniforms)
  *   - glActiveTexture/glBindTexture: Icon textures use raw GL IDs
- *   - glColor4f: Legacy FFP vertex color
- *   - glPushAttrib/glPopAttrib: Legacy GL state save/restore
+ *   - glColor4f/glColor4fv/glGetFloatv(GL_CURRENT_COLOR): Legacy FFP vertex color
  *   - glEnable/glDisable(GL_CLIP_PLANE* and GL_CLIP_DISTANCE*): Legacy clip planes (GL4 uses shader uniforms)
  *   - GL_TEXTURE_2D enable/disable: Legacy FFP texture state
  *
@@ -22,6 +21,8 @@
  *   - glPolygonMode -> ctx->SetPolygonMode(RHI::PolygonMode::Line/Fill)
  *   - glPolygonOffset + GL_POLYGON_OFFSET_FILL -> ctx->SetPolygonOffset(enabled, factor, units)
  *   - glEnable/glDisable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled(bool)
+ *   - glPushAttrib/glPopAttrib (GL_CURRENT_BIT) -> explicit glGetFloatv/glColor4fv for current color
+ *   - glPushAttrib/glPopAttrib (GL_POLYGON_BIT) -> removed (state now explicitly managed via RHI context)
  *
  * Dependencies blocking full migration:
  *   - IconHandler needs to return IRHITexture* for icon atlases
@@ -1104,10 +1105,11 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLu
 		{0.0f,  0.0f, 0.0f,                                                           0.0f },
 	};
 
-	// RHI_TODO: glPushAttrib/glPopAttrib(GL_CURRENT_BIT) saves/restores current color.
+	// RHI_TODO: glColor4fv is legacy FFP vertex color with no RHI equivalent.
 	// glClipPlane/GL_CLIP_PLANE0/1 are legacy FFP clip planes with no RHI equivalent.
 	// The GL4 path uses GL_CLIP_DISTANCE with shader uniforms instead.
-	glPushAttrib(GL_CURRENT_BIT);
+	float savedColor[4];
+	glGetFloatv(GL_CURRENT_COLOR, savedColor);
 
 	glEnable(GL_CLIP_PLANE0);
 	glEnable(GL_CLIP_PLANE1);
@@ -1130,7 +1132,7 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLu
 		DrawModelFillBuildStageShadow(unit, upperPlanes[BUILDSTAGE_FILL], lowerPlanes[BUILDSTAGE_FILL], noLuaCall);
 	}
 
-	glPopAttrib();
+	glColor4fv(savedColor);
 }
 
 void CUnitDrawerGLSL::DrawModelWireBuildStageShadow(const CUnit* unit, const double* upperPlane, const double* lowerPlane, bool noLuaCall) const
@@ -1211,9 +1213,10 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLu
 		{0.0f,  0.0f, 0.0f,                                                           0.0f },
 	};
 
-	// RHI_TODO: glPushAttrib/glPopAttrib(GL_CURRENT_BIT) and glClipPlane are legacy FFP.
+	// RHI_TODO: glColor4fv and glClipPlane are legacy FFP with no RHI equivalent.
 	// See DrawUnitModelBeingBuiltShadow note.
-	glPushAttrib(GL_CURRENT_BIT);
+	float savedColor[4];
+	glGetFloatv(GL_CURRENT_COLOR, savedColor);
 	glEnable(GL_CLIP_PLANE0);
 	glEnable(GL_CLIP_PLANE1);
 
@@ -1239,7 +1242,7 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLu
 
 	SetNanoColor(float4(1.0f, 1.0f, 1.0f, 0.0f)); // turn off in any case
 	glDisable(GL_CLIP_PLANE0);
-	glPopAttrib();
+	glColor4fv(savedColor);
 }
 
 void CUnitDrawerGLSL::DrawModelWireBuildStageOpaque(const CUnit* unit, const double* upperPlane, const double* lowerPlane, bool noLuaCall) const
@@ -2026,9 +2029,6 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLua
 	assert(po);
 	assert(po->IsBound());
 
-	// RHI_TODO: glPushAttrib(GL_POLYGON_BIT) saves polygon mode state (now handled by RHI context).
-	glPushAttrib(GL_POLYGON_BIT);
-
 	ctx->SetClipDistanceEnabled(0, true);
 	ctx->SetClipDistanceEnabled(1, true);
 
@@ -2075,8 +2075,6 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLua
 		// fully-shaded, conditional
 		smv.SubmitImmediately(unit, GL_TRIANGLES);
 	}
-
-	glPopAttrib();
 }
 
 void CUnitDrawerGL4::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLuaCall) const
@@ -2116,9 +2114,6 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLua
 		{0.0f,  1.0f, 0.0f,                                  (                        0.0f)},
 		{0.0f,  0.0f, 0.0f,                                                           0.0f },
 	};
-
-	// RHI_TODO: glPushAttrib(GL_POLYGON_BIT) saves polygon mode state (now handled by RHI context).
-	glPushAttrib(GL_POLYGON_BIT);
 
 	ctx->SetClipDistanceEnabled(0, true);
 	ctx->SetClipDistanceEnabled(1, true);
@@ -2160,7 +2155,5 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLua
 	SetNanoColor(float4(1.0f, 1.0f, 1.0f, 0.0f)); // turn off in any case
 	modelDrawerState->SetClipPlane(0); //default
 	ctx->SetClipDistanceEnabled(0, false);
-
-	glPopAttrib();
 }
 

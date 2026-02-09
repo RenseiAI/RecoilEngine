@@ -7,12 +7,11 @@
  * - Uses GL EXT framebuffer functions (glGenFramebuffersEXT, etc.)
  * - ActiveFBO uses legacy FFP matrix push/pop - needs migration
  * - BlitFBO maps to IRHIContext::BlitFramebuffer
+ * - Migrated: Removed glPushAttrib/glPopAttrib (GL_VIEWPORT_BIT), replaced with explicit viewport save/restore
  *
  * Migration Strategy:
  * 1. Keep GL calls for OpenGL backend (they work via RHI GL backend)
  * 2. For Metal backend, RHI framebuffer wraps native FBO concepts
- * 3. The glPushAttrib/glPopAttrib in ActiveFBO can be replaced with
- *    RHI viewport state save/restore
  */
 
 #include "LuaFBOs.h"
@@ -663,7 +662,10 @@ int LuaFBOs::ActiveFBO(lua_State* L)
 	if (bindTarget == 0)
 		return 0;
 
-	glPushAttrib(GL_VIEWPORT_BIT);
+	// Save current viewport
+	int savedViewport[4];
+	glGetIntegerv(GL_VIEWPORT, savedViewport);
+
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetViewport({0.0f, 0.0f, static_cast<float>(fbo->xsize), static_cast<float>(fbo->ysize)});
 	if (identities) {
@@ -682,7 +684,10 @@ int LuaFBOs::ActiveFBO(lua_State* L)
 		glMatrixMode(GL_PROJECTION); glPopMatrix();
 		glMatrixMode(GL_MODELVIEW);  glPopMatrix();
 	}
-	glPopAttrib();
+
+	// Restore viewport
+	ctx->SetViewport({static_cast<float>(savedViewport[0]), static_cast<float>(savedViewport[1]),
+	                  static_cast<float>(savedViewport[2]), static_cast<float>(savedViewport[3])});
 
 	if (error != 0) {
 		LOG_L(L_ERROR, "gl.ActiveFBO: error(%i) = %s", error, lua_tostring(L, -1));

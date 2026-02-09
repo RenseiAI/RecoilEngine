@@ -7,7 +7,8 @@
  * Texture creation via device->CreateTexture(), face uploads via UploadCubeFace()/UpdateCubeFace().
  * Getters return native handle via GetNativeHandle() for backward compatibility.
  * FBO operations (AttachTexture) still use raw GL texture IDs from GetNativeHandle().
- * Pipeline state (glPushAttrib, depth) already migrated to RHI in previous pass.
+ * Pipeline state (depth test/write) managed via RHI PipelineDesc.
+ * Removed glPushAttrib/glPopAttrib (GL_FOG_BIT | GL_DEPTH_BUFFER_BIT) - state managed by RHI pipelines.
  */
 
 #include "Game/Camera.h"
@@ -19,7 +20,7 @@
 #include "Map/MapInfo.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/Units/UnitDrawer.h"
-#include "Rendering/GL/myGL.h"  // retained: FBO ops, glPushAttrib/glPopAttrib
+#include "Rendering/GL/myGL.h"  // retained: FBO ops
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/RHI/RHIPipeline.h"
 #include "Rendering/RHI/RHIContext.h"
@@ -199,7 +200,6 @@ void CubeMapHandler::CreateReflectionFace(unsigned int glFace, bool skyOnly)
 	auto* tex = skyOnly ? skyReflectionTex.get() : envReflectionTex.get();
 	reflectionCubeFBO.AttachTexture(tex ? tex->GetNativeHandle() : 0, glFace);
 
-	glPushAttrib(GL_FOG_BIT | GL_DEPTH_BUFFER_BIT);
 	const auto& sky = ISky::GetSky();
 
 	// Clear via RHI
@@ -262,8 +262,6 @@ void CubeMapHandler::CreateReflectionFace(unsigned int glFace, bool skyOnly)
 
 		CCameraHandler::SetActiveCamera(prvCam->GetCamType());
 	}
-
-	glPopAttrib();
 }
 
 

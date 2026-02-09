@@ -2,8 +2,8 @@
 /* RHI Migration Status: PARTIAL - GL dynamic state calls migrated to RHI context methods
  * - Migrated: glEnable/glDisable(GL_BLEND), glBlendFunc, glDepthMask, glLineWidth, glDisable(GL_DEPTH_TEST), glDisable(GL_SAMPLE_SHADING)
  * - Migrated: glViewport, glScissor, glClearColor, glClear, GL_SCISSOR_TEST
- * - Not migrated: GL_TEXTURE_2D (FFP), glPushAttrib/glPopAttrib (FFP state stack)
- * - Not migrated: FFP matrix operations, texture binding (non-state operations)
+ * - Migrated: Removed glPushAttrib/glPopAttrib, replaced with explicit state save/restore
+ * - Not migrated: GL_TEXTURE_2D (FFP), FFP matrix operations, texture binding (non-state operations)
  */
 
 #include <array>
@@ -1341,7 +1341,6 @@ void CMiniMap::DrawForReal(bool useNormalizedCoors, bool updateTex, bool luaCall
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glPushAttrib(GL_DEPTH_BUFFER_BIT);
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 	ctx->SetDepthTestEnabled(false);
@@ -1375,7 +1374,10 @@ void CMiniMap::DrawForReal(bool useNormalizedCoors, bool updateTex, bool luaCall
 	if (useNormalizedCoors)
 		glPopMatrix();
 
-	glPopAttrib();
+	// Restore state after minimap drawing
+	ctx->SetDepthTestEnabled(true);
+	ctx->SetDepthWriteEnabled(true);
+	ctx->SetBlendEnabled(false);
 	glEnable(GL_TEXTURE_2D);
 
 	// allow Lua scripts to draw into the minimap
@@ -1778,7 +1780,6 @@ bool CMiniMap::RenderCachedTexture(bool useNormalizedCoors)
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glPushAttrib(GL_COLOR_BUFFER_BIT);
 	glBindTexture(GL_TEXTURE_2D, minimapTex);
 	glEnable(GL_TEXTURE_2D);
 	ctx->SetBlendEnabled(false);
@@ -1823,7 +1824,8 @@ bool CMiniMap::RenderCachedTexture(bool useNormalizedCoors)
 	}
 
 	glDisable(GL_TEXTURE_2D);
-	glPopAttrib();
+	// Restore blend state to disabled (expected at entry)
+	ctx->SetBlendEnabled(false);
 	return true;
 }
 
