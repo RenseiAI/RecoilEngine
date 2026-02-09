@@ -9,6 +9,8 @@
  * - Dynamic state: glBlendFunc -> ctx->SetBlendFunc()
  * - Dynamic state: glBlendFuncSeparate -> ctx->SetBlendFuncSeparate()
  * - Dynamic state: glEnable/glDisable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled()
+ * - Dynamic state: glEnable/glDisable(GL_CULL_FACE) -> ctx->SetCullFaceEnabled() (in commented DrawShadow)
+ * - Dynamic state: glPolygonOffset + glEnable/glDisable(GL_POLYGON_OFFSET_FILL) -> ctx->SetPolygonOffset() (in commented DrawShadow)
  *
  * REMAINING (NOT MIGRATED):
  * - FFP matrix stack: glMatrixMode, glPushMatrix, glPopMatrix, glLoadIdentity, glMultMatrixf, glRotatef, glTranslatef, glOrtho
@@ -634,11 +636,10 @@ void CGrassDrawer::DrawShadow()
 	//glBindTexture(GL_TEXTURE_2D, activeFarTex);
 	glDisable(GL_TEXTURE_2D);
 	glDisable(GL_ALPHA_TEST);
-	glDisable(GL_CULL_FACE);
-
-	glPolygonOffset(5, 15);
-	glEnable(GL_POLYGON_OFFSET_FILL);
-
+	// RHI dynamic state
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetCullFaceEnabled(false);
+	ctx->SetPolygonOffset(true, 5.0f, 15.0f);
 	// we pass it as uniform and want to have pos & rot
 	// of the turfs to be saved alone in the modelview matrix
 	glMatrixMode(GL_MODELVIEW);
@@ -662,8 +663,9 @@ void CGrassDrawer::DrawShadow()
 	glMatrixMode(GL_MODELVIEW);
 	glPopMatrix();
 
-	glEnable(GL_CULL_FACE);
-	glDisable(GL_POLYGON_OFFSET_FILL);
+	// RHI dynamic state
+	ctx->SetCullFaceEnabled(true);
+	ctx->SetPolygonOffset(false);
 	glDisable(GL_TEXTURE_2D);
 	glDisable(GL_ALPHA_TEST);
 
