@@ -39,6 +39,8 @@ private:
 private:
 	spring::unordered_set<std::pair<int, int>> luaQueuedUnitSet; //unitID, queueDepth (if > 0)
 	static constexpr uint32_t cmdCircleResolution = 100;
+
+	mutable float savedColor[4] = {1.0f, 1.0f, 1.0f, 1.0f}; // For state save/restore
 };
 
 #define commandDrawer (CommandDrawer::GetInstance())

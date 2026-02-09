@@ -598,7 +598,8 @@ void CGrassDrawer::Draw()
 	if (grassOff || !readMap->GetGrassShadingTexture())
 		return;
 
-	glPushAttrib(GL_CURRENT_BIT);
+	// Save current color state for later restore
+	glGetFloatv(GL_CURRENT_COLOR, savedColor);
 	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
 	if (!blockDrawer.inviewGrass.empty()) {
@@ -617,7 +618,8 @@ void CGrassDrawer::Draw()
 		ResetGlStateFar();
 	}
 
-	glPopAttrib();
+	// Restore color explicitly
+	glColor4fv(savedColor);
 }
 
 

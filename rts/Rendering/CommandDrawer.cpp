@@ -827,11 +827,13 @@ void CommandDrawer::DrawQuedBuildingSquares(const CBuilderCAI* cai) const
 		glDrawArrays(GL_QUADS, 0, quadcounter / 3);
 
 		if (linecounter > 0) {
-			glPushAttrib(GL_CURRENT_BIT);
+			// Save current color state for later restore
+			glGetFloatv(GL_CURRENT_COLOR, savedColor);
 			glColor4f(0.0f, 0.5f, 1.0f, 1.0f); // same as end color of lines
 			glVertexPointer(3, GL_FLOAT, 0, &uwquadVerts[0]);
 			glDrawArrays(GL_QUADS, 0, uwquadcounter / 3);
-			glPopAttrib();
+			// Restore color explicitly
+			glColor4fv(savedColor);
 
 			glEnableClientState(GL_COLOR_ARRAY);
 			glColorPointer(4, GL_FLOAT, 0, &lineColors[0]);

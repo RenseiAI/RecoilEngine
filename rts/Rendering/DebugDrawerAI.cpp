@@ -73,7 +73,9 @@ void DebugDrawerAI::Draw() {
 	glPushMatrix();
 	glLoadIdentity();
 
-	glPushAttrib(GL_CURRENT_BIT | GL_ENABLE_BIT);
+	// Save current color state
+	float savedColor[4];
+	glGetFloatv(GL_CURRENT_COLOR, savedColor);
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 
@@ -85,7 +87,11 @@ void DebugDrawerAI::Draw() {
 	graphs[gu->myTeam].Draw();
 	texsets[gu->myTeam].Draw();
 
-	glPopAttrib();
+	// Restore state explicitly
+	ctx->SetDepthTestEnabled(true);
+	glEnable(GL_LIGHTING);
+	glEnable(GL_TEXTURE_2D);
+	glColor4fv(savedColor);
 
 	glMatrixMode(GL_PROJECTION);
 	glPopMatrix();

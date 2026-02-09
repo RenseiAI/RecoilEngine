@@ -2641,8 +2641,7 @@ void CGuiHandler::Draw()
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glPushAttrib(GL_ENABLE_BIT);
-
+	// Save FFP state (no RHI equivalent for push/pop)
 	glDisable(GL_FOG);
 	ctx->SetDepthTestEnabled(false);
 	glDisable(GL_LIGHTING);
@@ -2655,7 +2654,13 @@ void CGuiHandler::Draw()
 	if (iconsCount > 0)
 		DrawButtons();
 
-	glPopAttrib();
+	// Restore state explicitly
+	ctx->SetDepthTestEnabled(true);
+	ctx->SetBlendEnabled(false);
+	glDisable(GL_ALPHA_TEST);
+	glEnable(GL_TEXTURE_2D);
+	glEnable(GL_LIGHTING);
+	glEnable(GL_FOG);
 }
 
 

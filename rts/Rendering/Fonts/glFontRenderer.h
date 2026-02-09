@@ -87,6 +87,7 @@ private:
 	std::array<std::vector<uint16_t  >, 2> indcs; // OL, PM
 
 	uint32_t textureSpaceMatrix = 0u;
+	float savedColor[4] = {1.0f, 1.0f, 1.0f, 1.0f}; // For state save/restore
 };
 
 class CglNullFontRenderer final : public CglFontRenderer {

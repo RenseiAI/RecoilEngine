@@ -127,6 +127,8 @@ protected:
 	bool grassOff;
 	bool updateBillboards;
 	bool updateVisibility;
+
+	float savedColor[4] = {1.0f, 1.0f, 1.0f, 1.0f}; // For state save/restore
 };
 
 extern CGrassDrawer* grassDrawer;

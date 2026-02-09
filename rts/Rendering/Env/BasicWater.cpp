@@ -113,7 +113,6 @@ void CBasicWater::Draw()
 	//   desc.rasterizer.polygonMode = wireFrameMode ? RHI::PolygonMode::Line : RHI::PolygonMode::Fill;
 	//   RHI::ScopedPipeline scope(device, desc);
 	// This requires access to the RHI device and proper state tracking.
-	glPushAttrib(GL_FOG_BIT | GL_POLYGON_BIT | GL_ENABLE_BIT);
 
 	// RHI-GAP: GL_ALPHA_TEST is deprecated FFP state, no-op in core profile.
 	// Safe to remove once all code paths use shaders with discard.
@@ -140,5 +139,8 @@ void CBasicWater::Draw()
 	// RHI-GAP: glBindTexture -> IRHIContext::BindTexture(nullptr, unit) to unbind
 	glBindTexture(GL_TEXTURE_2D, 0);
 
-	glPopAttrib();
+	// Restore state explicitly
+	ctx->SetDepthWriteEnabled(true);
+	ctx->SetPolygonMode(RHI::PolygonMode::Fill);
+	glEnable(GL_ALPHA_TEST);
 }

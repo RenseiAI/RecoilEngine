@@ -230,11 +230,7 @@ void CglShaderFontRenderer::PushGLState(const CglFont& fnt)
 	RECOIL_DETAILED_TRACY_ZONE;
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	// RHI GAP: glPushAttrib/glPopAttrib state save/restore has no RHI equivalent.
-	// These mutable GL state calls would map to RHI pipeline state objects, but the
-	// font renderer currently relies on push/pop semantics not available in RHI.
-	glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT);
-
+	// Save state (explicit restore replaces glPushAttrib/glPopAttrib)
 	ctx->SetDepthTestEnabled(false);
 	glDisable(GL_ALPHA_TEST); // FFP feature, no RHI equivalent
 	ctx->SetBlendEnabled(true);
@@ -269,7 +265,11 @@ void CglShaderFontRenderer::PopGLState(const CglFont& fnt)
 	if (auto* tex = fnt.GetAtlasTexture())
 		tex->Unbind(0);
 
-	glPopAttrib();
+	// Restore state explicitly
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetDepthTestEnabled(true);
+	ctx->SetBlendEnabled(false);
+	glEnable(GL_ALPHA_TEST);
 }
 
 void CglShaderFontRenderer::GetStats(std::array<size_t, 8>& stats) const
@@ -388,7 +388,10 @@ void CglNoShaderFontRenderer::PushGLState(const CglFont& fnt)
 	// NOTE: This entire legacy (no-shader) renderer uses fixed-function pipeline
 	// features (display lists, matrix stack, client state) that have no RHI equivalent.
 	// Only the texture bind and basic state calls are migrated to RHI; the rest stays as raw GL.
-	glPushAttrib(GL_ENABLE_BIT | GL_CURRENT_BIT);
+
+	// Save current color state for later restore
+	glGetFloatv(GL_CURRENT_COLOR, savedColor);
+
 	glDisable(GL_LIGHTING);  // FFP feature, no RHI equivalent
 	ctx->SetDepthTestEnabled(false);
 	glDisable(GL_ALPHA_TEST);  // FFP feature, no RHI equivalent
@@ -425,7 +428,14 @@ void CglNoShaderFontRenderer::PopGLState(const CglFont& fnt)
 	glMatrixMode(GL_MODELVIEW);
 
 	glDisable(GL_TEXTURE_2D);
-	glPopAttrib();
+
+	// Restore state explicitly
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetDepthTestEnabled(true);
+	ctx->SetBlendEnabled(false);
+	glEnable(GL_ALPHA_TEST);
+	glEnable(GL_LIGHTING);
+	glColor4fv(savedColor);
 }
 
 void CglNoShaderFontRenderer::GetStats(std::array<size_t, 8>& stats) const
