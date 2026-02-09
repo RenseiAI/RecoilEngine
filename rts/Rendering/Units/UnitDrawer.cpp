@@ -2005,6 +2005,7 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLua
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	auto& smv = S3DModelVAO::GetInstance();
+	auto* ctx = RHI::GetDevice()->GetContext();
 
 	const float3 stageBounds = { 0.0f, unit->model->CalcDrawHeight(), unit->buildProgress };
 
@@ -2051,9 +2052,9 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLua
 		SetClipPlane(0, upperPlanes[BUILDSTAGE_WIRE]);
 		SetClipPlane(1, lowerPlanes[BUILDSTAGE_WIRE]);
 
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+		ctx->SetPolygonMode(RHI::PolygonMode::Line);
 		smv.SubmitImmediately(unit, GL_TRIANGLES);
-		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+		ctx->SetPolygonMode(RHI::PolygonMode::Fill);
 	}
 
 	if (stageBounds.z > 1.0f / 3.0f) {
@@ -2082,6 +2083,7 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLua
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	auto& smv = S3DModelVAO::GetInstance();
+	auto* ctx = RHI::GetDevice()->GetContext();
 
 	const    CTeam* team = teamHandler.Team(unit->team);
 	const   SColor  color = team->color;
@@ -2127,9 +2129,9 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLua
 		modelDrawerState->SetClipPlane(0, upperPlanes[BUILDSTAGE_WIRE]);
 		modelDrawerState->SetClipPlane(1, lowerPlanes[BUILDSTAGE_WIRE]);
 
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+		ctx->SetPolygonMode(RHI::PolygonMode::Line);
 		smv.SubmitImmediately(unit, GL_TRIANGLES);
-		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+		ctx->SetPolygonMode(RHI::PolygonMode::Fill);
 	}
 
 	if (stageBounds.z > 1.0f / 3.0f) {
@@ -2146,14 +2148,13 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLua
 
 	if (stageBounds.z > 2.0f / 3.0f) {
 		// fully-shaded, conditional
-		glPolygonOffset(1.0f, 1.0f);
-		glEnable(GL_POLYGON_OFFSET_FILL);
+		ctx->SetPolygonOffset(true, 1.0f, 1.0f);
 		SetNanoColor(float4(1.0f, 1.0f, 1.0f, 0.0f));
 		modelDrawerState->SetClipPlane(0, upperPlanes[BUILDSTAGE_FLAT]);
 
 		smv.SubmitImmediately(unit, GL_TRIANGLES);
 
-		glDisable(GL_POLYGON_OFFSET_FILL);
+		ctx->SetPolygonOffset(false);
 	}
 
 	SetNanoColor(float4(1.0f, 1.0f, 1.0f, 0.0f)); // turn off in any case
