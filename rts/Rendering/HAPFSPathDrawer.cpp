@@ -42,7 +42,6 @@
 //   glLineWidth(3) -> ctx->SetLineWidth(3.0f)
 //   glLineWidth(1) -> ctx->SetLineWidth(1.0f)
 // Not migrated (FFP):
-//   glPushAttrib(GL_ENABLE_BIT) / glPopAttrib -> FFP attribute stack
 //   glDisable(GL_DEPTH_TEST) -> FFP depth test state
 //   glDisable(GL_TEXTURE_2D), glDisable(GL_LIGHTING) -> FFP state
 //   glBegin(GL_LINE_STRIP)/glEnd, glColor4f, glVertexf3 -> immediate-mode (Draw paths)
@@ -75,14 +74,10 @@ HAPFSPathDrawer::HAPFSPathDrawer(): IPathDrawer()
 void HAPFSPathDrawer::DrawAll() const {
 	// CPathManager is not thread-safe
 	if (enabled && (gs->cheatEnabled || gu->spectating)) {
-		glPushAttrib(GL_ENABLE_BIT);
-
 		Draw(); // draw paths and goals
 		Draw(pm->GetMaxResPF()); // draw PF grid-overlay
 		Draw(pm->GetMedResPE()); // draw PE grid-overlay (med-res)
 		Draw(pm->GetLowResPE()); // draw PE grid-overlay (low-res)
-
-		glPopAttrib();
 	}
 }
 

@@ -5,12 +5,12 @@
  *
  * All migratable GL calls have been replaced with RHI equivalents:
  *   - Pipeline state (blend, depth test): RHI::PipelineDesc + BindPipeline()
- *   - Viewport: ctx->SetViewport()
+ *   - Viewport: ctx->SetViewport() (with explicit save/restore)
  *   - Draw calls: ctx->Draw()
  *
  * Retained GL calls (no RHI equivalent or external dependencies):
  *   - glMatrixMode, glPushMatrix, glPopMatrix, glLoadMatrixf, glLoadIdentity: FFP matrix stack
- *   - glPushAttrib, glPopAttrib: FFP attribute stack (no RHI equivalent)
+ *   - glGetIntegerv(GL_VIEWPORT): FFP viewport query for state save/restore
  *   - glDrawBuffer: Framebuffer draw buffer selection (no RHI equivalent)
  *   - glGenTextures, glBindTexture, glTexParameteri, glTexImage2D, glDeleteTextures,
  *     glGenerateMipmapEXT, glEnable/glDisable(GL_TEXTURE_CUBE_MAP):
@@ -24,7 +24,7 @@
 
 #include "SkyBox.h"
 #include "Rendering/GlobalRendering.h"
-#include "Rendering/GL/myGL.h"  // retained: FFP matrix stack, raw cubemap creation, glDrawBuffer, glPushAttrib
+#include "Rendering/GL/myGL.h"  // retained: FFP matrix stack, raw cubemap creation, glDrawBuffer, glGetIntegerv
 #include "Rendering/GL/FBO.h"
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/RHI/RHIPipeline.h"
@@ -122,10 +122,13 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 
 		valid = true;
 		{
-			glPushAttrib(GL_ENABLE_BIT | GL_VIEWPORT_BIT);
+			// Save current viewport
+			int savedViewport[4];
+			glGetIntegerv(GL_VIEWPORT, savedViewport);
 
 			// Viewport via RHI
-			RHI::GetDevice()->GetContext()->SetViewport({0.0f, 0.0f, static_cast<float>(ysize), static_cast<float>(ysize)});
+			auto* ctx = RHI::GetDevice()->GetContext();
+			ctx->SetViewport({0.0f, 0.0f, static_cast<float>(ysize), static_cast<float>(ysize)});
 
 			// Pipeline state via RHI (no depth test, no blending for equirect conversion)
 			{
@@ -133,7 +136,7 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 				pipeDesc.depthStencil.depthTestEnabled = false;
 				pipeDesc.blend.enabled = false;
 				auto pipeline = RHI::GetDevice()->CreatePipeline(pipeDesc);
-				RHI::GetDevice()->GetContext()->BindPipeline(pipeline.get());
+				ctx->BindPipeline(pipeline.get());
 			}
 
 			glMatrixMode(GL_PROJECTION);
@@ -182,7 +185,9 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 			glMatrixMode(GL_MODELVIEW);
 			glPopMatrix();
 
-			glPopAttrib();
+			// Restore viewport (enable states are managed by scoped pipeline and restore on destruction)
+			ctx->SetViewport({static_cast<float>(savedViewport[0]), static_cast<float>(savedViewport[1]),
+			                  static_cast<float>(savedViewport[2]), static_cast<float>(savedViewport[3])});
 
 			FBO::Unbind();
 

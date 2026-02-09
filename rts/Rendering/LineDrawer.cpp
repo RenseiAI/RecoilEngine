@@ -4,12 +4,11 @@
  * RHI Migration Status (LineDrawer)
  *
  * MIGRATED:
- * - Dynamic state: glDisable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled(false)
+ * - Dynamic state: glDisable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled(false) (with explicit state restore)
  *
  * REMAINING (NOT MIGRATED):
  * - FFP client-state vertex arrays: glEnableClientState(GL_VERTEX_ARRAY/GL_COLOR_ARRAY),
  *   glVertexPointer, glColorPointer, glDrawArrays (requires conversion to IRHIBuffer)
- * - FFP state: glPushAttrib/glPopAttrib (no RHI equivalent)
  * - FFP deprecated: glDisable(GL_TEXTURE_2D) (FFP texture unit, no RHI equivalent)
  * - Line stipple: glEnable/glDisable(GL_LINE_STIPPLE), glLineStipple() (no RHI equivalent, deprecated in GL3+)
  */
@@ -76,7 +75,6 @@ void CLineDrawer::DrawAll()
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glEnableClientState(GL_COLOR_ARRAY);
 
-	glPushAttrib(GL_ENABLE_BIT);
 	glDisable(GL_TEXTURE_2D);
 	ctx->SetDepthTestEnabled(false);
 	glDisable(GL_LINE_STIPPLE);
@@ -105,7 +103,10 @@ void CLineDrawer::DrawAll()
 
 	glDisableClientState(GL_COLOR_ARRAY);
 	glDisableClientState(GL_VERTEX_ARRAY);
-	glPopAttrib();
+
+	// Restore state
+	ctx->SetDepthTestEnabled(true);
+	glEnable(GL_TEXTURE_2D);
 
 	lines.clear();
 	stippled.clear();

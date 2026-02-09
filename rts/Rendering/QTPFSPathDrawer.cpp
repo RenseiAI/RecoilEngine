@@ -36,7 +36,7 @@
 #include "System/StringUtil.h"
 
 // RHI Migration Status (QTPFSPathDrawer):
-// - MIGRATED: depth test, blend enable, line width, polygon mode via ctx->SetXxx()
+// - MIGRATED: depth test, blend enable, line width, polygon mode via ctx->SetXxx() (with explicit state restore)
 // - LEGACY FFP in DrawInMiniMap(): glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity,
 //   glOrtho, glTranslatef3, glScalef, glColor4f, glRectf, glEnable/Disable(GL_TEXTURE_2D)
 
@@ -72,7 +72,6 @@ void QTPFSPathDrawer::DrawAll() const {
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glPushAttrib(GL_ENABLE_BIT | GL_POLYGON_BIT);
 	ctx->SetDepthTestEnabled(false);
 	ctx->SetBlendEnabled(true);
 
@@ -100,7 +99,9 @@ void QTPFSPathDrawer::DrawAll() const {
 		DrawCosts(visibleNodes);
 	}
 
-	glPopAttrib();
+	// Restore state
+	ctx->SetDepthTestEnabled(true);
+	ctx->SetBlendEnabled(false);
 }
 
 void QTPFSPathDrawer::DrawNodes(const MoveDef* md, TypedRenderBuffer<VA_TYPE_C>& rb, const std::vector<const QTPFS::QTNode*>& nodes, const QTPFS::NodeLayer& nodeLayer) const {
