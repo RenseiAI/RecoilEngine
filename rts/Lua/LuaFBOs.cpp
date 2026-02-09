@@ -35,6 +35,8 @@
 #include "System/Misc/TracyDefs.h"
 #include "Rendering/GL/FBO.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 
 
 /******************************************************************************
@@ -662,7 +664,8 @@ int LuaFBOs::ActiveFBO(lua_State* L)
 		return 0;
 
 	glPushAttrib(GL_VIEWPORT_BIT);
-	glViewport(0, 0, fbo->xsize, fbo->ysize);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetViewport({0.0f, 0.0f, static_cast<float>(fbo->xsize), static_cast<float>(fbo->ysize)});
 	if (identities) {
 		glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
 		glMatrixMode(GL_MODELVIEW);  glPushMatrix(); glLoadIdentity();

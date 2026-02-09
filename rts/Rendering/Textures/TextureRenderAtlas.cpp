@@ -29,6 +29,7 @@
 
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Rendering/GL/myGL.h" // needed for FBO, SubState, RenderBuffers, TexBind (rendering pipeline)
 #include "Rendering/GL/FBO.h"
 #include "Rendering/GL/TexBind.h"
@@ -428,9 +429,15 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 			static const auto Norm2SNorm = [](float value) { return (value * 2.0f - 1.0f); };
 			auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2DT>();
 
+			auto* ctx = RHI::GetDevice()->GetContext();
+
 			for (uint32_t page = 0; page < numPages; ++page) {
 				for (uint32_t level = 0; level < numLevels; ++level) {
-					glViewport(0, 0, std::max(atlasSize.x >> level, 1), std::max(atlasSize.y >> level, 1));
+					ctx->SetViewport({
+						0.0f, 0.0f,
+						static_cast<float>(std::max(atlasSize.x >> level, 1)),
+						static_cast<float>(std::max(atlasSize.y >> level, 1))
+					});
 
 					if (numPages > 1)
 						fbo.AttachTextureLayer(atlasTex->GetId(), GL_COLOR_ATTACHMENT0, level, page);

@@ -27,6 +27,7 @@
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
 #include "Rendering/Textures/Bitmap.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/EventHandler.h"
 #include "System/Exceptions.h"
@@ -717,7 +718,8 @@ void CSMFReadMap::UpdateVisNormalsAndShadingTexture(const SRectangle& update)
 	);
 
 	shadingFBO->Bind();
-	glViewport(0, 0, mapDims.mapxp1, mapDims.mapyp1);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetViewport({0.0f, 0.0f, static_cast<float>(mapDims.mapxp1), static_cast<float>(mapDims.mapyp1)});
 
 	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, heightMapTexture.GetID());
 

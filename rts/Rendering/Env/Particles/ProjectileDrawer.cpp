@@ -1127,7 +1127,12 @@ void CProjectileDrawer::UpdatePerlin() {
 	auto* ctx = RHI::GetDevice()->GetContext();
 
 	perlinFB.Bind();
-	glViewport(perlintex->xstart * (textureAtlas->GetSize()).x, perlintex->ystart * (textureAtlas->GetSize()).y, perlinTexSize, perlinTexSize);
+	ctx->SetViewport({
+		static_cast<float>(perlintex->xstart * (textureAtlas->GetSize()).x),
+		static_cast<float>(perlintex->ystart * (textureAtlas->GetSize()).y),
+		static_cast<float>(perlinTexSize),
+		static_cast<float>(perlinTexSize)
+	});
 
 	glMatrixMode(GL_PROJECTION);
 	glPushMatrix();
