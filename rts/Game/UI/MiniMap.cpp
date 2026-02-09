@@ -1,6 +1,6 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 /* RHI Migration Status: PARTIAL - GL dynamic state calls migrated to RHI context methods
- * - Migrated: glEnable/glDisable(GL_BLEND), glBlendFunc, glDepthMask, glLineWidth, glDisable(GL_DEPTH_TEST)
+ * - Migrated: glEnable/glDisable(GL_BLEND), glBlendFunc, glDepthMask, glLineWidth, glDisable(GL_DEPTH_TEST), glDisable(GL_SAMPLE_SHADING)
  * - Not migrated: GL_TEXTURE_2D (FFP), GL_SCISSOR_TEST, glPushAttrib/glPopAttrib (FFP state stack)
  * - Not migrated: glViewport, glClearColor, glClear (boundary with GlobalRendering)
  * - Not migrated: FFP matrix operations, texture binding (non-state operations)
@@ -1867,8 +1867,9 @@ void CMiniMap::DrawBackground() const
 		SampleShading(GL_FALSE) // sample shading is detrimental for minimap background sharpness
 	);
 
+	auto* ctx = RHI::GetDevice()->GetContext();
 	if (globalRendering->minSampleShadingRate > 0)
-		glDisable(GL_SAMPLE_SHADING);
+		ctx->SetSampleShading(false);
 
 	readMap->BindMiniMapTextures();
 	bgShader->Enable();

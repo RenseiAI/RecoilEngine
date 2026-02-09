@@ -2029,8 +2029,8 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLua
 	// RHI_TODO: glPushAttrib(GL_POLYGON_BIT) saves polygon mode state (now handled by RHI context).
 	glPushAttrib(GL_POLYGON_BIT);
 
-	glEnable(GL_CLIP_DISTANCE0);
-	glEnable(GL_CLIP_DISTANCE1);
+	ctx->SetClipDistanceEnabled(0, true);
+	ctx->SetClipDistanceEnabled(1, true);
 
 	const auto SetClipPlane = [po](uint8_t idx, const float4& cp) {
 		switch (idx)
@@ -2068,8 +2068,8 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLua
 	SetClipPlane(0, float4{ 0.0f, 0.0f, 0.0f, 1.0f }); //default
 	SetClipPlane(1, float4{ 0.0f, 0.0f, 0.0f, 1.0f }); //default;
 
-	glDisable(GL_CLIP_DISTANCE1);
-	glDisable(GL_CLIP_DISTANCE0);
+	ctx->SetClipDistanceEnabled(1, false);
+	ctx->SetClipDistanceEnabled(0, false);
 
 	if (stageBounds.z > 2.0f / 3.0f) {
 		// fully-shaded, conditional
@@ -2120,8 +2120,8 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLua
 	// RHI_TODO: glPushAttrib(GL_POLYGON_BIT) saves polygon mode state (now handled by RHI context).
 	glPushAttrib(GL_POLYGON_BIT);
 
-	glEnable(GL_CLIP_DISTANCE0);
-	glEnable(GL_CLIP_DISTANCE1);
+	ctx->SetClipDistanceEnabled(0, true);
+	ctx->SetClipDistanceEnabled(1, true);
 
 	{
 		// wireframe, unconditional
@@ -2144,7 +2144,7 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLua
 	}
 
 	modelDrawerState->SetClipPlane(1); //default;
-	glDisable(GL_CLIP_DISTANCE1);
+	ctx->SetClipDistanceEnabled(1, false);
 
 	if (stageBounds.z > 2.0f / 3.0f) {
 		// fully-shaded, conditional
@@ -2159,7 +2159,7 @@ void CUnitDrawerGL4::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLua
 
 	SetNanoColor(float4(1.0f, 1.0f, 1.0f, 0.0f)); // turn off in any case
 	modelDrawerState->SetClipPlane(0); //default
-	glDisable(GL_CLIP_DISTANCE0);
+	ctx->SetClipDistanceEnabled(0, false);
 
 	glPopAttrib();
 }
