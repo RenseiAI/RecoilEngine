@@ -9,6 +9,7 @@
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/Textures/Bitmap.h"
 #include "MouseCursor.h"
@@ -347,9 +348,9 @@ void CMouseCursor::Draw(int x, int y, float scale) const
 	glPushMatrix();
 	glLoadMatrixf(CMatrix44f::ClipOrthoProj01(RHI::GetDevice()->SupportClipSpaceControl() * 1.0f));
 
-
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
 	glBindTexture(GL_TEXTURE_2D, image.texture);
 
@@ -365,7 +366,7 @@ void CMouseCursor::Draw(int x, int y, float scale) const
 	glMatrixMode(GL_MODELVIEW);
 	glPopMatrix();
 
-	glDisable(GL_BLEND);
+	ctx->SetBlendEnabled(false);
 }
 
 void CMouseCursor::Update()
