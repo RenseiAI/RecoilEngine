@@ -3,10 +3,10 @@
 /**
  * GL Extra Drawing Utilities
  *
- * RHI Migration Status: PARTIALLY ABSTRACTED
- * ------------------------------------------
- * glDrawVolume (~12 GL calls): Stencil-based volume rendering
- *   RHI: Use two RHI::PipelineDesc with RHI::DepthStencilState
+ * RHI Migration Status: PARTIALLY MIGRATED
+ * -----------------------------------------
+ * glDrawVolume: Migrated to RHI dynamic state context (depth, cull, color mask, stencil test enable)
+ *   Remaining GL: glDepthClamp, glStencil* ops (no RHI equivalent)
  *
  * GL::Shapes (~8 GL calls): glDrawElements, vertex attrib setup
  *   RHI: Use IRHIBuffer + IRHIContext::DrawIndexed()
@@ -17,6 +17,8 @@
 #include "glExtra.h"
 #include "RenderBuffers.h"
 #include "VertexArray.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 
 #include "Map/Ground.h"
 #include "Game/Camera.h"
@@ -229,35 +231,37 @@ void glBallisticCircleLua(const WeaponDef* weaponDef, const SColor& color, uint3
 
 void glDrawVolume(DrawVolumeFunc drawFunc, const void* data)
 {
-	glDepthMask(GL_FALSE);
-	glDisable(GL_CULL_FACE);
-	glEnable(GL_DEPTH_TEST);
+	auto* ctx = RHI::GetDevice()->GetContext();
+
+	ctx->SetDepthWriteEnabled(false);
+	ctx->SetCullFaceEnabled(false);
+	ctx->SetDepthTestEnabled(true);
 	glEnable(GL_DEPTH_CLAMP);
 
-	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+	ctx->SetColorMask(false, false, false, false);
 
-		glEnable(GL_STENCIL_TEST);
+		ctx->SetStencilTestEnabled(true);
 		glStencilMask(0x1);
 		glStencilFunc(GL_ALWAYS, 0, 0x1);
 		glStencilOp(GL_KEEP, GL_INCR, GL_KEEP);
 		drawFunc(data); // draw
 
-	glDisable(GL_DEPTH_TEST);
+	ctx->SetDepthTestEnabled(false);
 
 	glStencilFunc(GL_NOTEQUAL, 0, 0x1);
 	glStencilOp(GL_ZERO, GL_ZERO, GL_ZERO); // clear as we go
 
-	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	ctx->SetColorMask(true, true, true, true);
 
-	glEnable(GL_CULL_FACE);
-	glCullFace(GL_FRONT);
+	ctx->SetCullFaceEnabled(true);
+	ctx->SetCullFace(RHI::CullMode::Front);
 
 	drawFunc(data);   // draw
 
 	glDisable(GL_DEPTH_CLAMP);
-	glDisable(GL_STENCIL_TEST);
-	glDisable(GL_CULL_FACE);
-	glEnable(GL_DEPTH_TEST);
+	ctx->SetStencilTestEnabled(false);
+	ctx->SetCullFaceEnabled(false);
+	ctx->SetDepthTestEnabled(true);
 }
 
 /******************************************************************************/
