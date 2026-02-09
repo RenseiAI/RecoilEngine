@@ -12,6 +12,8 @@
 #include "Map/ReadMap.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/Fonts/glFont.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Sim/Features/Feature.h"
 #include "Sim/Features/FeatureDef.h"
 #include "Sim/Misc/ResourceHandler.h"
@@ -63,11 +65,12 @@ void CTooltipConsole::Draw()
 		return;
 	}
 
+	auto* ctx = RHI::GetDevice()->GetContext();
 	const std::string& s = mouse->GetCurrentTooltip();
 
 	glDisable(GL_TEXTURE_2D);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
 	if (!outFont) {
 		glColor4f(0.2f, 0.2f, 0.2f, CInputReceiver::guiAlpha);

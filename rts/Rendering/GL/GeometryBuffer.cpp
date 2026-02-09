@@ -59,6 +59,8 @@ void GL::GeometryBuffer::Clear() const {
 
 void GL::GeometryBuffer::SetDepthRange(float nearDepth, float farDepth) const {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	#if 0
 	if (RHI::GetDevice()->SupportClipSpaceControl()) {
 		// TODO: need to inform shaders about this, modify PM instead
@@ -68,7 +70,7 @@ void GL::GeometryBuffer::SetDepthRange(float nearDepth, float farDepth) const {
 	}
 	#else
 	glClearDepth(std::max(nearDepth, farDepth));
-	glDepthFunc(GL_LEQUAL);
+	ctx->SetDepthFunc(RHI::CompareFunc::LessEqual);
 	#endif
 }
 
