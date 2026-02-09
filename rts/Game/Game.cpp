@@ -2070,8 +2070,9 @@ void CGame::DrawSkip(bool blackscreen) {
 	#if 0
 	const int framesLeft = (skipEndFrame - gs->frameNum);
 	if (blackscreen) {
-		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
+		auto* ctx = RHI::GetDevice()->GetContext();
+		ctx->ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		ctx->Clear(true, false, false);
 	}
 	glColor3f(0.5f, 1.0f, 0.5f);
 	font->glFormat(0.5f, 0.55f, 2.5f, FONT_CENTER | FONT_SCALE | FONT_NORM, "Skipping %.1f game seconds", skipSeconds);

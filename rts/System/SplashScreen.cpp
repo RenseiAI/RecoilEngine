@@ -7,6 +7,8 @@
 #include "SplashScreen.hpp"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/Textures/Bitmap.h"
@@ -74,7 +76,8 @@ void ShowSplashScreen(
 	glEnable(GL_TEXTURE_2D);
 
 	for (spring_time t0 = spring_now(), t1 = t0; !testDoneFunc(); t1 = spring_now()) {
-		glClear(GL_COLOR_BUFFER_BIT);
+		auto* ctx = RHI::GetDevice()->GetContext();
+		ctx->Clear(true, false, false);
 
 		glBindTexture(GL_TEXTURE_2D, splashTex);
 

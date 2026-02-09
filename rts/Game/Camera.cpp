@@ -9,6 +9,8 @@
 #include "Map/ReadMap.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "System/SpringMath.h"
 #include "System/float3.h"
 #include "System/Matrix44f.h"
@@ -299,7 +301,8 @@ void CCamera::LoadMatrices() const
 void CCamera::LoadViewport() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetViewport({static_cast<float>(viewport[0]), static_cast<float>(viewport[1]), static_cast<float>(viewport[2]), static_cast<float>(viewport[3])});
 }
 
 
