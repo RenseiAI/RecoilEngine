@@ -12,6 +12,8 @@
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GlobalRenderingInfo.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Sim/Features/FeatureMemPool.h"
 #include "Sim/Misc/GlobalConstants.h" // for GAME_SPEED
 #include "Sim/Misc/GlobalSynced.h"
@@ -319,6 +321,7 @@ static void DrawFrameBarcode(TypedRenderBuffer<VA_TYPE_C   >& rb)
 static void DrawProfiler(TypedRenderBuffer<VA_TYPE_C   >& rb)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
 	auto& profiler = CTimeProfiler::GetInstance();
 	font->SetTextColor(1.0f, 1.0f, 1.0f, 1.0f);
 
@@ -427,7 +430,7 @@ static void DrawProfiler(TypedRenderBuffer<VA_TYPE_C   >& rb)
 	// draw the graph lines
 	//GL::WideLineAdapterC* wla = GL::GetWideLineAdapterC();
 	//wla->Setup(buffer, globalRendering->viewSizeX, globalRendering->viewSizeY, 3.0f, CMatrix44f::ClipOrthoProj01());
-	glLineWidth(3.0f);
+	ctx->SetLineWidth(3.0f);
 
 	for (const auto& p: sortedProfiles) {
 		const CTimeProfiler::TimeRecord& tr = p.second;
@@ -455,7 +458,7 @@ static void DrawProfiler(TypedRenderBuffer<VA_TYPE_C   >& rb)
 		rb.Submit(GL_LINE_STRIP);
 	}
 
-	glLineWidth(1.0f);
+	ctx->SetLineWidth(1.0f);
 }
 
 
