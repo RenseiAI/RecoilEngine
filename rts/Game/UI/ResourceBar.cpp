@@ -7,6 +7,8 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/glExtra.h"
 #include "Rendering/Fonts/glFont.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Sim/Misc/TeamHandler.h"
 #include "Net/Protocol/NetProtocol.h"
 #include "System/SpringMath.h"
@@ -75,8 +77,9 @@ void CResourceBar::Draw()
 
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
 	auto& shader = rb.GetShader();
+	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glEnable(GL_BLEND);
+	ctx->SetBlendEnabled(true);
 
 
 	const float metalx = box.x1 + 0.01f;

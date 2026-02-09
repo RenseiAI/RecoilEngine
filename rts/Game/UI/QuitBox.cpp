@@ -13,6 +13,8 @@
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/glExtra.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/ModInfo.h"
 #include "Sim/Misc/TeamHandler.h"
@@ -123,8 +125,9 @@ void CQuitBox::Draw()
 
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
 	auto& shader = rb.GetShader();
+	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glEnable(GL_BLEND);
+	ctx->SetBlendEnabled(true);
 
 	{
 		// draw the background box

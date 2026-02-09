@@ -4,6 +4,8 @@
 #include "EndGameBox.h"
 
 #include "MouseHandler.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Game/Game.h"
 #include "Game/GameSetup.h"
 #include "Game/GlobalUnsynced.h"
@@ -225,8 +227,9 @@ void CEndGameBox::Draw()
 
 	auto& shaderC = rbC.GetShader();
 	auto& shaderT = rbT.GetShader();
+	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glEnable(GL_BLEND);
+	ctx->SetBlendEnabled(true);
 
 	{
 		// Large Box

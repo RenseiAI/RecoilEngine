@@ -10,6 +10,8 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/glExtra.h"
 #include "Rendering/Fonts/glFont.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Sim/Misc/Team.h"
 #include "Sim/Misc/Wind.h"
 #include "Sim/Misc/ModInfo.h"
@@ -215,6 +217,7 @@ void CGameInfo::Draw()
 
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
 	auto& shader = rb.GetShader();
+	auto* ctx = RHI::GetDevice()->GetContext();
 
 
 	// in screen fractions
@@ -239,7 +242,7 @@ void CGameInfo::Draw()
 	box.y2 = 0.5f + (height * 0.5f);
 
 
-	glEnable(GL_BLEND);
+	ctx->SetBlendEnabled(true);
 
 	// draw the boxes
 	for (size_t i = 0; i < labels.size(); i++) {
