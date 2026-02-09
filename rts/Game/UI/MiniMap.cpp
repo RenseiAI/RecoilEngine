@@ -1,8 +1,8 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 /* RHI Migration Status: PARTIAL - GL dynamic state calls migrated to RHI context methods
  * - Migrated: glEnable/glDisable(GL_BLEND), glBlendFunc, glDepthMask, glLineWidth, glDisable(GL_DEPTH_TEST), glDisable(GL_SAMPLE_SHADING)
- * - Not migrated: GL_TEXTURE_2D (FFP), GL_SCISSOR_TEST, glPushAttrib/glPopAttrib (FFP state stack)
- * - Not migrated: glViewport, glClearColor, glClear (boundary with GlobalRendering)
+ * - Migrated: glViewport, glScissor, glClearColor, glClear, GL_SCISSOR_TEST
+ * - Not migrated: GL_TEXTURE_2D (FFP), glPushAttrib/glPopAttrib (FFP state stack)
  * - Not migrated: FFP matrix operations, texture binding (non-state operations)
  */
 
@@ -314,13 +314,25 @@ void CMiniMap::SetAspectRatioGeometry(const float& viewSizeX, const float& viewS
 
 
 void CMiniMap::LoadDualViewport() const {
-	glEnable(GL_SCISSOR_TEST);
-	glScissor(globalRendering->dualViewPosX, globalRendering->dualViewPosY, globalRendering->dualViewSizeX, globalRendering->dualViewSizeY);
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
-	glDisable(GL_SCISSOR_TEST);
+	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glViewport(curPos.x, curPos.y, curDim.x, curDim.y);
+	ctx->SetScissorTestEnabled(true);
+	ctx->SetScissor({
+		globalRendering->dualViewPosX,
+		globalRendering->dualViewPosY,
+		static_cast<uint32_t>(globalRendering->dualViewSizeX),
+		static_cast<uint32_t>(globalRendering->dualViewSizeY)
+	});
+	ctx->ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	ctx->Clear(true, false, false);
+	ctx->SetScissorTestEnabled(false);
+
+	ctx->SetViewport({
+		static_cast<float>(curPos.x),
+		static_cast<float>(curPos.y),
+		static_cast<float>(curDim.x),
+		static_cast<float>(curDim.y)
+	});
 }
 
 
@@ -1181,9 +1193,10 @@ void CMiniMap::UpdateTextureCache()
 	{
 		curPos = {0, 0};
 
-		glViewport(0, 0, minimapTexSize.x, minimapTexSize.y);
-		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
+		auto* ctx = RHI::GetDevice()->GetContext();
+		ctx->SetViewport({0.0f, 0.0f, static_cast<float>(minimapTexSize.x), static_cast<float>(minimapTexSize.y)});
+		ctx->ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		ctx->Clear(true, false, false);
 
 		DrawForReal(false, true, false);
 
@@ -1396,8 +1409,10 @@ void CMiniMap::DrawForReal(bool useNormalizedCoors, bool updateTex, bool luaCall
 void CMiniMap::DrawCameraFrustumAndMouseSelection()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glEnable(GL_SCISSOR_TEST);
-	glScissor(curPos.x, curPos.y, curDim.x, curDim.y);
+	auto* ctx = RHI::GetDevice()->GetContext();
+
+	ctx->SetScissorTestEnabled(true);
+	ctx->SetScissor({curPos.x, curPos.y, static_cast<uint32_t>(curDim.x), static_cast<uint32_t>(curDim.y)});
 
 	// switch to top-down map/world coords (z is twisted with y compared to the real map/world coords)
 	glPushMatrix();
@@ -1535,7 +1550,7 @@ void CMiniMap::DrawCameraFrustumAndMouseSelection()
 
 	glPopMatrix();
 
-	glDisable(GL_SCISSOR_TEST);
+	ctx->SetScissorTestEnabled(false);
 	glEnable(GL_TEXTURE_2D);
 }
 
@@ -1888,8 +1903,10 @@ void CMiniMap::DrawUnitIcons() const
 {
 	ZoneScopedN("MiniMap::DrawUnitIcons");
 
-	glEnable(GL_SCISSOR_TEST);
-	glScissor(curPos.x, curPos.y, curDim.x, curDim.y);
+	auto* ctx = RHI::GetDevice()->GetContext();
+
+	ctx->SetScissorTestEnabled(true);
+	ctx->SetScissor({curPos.x, curPos.y, static_cast<uint32_t>(curDim.x), static_cast<uint32_t>(curDim.y)});
 
 	// switch to top-down map/world coords (z is twisted with y compared to the real map/world coords)
 	glPushMatrix();
@@ -1902,7 +1919,7 @@ void CMiniMap::DrawUnitIcons() const
 
 	glPopMatrix();
 
-	glDisable(GL_SCISSOR_TEST);
+	ctx->SetScissorTestEnabled(false);
 }
 
 

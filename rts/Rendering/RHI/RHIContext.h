@@ -95,6 +95,7 @@ public:
 	virtual void SetPointSize(float size) = 0;
 	virtual void SetPolygonMode(PolygonMode mode) = 0;
 	virtual void SetStencilTestEnabled(bool enabled) = 0;
+	virtual void SetScissorTestEnabled(bool enabled) = 0;
 
 	// --- Clear ---
 	virtual void ClearColor(float r, float g, float b, float a) = 0;

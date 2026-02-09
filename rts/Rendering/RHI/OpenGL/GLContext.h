@@ -57,6 +57,7 @@ public:
 	void SetPointSize(float size) override;
 	void SetPolygonMode(PolygonMode mode) override;
 	void SetStencilTestEnabled(bool enabled) override;
+	void SetScissorTestEnabled(bool enabled) override;
 
 	void ClearColor(float r, float g, float b, float a) override;
 	void ClearDepth(float depth) override;

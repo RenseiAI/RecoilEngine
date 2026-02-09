@@ -53,8 +53,9 @@ void GL::GeometryBuffer::Kill(bool dtor) {
 void GL::GeometryBuffer::Clear() const {
 	RECOIL_DETAILED_TRACY_ZONE;
 	assert(bound);
-	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+	ctx->Clear(true, true, false);
 }
 
 void GL::GeometryBuffer::SetDepthRange(float nearDepth, float farDepth) const {
@@ -65,11 +66,11 @@ void GL::GeometryBuffer::SetDepthRange(float nearDepth, float farDepth) const {
 	if (RHI::GetDevice()->SupportClipSpaceControl()) {
 		// TODO: need to inform shaders about this, modify PM instead
 		glDepthRangef(nearDepth, farDepth);
-		glClearDepth(farDepth);
+		ctx->ClearDepth(farDepth);
 		glDepthFunc((nearDepth <= farDepth)? GL_LEQUAL: GL_GREATER);
 	}
 	#else
-	glClearDepth(std::max(nearDepth, farDepth));
+	ctx->ClearDepth(std::max(nearDepth, farDepth));
 	ctx->SetDepthFunc(RHI::CompareFunc::LessEqual);
 	#endif
 }
@@ -241,5 +242,11 @@ int2 GL::GeometryBuffer::GetWantedSize(bool allowed) const {
 void GL::GeometryBuffer::LoadViewport()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glViewport(0, 0, globalRendering->viewSizeX, globalRendering->viewSizeY);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetViewport({
+		0.0f,
+		0.0f,
+		static_cast<float>(globalRendering->viewSizeX),
+		static_cast<float>(globalRendering->viewSizeY)
+	});
 }

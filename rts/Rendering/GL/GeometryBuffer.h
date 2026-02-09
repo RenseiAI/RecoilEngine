@@ -19,12 +19,11 @@ namespace GL {
 	 *   - Texture storage: GLuint array -> std::array<std::unique_ptr<RHI::IRHITexture>>
 	 *   - Texture creation: glGenTextures/glTexImage2D -> device->CreateTexture()
 	 *   - MSAA textures: glTexImage2DMultisample -> CreateTexture(sampleCount)
+	 *   - Viewport/Clear: glViewport, glClear*, glClearColor -> ctx->SetViewport, ctx->Clear*, ctx->ClearColor
 	 *
 	 * Remaining:
 	 *   - FBO buffer still uses raw GL (not IRHIFramebuffer) for attachment
 	 *   - glDrawBuffers still raw GL (IRHIFramebuffer::SetDrawBuffers exists but not used)
-	 *   - glClear/glClearColor -> needs IRHIContext migration
-	 *   - glViewport -> needs IRHIContext migration
 	 *   - DrawDebug uses legacy immediate mode (glBegin/glEnd)
 	 *   - GL_DEPTH_TEXTURE_MODE has no RHI equivalent
 	 */

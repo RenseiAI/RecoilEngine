@@ -388,6 +388,13 @@ void GLContext::SetStencilTestEnabled(bool enabled) {
 		glDisable(GL_STENCIL_TEST);
 }
 
+void GLContext::SetScissorTestEnabled(bool enabled) {
+	if (enabled)
+		glEnable(GL_SCISSOR_TEST);
+	else
+		glDisable(GL_SCISSOR_TEST);
+}
+
 // --- Sync ---
 
 void GLContext::Flush()  { glFlush(); }
