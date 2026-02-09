@@ -13,6 +13,8 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/glExtra.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/TeamHandler.h"
 #include "Net/Protocol/NetProtocol.h"
@@ -115,6 +117,8 @@ CShareBox::~CShareBox() = default;
 void CShareBox::Draw()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	const float alpha = std::max(guiAlpha, 0.4f);
 
 	const float mx = MouseX(mouse->lastx);
@@ -123,7 +127,7 @@ void CShareBox::Draw()
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
 	auto& shader = rb.GetShader();
 
-	glEnable(GL_BLEND);
+	ctx->SetBlendEnabled(true);
 
 	{
 		// outer box
@@ -184,13 +188,13 @@ void CShareBox::Draw()
 
 		// show "share units" tickmark
 		if (shareUnits) {
-			glLineWidth(3.0f);
+			ctx->SetLineWidth(3.0f);
 			rb.AddVertex({{box.x1 + unitBox.x1 + 0.01f, box.y1 + unitBox.y1 + 0.025f, 0.0f}, {0.9f, 0.2f, 0.2f, 0.7f}});
 			rb.AddVertex({{box.x1 + unitBox.x1 + 0.02f, box.y1 + unitBox.y1 + 0.010f, 0.0f}, {0.9f, 0.2f, 0.2f, 0.7f}});
 			rb.AddVertex({{box.x1 + unitBox.x1 + 0.03f, box.y1 + unitBox.y1 + 0.040f, 0.0f}, {0.9f, 0.2f, 0.2f, 0.7f}});
 
 			rb.DrawArrays(GL_LINE_STRIP);
-			glLineWidth(1.0f);
+			ctx->SetLineWidth(1.0f);
 		}
 
 		shader.Disable();
