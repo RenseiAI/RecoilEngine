@@ -5,6 +5,9 @@
 #include <Rml/Backends/RmlUi_Backend.h>
 #include <RmlUi/Core.h>
 #include "Game.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Camera.h"
 #include "CameraHandler.h"
 #include "ChatMessage.h"
@@ -1528,7 +1531,8 @@ bool CGame::Draw() {
 		eventHandler.DrawScreenPost();
 	}
 
-	glEnable(GL_DEPTH_TEST);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetDepthTestEnabled(true);
 	glLoadIdentity();
 
 	if (videoCapturing->AllowRecord()) {

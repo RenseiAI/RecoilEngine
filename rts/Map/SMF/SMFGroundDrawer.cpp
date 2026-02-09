@@ -282,13 +282,15 @@ void CSMFGroundDrawer::DrawForwardPass(const DrawPass::e& drawPass, bool alphaTe
 	if (!SelectRenderState(drawPass)->CanDrawForward(this))
 		return;
 
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	smfRenderStates[RENDER_STATE_SEL]->SetCurrentShader(this, drawPass);
 	smfRenderStates[RENDER_STATE_SEL]->Enable(this, drawPass);
 
 	glPushAttrib((GL_ENABLE_BIT * alphaTest) | (GL_POLYGON_BIT * wireframe));
 
 	if (wireframe)
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+		ctx->SetPolygonMode(RHI::PolygonMode::Line);
 
 	if (alphaTest) {
 		glEnable(GL_ALPHA_TEST);
