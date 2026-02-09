@@ -7,6 +7,8 @@
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Game/GlobalUnsynced.h"
 #include "Gui.h"
 #include "System/StringUtil.h"
@@ -199,6 +201,8 @@ void List::DrawSelf() {}
 #else
 void List::DrawSelf()
 {
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	const float opacity = Opacity();
 	font->Begin();
 	float hf = font->GetSize() / ScaleFactor();
@@ -223,7 +227,7 @@ void List::DrawSelf()
 
 	font->SetTextColor(1.0f, 1.0f, 1.0f, opacity); //default
 	font->SetOutlineColor(0.0f, 0.0f, 0.0f, opacity);
-	glLineWidth(1.0f);
+	ctx->SetLineWidth(1.0f);
 
 	float sbX = b.GetPos()[0];
 	float sbY1 = b.GetPos()[1] + (itemHeight + itemSpacing);
@@ -233,19 +237,19 @@ void List::DrawSelf()
 		b.DrawBox(GL_LINE_LOOP, { 1.0f, 1.0f, 1.0f, opacity / 4.0f });
 
 		if (nCurIndex == place) {
-			glBlendFunc(GL_ONE, GL_ONE); // additive blending
+			ctx->SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One); // additive blending
 			b.DrawBox(GL_QUADS, { 0.2f, 0.0f, 0.0f, opacity });
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			glLineWidth(1.49f);
+			ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+			ctx->SetLineWidth(1.49f);
 			b.DrawBox(GL_LINE_LOOP, { 1.0f, 0.0f, 0.0f, opacity / 2.0f });
-			glLineWidth(1.0f);
+			ctx->SetLineWidth(1.0f);
 		} else if (b.MouseOver(mx, my)) {
-			glBlendFunc(GL_ONE, GL_ONE); // additive blending
+			ctx->SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One); // additive blending
 			b.DrawBox(GL_QUADS, { 0.0f, 0.0f, 0.2f, opacity });
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			glLineWidth(1.49f);
+			ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+			ctx->SetLineWidth(1.49f);
 			b.DrawBox(GL_LINE_LOOP, { 1.0f, 1.0f, 1.0f, opacity / 2.0f });
-			glLineWidth(1.0f);
+			ctx->SetLineWidth(1.0f);
 		}
 
 		font->glPrint(pos[0]+borderSpacing + 0.002f, b.GetMidY() - hf * 0.15f, itemFontScale, FONT_BASELINE | FONT_SHADOW | FONT_SCALE | FONT_NORM, *ii);
@@ -275,13 +279,13 @@ void List::DrawSelf()
 
 		b.DrawBox(GL_LINE_LOOP, { 1.0f, 1.0f, 1.0f, opacity / 4.0f });
 
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
 		scrollbar.DrawBox(GL_QUADS, { 0.8f, 0.8f, 0.8f, opacity });
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glLineWidth(1.49f);
+		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+		ctx->SetLineWidth(1.49f);
 		scrollbar.DrawBox(GL_LINE_LOOP, { 1.0f, 1.0f, 1.0f, opacity / 2.0f });
-		glLineWidth(1.0f);
+		ctx->SetLineWidth(1.0f);
 	}
 	else
 		scrollbar.SetSize(-1,-1);
