@@ -208,17 +208,15 @@ void CShadowHandler::DrawFrustumDebug() const
 	rb.AddVertices({ { shadCam->GetFrustumVert(6) }, { shadCam->GetFrustumVert(7) } }); // FTR - FTL
 	rb.AddVertices({ { shadCam->GetFrustumVert(7) }, { shadCam->GetFrustumVert(4) } }); // FTL - FBL
 
-	// RHI_TODO: lineWidth via pipeline state (RasterizerState::lineWidth)
-	// Cannot set per-draw line width through RHI pipeline currently since
-	// RenderBuffer manages its own pipeline. Use GL fallback for debug drawing.
+	auto* ctx = RHI::GetDevice()->GetContext();
 	auto& sh = rb.GetShader();
-	glLineWidth(2.0f);
+	ctx->SetLineWidth(2.0f);
 	sh.Enable();
 	sh.SetUniform("ucolor", 0.0f, 0.0f, 1.0f, 1.0f);
 	rb.DrawArrays(GL_LINES);
 	sh.SetUniform("ucolor", 1.0f, 1.0f, 1.0f, 1.0f);
 	sh.Disable();
-	glLineWidth(1.0f);
+	ctx->SetLineWidth(1.0f);
 }
 
 void CShadowHandler::FreeFBOAndTextures() {

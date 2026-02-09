@@ -2639,14 +2639,16 @@ void CGuiHandler::Draw()
 	if ((iconsCount <= 0) && (luaUI == nullptr))
 		return;
 
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	glPushAttrib(GL_ENABLE_BIT);
 
 	glDisable(GL_FOG);
-	glDisable(GL_DEPTH_TEST);
+	ctx->SetDepthTestEnabled(false);
 	glDisable(GL_LIGHTING);
 	glDisable(GL_TEXTURE_2D);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 	glEnable(GL_ALPHA_TEST);
 	glAlphaFunc(GL_GEQUAL, 0.01f);
 

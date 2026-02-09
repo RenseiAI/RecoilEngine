@@ -1332,7 +1332,7 @@ void CMiniMap::DrawForReal(bool useNormalizedCoors, bool updateTex, bool luaCall
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 	ctx->SetDepthTestEnabled(false);
-	glDepthFunc(GL_LEQUAL);
+	ctx->SetDepthFunc(RHI::CompareFunc::LessEqual);
 	ctx->SetDepthWriteEnabled(false);
 	glDisable(GL_TEXTURE_2D);
 	glMatrixMode(GL_MODELVIEW);
@@ -1761,10 +1761,12 @@ bool CMiniMap::RenderCachedTexture(bool useNormalizedCoors)
 	if (!renderToTexture)
 		return false;
 
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	glPushAttrib(GL_COLOR_BUFFER_BIT);
 	glBindTexture(GL_TEXTURE_2D, minimapTex);
 	glEnable(GL_TEXTURE_2D);
-	glDisable(GL_BLEND);
+	ctx->SetBlendEnabled(false);
 
 	if (useNormalizedCoors) {
 		glPushMatrix();
@@ -1793,7 +1795,6 @@ bool CMiniMap::RenderCachedTexture(bool useNormalizedCoors)
 	rb.DrawElements(GL_TRIANGLES);
 	sh.Disable();
 
-	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
