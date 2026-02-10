@@ -2644,10 +2644,7 @@ void CGuiHandler::Draw()
 	auto* ctx = RHI::GetDevice()->GetContext();
 
 	// Save FFP state (no RHI equivalent for push/pop)
-	glDisable(GL_FOG);
 	ctx->SetDepthTestEnabled(false);
-	glDisable(GL_LIGHTING);
-	glDisable(GL_TEXTURE_2D);
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 	glEnable(GL_ALPHA_TEST);
@@ -2660,9 +2657,6 @@ void CGuiHandler::Draw()
 	ctx->SetDepthTestEnabled(true);
 	ctx->SetBlendEnabled(false);
 	glDisable(GL_ALPHA_TEST);
-	glEnable(GL_TEXTURE_2D);
-	glEnable(GL_LIGHTING);
-	glEnable(GL_FOG);
 }
 
 
@@ -3667,7 +3661,6 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap)
 	if (!onMiniMap) {
 		ctx->SetDepthTestEnabled(true);
 		ctx->SetDepthWriteEnabled(false);
-		glDisable(GL_TEXTURE_2D);
 		ctx->SetBlendEnabled(true);
 		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 		glDisable(GL_ALPHA_TEST);
@@ -3934,7 +3927,6 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap)
 					SColor color = SColor{ cmdColors.rangeBuild } * mult;
 
 					if (radius > 0.0f) {
-						glDisable(GL_TEXTURE_2D);
 						glSurfaceCircle(builder->pos, radius, color, 40);
 					}
 				}
@@ -4220,7 +4212,6 @@ void CGuiHandler::DrawArea(float3 pos, float radius, const float* color)
 	const SColor areaCol(color[0], color[1], color[2], 0.25f);
 
 	ctx->SetDepthTestEnabled(false);
-	glDisable(GL_FOG);
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
 	auto& sh = rb.GetShader();
 	sh.Enable();
@@ -4234,7 +4225,6 @@ void CGuiHandler::DrawArea(float3 pos, float radius, const float* color)
 	rb.DrawArrays(GL_TRIANGLE_FAN);
 	sh.Disable();
 	ctx->SetDepthTestEnabled(true);
-	glEnable(GL_FOG);
 }
 
 
@@ -4326,7 +4316,6 @@ void CGuiHandler::DrawFormationFrontOrder(
 		// vertical quad
 		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
 		auto& sh = rb.GetShader();
-		glDisable(GL_FOG);
 		sh.Enable();
 		const float3 delta = (pos2 - pos1) / (float)steps;
 		for (int i = 0; i <= steps; i++) {
@@ -4340,7 +4329,6 @@ void CGuiHandler::DrawFormationFrontOrder(
 		}
 		rb.DrawArrays(GL_QUAD_STRIP);
 		sh.Disable();
-		glEnable(GL_FOG);
 	}
 }
 
@@ -4427,8 +4415,6 @@ static void StencilDrawSelectBox(const float3& pos0, const float3& pos1,
 	boxData.mins = float3(std::min(pos0.x, pos1.x), readMap->GetCurrMinHeight() -   250.0f, std::min(pos0.z, pos1.z));
 	boxData.maxs = float3(std::max(pos0.x, pos1.x), readMap->GetCurrMaxHeight() + 10000.0f, std::max(pos0.z, pos1.z));
 
-	glDisable(GL_TEXTURE_2D);
-	glDisable(GL_FOG);
 	ctx->SetBlendEnabled(true);
 
 	if (!invColorSelect) {
@@ -4443,7 +4429,6 @@ static void StencilDrawSelectBox(const float3& pos0, const float3& pos1,
 	}
 
 	DrawCornerPosts(pos0, pos1);
-	glEnable(GL_FOG);
 }
 
 
@@ -4503,8 +4488,6 @@ void CGuiHandler::DrawSelectBox(const float3& pos0, const float3& pos1, const fl
 	const float3 mins(std::min(pos0.x, pos1.x), readMap->GetCurrMinHeight() -   250.0f, std::min(pos0.z, pos1.z));
 	const float3 maxs(std::max(pos0.x, pos1.x), readMap->GetCurrMaxHeight() + 10000.0f, std::max(pos0.z, pos1.z));
 
-	glDisable(GL_TEXTURE_2D);
-	glDisable(GL_FOG);
 	ctx->SetBlendEnabled(false);
 
 	ctx->SetDepthWriteEnabled(false);
@@ -4535,7 +4518,6 @@ void CGuiHandler::DrawSelectBox(const float3& pos0, const float3& pos1, const fl
 	DrawCornerPosts(pos0, pos1);
 
 //	glDepthMask(GL_TRUE);
-	glEnable(GL_FOG);
 }
 
 
@@ -4596,8 +4578,6 @@ void CGuiHandler::DrawSelectCircle(const float3& pos, float radius,
 	cylData.radius = radius;
 	cylData.divs = 128;
 
-	glDisable(GL_TEXTURE_2D);
-	glDisable(GL_FOG);
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::One);
 	glColor4f(color[0], color[1], color[2], 0.25f);
@@ -4617,7 +4597,5 @@ void CGuiHandler::DrawSelectCircle(const float3& pos, float radius,
 	rb.DrawArrays(GL_LINES);
 	sh.Disable();
 	ctx->SetLineWidth(1.0f);
-
-	glEnable(GL_FOG);
 }
 

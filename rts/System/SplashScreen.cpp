@@ -72,8 +72,6 @@ void ShowSplashScreen(
 	rb.AssertSubmission();
 	auto& sh = rb.GetShader();
 
-	glEnable(GL_TEXTURE_2D);
-
 	for (spring_time t0 = spring_now(), t1 = t0; !testDoneFunc(); t1 = spring_now()) {
 		auto* ctx = RHI::GetDevice()->GetContext();
 		ctx->Clear(true, false, false);
@@ -115,7 +113,6 @@ void ShowSplashScreen(
 		Watchdog::ClearTimer(WDT_MAIN);
 	}
 
-	glDisable(GL_TEXTURE_2D);
 	glDeleteTextures(1, &splashTex);
 }
 #endif
