@@ -1077,7 +1077,6 @@ void CUnitDrawerGLSL::DrawAlphaAIUnitBorder(const CUnitDrawerData::TempDrawUnit&
 		glUseProgram(progID);
 
 	glColor4f(1.0f, 1.0f, 1.0f, IModelDrawerState::alphaValues.x);
-	glEnable(GL_TEXTURE_2D);
 }
 
 void CUnitDrawerGLSL::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLuaCall) const
@@ -1440,8 +1439,6 @@ bool CUnitDrawerGLSL::ShowUnitBuildSquare(const BuildInfo& buildInfo, const std:
 		auto pipeline = device->CreatePipeline(desc);
 		ctx->BindPipeline(pipeline.get());
 	}
-	// RHI_TODO: glDisable(GL_TEXTURE_2D) is legacy FFP state
-	glDisable(GL_TEXTURE_2D);
 	//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
 	CFeature* feature = nullptr;

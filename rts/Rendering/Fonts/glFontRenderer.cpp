@@ -395,7 +395,6 @@ void CglNoShaderFontRenderer::PushGLState(const CglFont& fnt)
 	ctx->SetBlendEnabled(true);
 	if (!userDefinedBlending)
 		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
-	glEnable(GL_TEXTURE_2D);  // FFP feature, no RHI equivalent
 
 	glMatrixMode(GL_TEXTURE);
 	glPushMatrix();
@@ -423,8 +422,6 @@ void CglNoShaderFontRenderer::PopGLState(const CglFont& fnt)
 
 	glPopMatrix();
 	glMatrixMode(GL_MODELVIEW);
-
-	glDisable(GL_TEXTURE_2D);
 
 	// Restore state explicitly
 	auto* ctx = RHI::GetDevice()->GetContext();

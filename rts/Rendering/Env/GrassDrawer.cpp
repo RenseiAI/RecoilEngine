@@ -744,8 +744,6 @@ void CGrassDrawer::ResetGlStateNear()
 	glMatrixMode(GL_MODELVIEW);
 	glPopMatrix();
 
-	glDisable(GL_TEXTURE_2D);
-
 	// RHI dynamic state
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetBlendEnabled(true);
@@ -960,7 +958,6 @@ void CGrassDrawer::CreateFarTex()
 	if (grassBladeTex) {
 		grassBladeTex->Bind(0);
 	}
-	glEnable(GL_TEXTURE_2D);
 	glEnable(GL_CLIP_PLANE0);
 	glColor4f(1,1,1,1);
 

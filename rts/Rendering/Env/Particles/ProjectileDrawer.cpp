@@ -1042,7 +1042,6 @@ void CProjectileDrawer::DrawGroundFlashes()
 	glActiveTexture(GL_TEXTURE0);
 	groundFXAtlas->BindTexture();
 /*
-	glEnable(GL_TEXTURE_2D);
 	glEnable(GL_ALPHA_TEST);
 	glAlphaFunc(GL_GREATER, 0.01f);
 */

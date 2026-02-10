@@ -185,10 +185,8 @@ static void ResetAlphaFeatureDrawState(unsigned int modelType, bool deferredPass
 // shadow-pass state management funcs
 // FIXME: setup face culling for S3O?
 static void SetupShadowUnitDrawState(unsigned int modelType, bool deferredPass) {
-	// RHI_TODO: glColor3f is legacy FFP. glDisable(GL_TEXTURE_2D) is legacy FFP.
-	// These should be handled by the shadow pipeline state.
+	// RHI_TODO: glColor3f is legacy FFP, should be handled by the shadow pipeline state.
 	glColor3f(1.0f, 1.0f, 1.0f);
-	glDisable(GL_TEXTURE_2D);
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetPolygonOffset(true, 1.0f, 1.0f);

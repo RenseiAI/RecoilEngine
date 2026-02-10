@@ -118,9 +118,6 @@ void CBasicWater::Draw()
 	// Safe to remove once all code paths use shaders with discard.
 	glDisable(GL_ALPHA_TEST);
 	ctx->SetDepthWriteEnabled(false);
-	// RHI-GAP: GL_TEXTURE_2D enable is deprecated FFP state, no-op in core profile.
-	// Safe to remove; shader-based rendering doesn't need this.
-	glEnable(GL_TEXTURE_2D);
 
 	const auto& sky = ISky::GetSky();
 	sky->SetupFog();

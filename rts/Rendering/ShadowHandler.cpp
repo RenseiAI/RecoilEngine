@@ -599,10 +599,6 @@ void CShadowHandler::SetupShadowTexSampler(unsigned int texUnit, bool enable) co
 	if (shadowDepthTexture)
 		shadowDepthTexture->Bind(texUnit - GL_TEXTURE0);
 
-	// support FFP context
-	if (enable)
-		glEnable(GL_TEXTURE_2D);
-
 	SetupShadowTexSamplerRaw();
 }
 
@@ -617,9 +613,6 @@ void CShadowHandler::ResetShadowTexSampler(unsigned int texUnit, bool disable) c
 {
 	if (shadowDepthTexture)
 		shadowDepthTexture->Unbind(texUnit - GL_TEXTURE0);
-
-	if (disable)
-		glDisable(GL_TEXTURE_2D);
 
 	ResetShadowTexSamplerRaw();
 }

@@ -170,7 +170,6 @@ void HUDDrawer::DrawWeaponStates(const CUnit* unit)
 	glLoadIdentity();
 	glMatrixMode(GL_MODELVIEW);
 
-	glEnable(GL_TEXTURE_2D);
 	glColor4f(0.2f, 0.8f, 0.2f, 0.8f);
 	font->glFormat(-0.9f, 0.35f, 1.0f, FONT_SCALE | FONT_NORM, "Health: %.0f / %.0f", (float) unit->health, (float) unit->maxHealth);
 

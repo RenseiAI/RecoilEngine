@@ -100,14 +100,11 @@ void SmoothHeightMeshDrawer::Draw(float yoffset) {
 	if (!drawEnabled)
 		return;
 
-	// TODO [RHI cross-cutting]: glDisable(GL_TEXTURE_*) are fixed-function no-ops
-	// with modern shaders. rb.DrawElements still uses raw GL_TRIANGLES enum.
+	// TODO [RHI cross-cutting]: rb.DrawElements still uses raw GL_TRIANGLES enum.
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetPolygonMode(RHI::PolygonMode::Line);
 	ctx->SetLineWidth(1.0f);
-	glDisable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE0);
-	glDisable(GL_TEXTURE_1D);
 	ctx->SetCullFaceEnabled(false);
 
 	const float quadSize = 4.0f * smoothGround.GetResolution();
