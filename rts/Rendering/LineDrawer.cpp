@@ -5,12 +5,10 @@
  *
  * MIGRATED:
  * - Dynamic state: glDisable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled(false) (with explicit state restore)
+ * - FFP client-state vertex arrays: Converted to TypedRenderBuffer<VA_TYPE_C>
  *
  * REMAINING (NOT MIGRATED):
- * - FFP client-state vertex arrays: glEnableClientState(GL_VERTEX_ARRAY/GL_COLOR_ARRAY),
- *   glVertexPointer, glColorPointer, glDrawArrays (requires conversion to IRHIBuffer)
- * - FFP deprecated: glDisable(GL_TEXTURE_2D) (FFP texture unit, no RHI equivalent)
- * - Line stipple: glEnable/glDisable(GL_LINE_STIPPLE), glLineStipple() (no RHI equivalent, deprecated in GL3+)
+ * - Line stipple: glLineStipple() removed (no RHI equivalent, deprecated in GL3+, renders as solid lines)
  */
 
 // TODO: move this out of Sim, this is rendering code!
@@ -23,6 +21,7 @@
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
+#include "Rendering/GL/RenderBuffers.h"
 #include "Game/UI/CommandColors.h"
 
 CLineDrawer lineDrawer;
@@ -59,9 +58,8 @@ void CLineDrawer::SetupLineStipple()
 		lineStipple = false;
 		return;
 	}
-	const unsigned int fullPat = (stipPat << 16) | (stipPat & 0x0000ffff);
-	const int shiftBits = 15 - (int(stippleTimer * 20.0f) % 16);
-	glLineStipple(cmdColors.StippleFactor(), (fullPat >> shiftBits));
+	// Note: glLineStipple removed (no RHI equivalent, deprecated in GL3+)
+	// Stippled lines now render as solid lines
 }
 
 
@@ -72,41 +70,39 @@ void CLineDrawer::DrawAll()
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glEnableClientState(GL_COLOR_ARRAY);
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
 
-	glDisable(GL_TEXTURE_2D);
-	ctx->SetDepthTestEnabled(false);
-	glDisable(GL_LINE_STIPPLE);
+	auto drawLinePairs = [&](const std::vector<LinePair>& pairs) {
+		for (const auto& lp : pairs) {
+			const int vertCount = lp.colors.size() / 4;
+			if (vertCount <= 0) continue;
 
-	for (int i = 0; i<lines.size(); ++i) {
-		int size = lines[i].colors.size();
-		if(size > 0) {
-			glColorPointer(4, GL_FLOAT, 0, &lines[i].colors[0]);
-			glVertexPointer(3, GL_FLOAT, 0, &lines[i].verts[0]);
-			glDrawArrays(lines[i].type, 0, size/4);
-		}
-	}
-
-	if (!stippled.empty()) {
-		glEnable(GL_LINE_STIPPLE);
-		for (int i = 0; i<stippled.size(); ++i) {
-			int size = stippled[i].colors.size();
-			if(size > 0) {
-				glColorPointer(4, GL_FLOAT, 0, &stippled[i].colors[0]);
-				glVertexPointer(3, GL_FLOAT, 0, &stippled[i].verts[0]);
-				glDrawArrays(stippled[i].type, 0, size/4);
+			for (int v = 0; v < vertCount; ++v) {
+				const SColor color(
+					lp.colors[v * 4 + 0],
+					lp.colors[v * 4 + 1],
+					lp.colors[v * 4 + 2],
+					lp.colors[v * 4 + 3]
+				);
+				rb.AddVertex({
+					{ lp.verts[v * 3 + 0], lp.verts[v * 3 + 1], lp.verts[v * 3 + 2] },
+					color
+				});
 			}
+			rb.DrawArrays(lp.type);  // GL_LINES or GL_LINE_STRIP
 		}
-		glDisable(GL_LINE_STIPPLE);
-	}
+	};
 
-	glDisableClientState(GL_COLOR_ARRAY);
-	glDisableClientState(GL_VERTEX_ARRAY);
+	ctx->SetDepthTestEnabled(false);
+
+	sh.Enable();
+	drawLinePairs(lines);
+	drawLinePairs(stippled);
+	sh.Disable();
 
 	// Restore state
 	ctx->SetDepthTestEnabled(true);
-	glEnable(GL_TEXTURE_2D);
 
 	lines.clear();
 	stippled.clear();
