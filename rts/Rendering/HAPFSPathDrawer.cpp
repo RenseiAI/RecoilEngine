@@ -39,16 +39,14 @@
 
 // RHI Migration Status (HAPFSPathDrawer):
 // MIGRATED:
-//   glLineWidth(3) -> ctx->SetLineWidth(3.0f)
-//   glLineWidth(1) -> ctx->SetLineWidth(1.0f)
-// Not migrated (FFP):
-//   glDisable(GL_DEPTH_TEST) -> FFP depth test state
-//   glDisable(GL_TEXTURE_2D), glDisable(GL_LIGHTING) -> FFP state
-//   glBegin(GL_LINE_STRIP)/glEnd, glColor4f, glVertexf3 -> immediate-mode (Draw paths)
-//   glBegin(GL_LINES)/glEnd, glColor3f, glVertexf3 -> immediate-mode (Draw PE)
+//   glLineWidth(3/1) -> ctx->SetLineWidth()
+//   glBegin(GL_LINE_STRIP)/glEnd, glColor4f, glVertexf3 -> TypedRenderBuffer<VA_TYPE_C> (Draw paths)
+//   glBegin(GL_LINES)/glEnd, glColor3f, glVertexf3 -> TypedRenderBuffer<VA_TYPE_C> (Draw PE overlay)
+//   glRectf -> TypedRenderBuffer<VA_TYPE_C> AddQuadTriangles (DrawInMiniMap)
+//   glDisable/glEnable(GL_TEXTURE_2D), glDisable(GL_LIGHTING) -> removed (shader-based)
+// Not migrated (FFP matrix stack - deferred):
 //   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity, glOrtho -> matrix stack (DrawInMiniMap)
-//   glTranslatef3, glScalef, glRectf -> FFP immediate-mode (DrawInMiniMap)
-//   glDisable/glEnable(GL_TEXTURE_2D) -> FFP texture unit (DrawInMiniMap)
+//   glTranslatef3, glScalef -> FFP transforms (DrawInMiniMap)
 
 #define PE_EXTRA_DEBUG_OVERLAYS 1
 
@@ -100,17 +98,29 @@ void HAPFSPathDrawer::DrawInMiniMap()
 		glTranslatef3(UpVector);
 		glScalef(1.0f / mapDims.mapx, -1.0f / mapDims.mapy, 1.0f);
 
-	glDisable(GL_TEXTURE_2D);
-	glColor4f(1.0f, 1.0f, 0.0f, 0.7f);
+	{
+		const SColor color(1.0f, 1.0f, 0.0f, 0.7f);
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		auto& sh = rb.GetShader();
 
-	for (const int2& sb: ps->GetUpdatedBlocks()) {
-		const int blockIdxX = sb.x * ps->GetBlockSize();
-		const int blockIdxY = sb.y * ps->GetBlockSize();
-		glRectf(blockIdxX, blockIdxY, blockIdxX + ps->GetBlockSize(), blockIdxY + ps->GetBlockSize());
+		for (const int2& sb: ps->GetUpdatedBlocks()) {
+			const float x1 = sb.x * ps->GetBlockSize();
+			const float y1 = sb.y * ps->GetBlockSize();
+			const float x2 = x1 + ps->GetBlockSize();
+			const float y2 = y1 + ps->GetBlockSize();
+
+			rb.AddQuadTriangles(
+				{ {x1, y1, 0.0f}, color },
+				{ {x2, y1, 0.0f}, color },
+				{ {x2, y2, 0.0f}, color },
+				{ {x1, y2, 0.0f}, color }
+			);
+		}
+
+		sh.Enable();
+		rb.DrawElements(GL_TRIANGLES);
+		sh.Disable();
 	}
-
-	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-	glEnable(GL_TEXTURE_2D);
 
 	glMatrixMode(GL_PROJECTION);
 		glPopMatrix();
@@ -306,35 +316,41 @@ void HAPFSPathDrawer::UpdateExtraTexture(int extraTex, int starty, int endy, int
 void HAPFSPathDrawer::Draw() const {
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glDisable(GL_TEXTURE_2D);
-	glDisable(GL_LIGHTING);
 	ctx->SetLineWidth(3.0f);
+
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
+	sh.Enable();
 
 	for (const auto& p: pm->GetPathMap()) {
 		const HAPFS::CPathManager::MultiPath& multiPath = p.second;
 
-		glBegin(GL_LINE_STRIP);
+		const SColor blueCol(0.0f, 0.0f, 1.0f, 1.0f);
+		const SColor greenCol(0.0f, 1.0f, 0.0f, 1.0f);
+		const SColor redCol(1.0f, 0.0f, 0.0f, 1.0f);
 
-			// draw low-res segments of <path> (blue)
-			glColor4f(0.0f, 0.0f, 1.0f, 1.0f);
-			for (auto pvi = multiPath.lowResPath.path.begin(); pvi != multiPath.lowResPath.path.end(); ++pvi) {
-				float3 pos = *pvi; pos.y += 5; glVertexf3(pos);
-			}
+		// draw low-res segments of <path> (blue)
+		for (auto pvi = multiPath.lowResPath.path.begin(); pvi != multiPath.lowResPath.path.end(); ++pvi) {
+			float3 pos = *pvi; pos.y += 5;
+			rb.AddVertex({ pos, blueCol });
+		}
 
-			// draw med-res segments of <path> (green)
-			glColor4f(0.0f, 1.0f, 0.0f, 1.0f);
-			for (auto pvi = multiPath.medResPath.path.begin(); pvi != multiPath.medResPath.path.end(); ++pvi) {
-				float3 pos = *pvi; pos.y += 5; glVertexf3(pos);
-			}
+		// draw med-res segments of <path> (green)
+		for (auto pvi = multiPath.medResPath.path.begin(); pvi != multiPath.medResPath.path.end(); ++pvi) {
+			float3 pos = *pvi; pos.y += 5;
+			rb.AddVertex({ pos, greenCol });
+		}
 
-			// draw max-res segments of <path> (red)
-			glColor4f(1.0f, 0.0f, 0.0f, 1.0f);
-			for (auto pvi = multiPath.maxResPath.path.begin(); pvi != multiPath.maxResPath.path.end(); ++pvi) {
-				float3 pos = *pvi; pos.y += 5; glVertexf3(pos);
-			}
+		// draw max-res segments of <path> (red)
+		for (auto pvi = multiPath.maxResPath.path.begin(); pvi != multiPath.maxResPath.path.end(); ++pvi) {
+			float3 pos = *pvi; pos.y += 5;
+			rb.AddVertex({ pos, redCol });
+		}
 
-		glEnd();
+		rb.DrawArrays(GL_LINE_STRIP);
 	}
+
+	sh.Disable();
 
 	// draw path definitions (goal, radius)
 	for (const auto& p: pm->GetPathMap()) {
@@ -352,9 +368,6 @@ void HAPFSPathDrawer::Draw(const CPathFinderDef* pfd) const {
 }
 
 void HAPFSPathDrawer::Draw(const HAPFS::CPathFinder* pf) const {
-
-	glDisable(GL_TEXTURE_2D);
-
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_0>();
 	rb.AssertSubmission();
 	auto& sh = rb.GetShader();
@@ -400,9 +413,6 @@ void HAPFSPathDrawer::Draw(const HAPFS::CPathEstimator* pe) const {
 	if (md == nullptr)
 		return;
 
-	glDisable(GL_TEXTURE_2D);
-	glColor3f(1.0f, 1.0f, 0.0f);
-
 	#if (PE_EXTRA_DEBUG_OVERLAYS == 1)
 	const int overlayPeriod = GAME_SPEED * 5;
 	const int overlayNumber = (gs->frameNum % (overlayPeriod * 2)) / overlayPeriod;
@@ -415,9 +425,10 @@ void HAPFSPathDrawer::Draw(const HAPFS::CPathEstimator* pe) const {
 	// compiling)
 	if (drawLowResPE || drawMedResPE) {
 
-		// Draw the block positions
-		glBegin(GL_LINES);
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		auto& sh = rb.GetShader();
 
+		// Draw the block positions
 		const int2 peNumBlocks = ps->GetNumBlocks();
 		const int vertexBaseNr = md->pathType * peNumBlocks.x * peNumBlocks.y * PATH_DIRECTION_VERTICES;
 
@@ -433,9 +444,9 @@ void HAPFSPathDrawer::Draw(const HAPFS::CPathEstimator* pe) const {
 				if (!camera->InView(p1))
 					continue;
 
-				glColor3f(1.0f, 1.0f, 0.75f * drawLowResPE);
-				glVertexf3(p1);
-				glVertexf3(p1 - UpVector * 10.0f);
+				const SColor nodeColor(1.0f, 1.0f, 0.75f * drawLowResPE, 1.0f);
+				rb.AddVertex({ p1, nodeColor });
+				rb.AddVertex({ p1 - UpVector * 10.0f, nodeColor });
 
 				for (int dir = 0; dir < PATH_DIRECTION_VERTICES; dir++) {
 					const int obx = x + PE_DIRECTION_VECTORS[dir].x;
@@ -460,14 +471,16 @@ void HAPFSPathDrawer::Draw(const HAPFS::CPathEstimator* pe) const {
 						p2.z = (blockStates.peNodeOffsets[md->pathType][obBlockNr].y) * SQUARE_SIZE;
 						p2.y = CGround::GetHeightAboveWater(p2.x, p2.z, false) + 10.0f;
 
-					glColor3f(1.0f / std::sqrt(nrmCost), 1.0f / nrmCost, 0.75f * drawLowResPE);
-					glVertexf3(p1);
-					glVertexf3(p2);
+					const SColor edgeColor(1.0f / std::sqrt(nrmCost), 1.0f / nrmCost, 0.75f * drawLowResPE, 1.0f);
+					rb.AddVertex({ p1, edgeColor });
+					rb.AddVertex({ p2, edgeColor });
 				}
 			}
 		}
 
-		glEnd();
+		sh.Enable();
+		rb.DrawArrays(GL_LINES);
+		sh.Disable();
 
 		// Number the points for easier cross-referencing
 		for (int z = 0; z < peNumBlocks.y; z++) {

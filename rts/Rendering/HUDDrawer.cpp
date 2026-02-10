@@ -5,6 +5,7 @@
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/GL/SubState.h"
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/RHI/RHIFactory.h"
@@ -23,17 +24,22 @@
  *     desc.blend.srcColor = RHI::BlendFactor::SrcAlpha;
  *     desc.blend.dstColor = RHI::BlendFactor::OneMinusSrcAlpha;
  *
- * Legacy FFP (requires vertex buffer conversion before RHI migration):
+ * MIGRATED:
+ *   - Immediate mode in DrawUnitDirectionArrow, DrawCameraDirectionArrow,
+ *     DrawTargetReticle: glBegin/glEnd, glVertex*, glColor*
+ *     -> TypedRenderBuffer<VA_TYPE_C>
+ *   - FFP texturing: glEnable/glDisable(GL_TEXTURE_2D) -> removed (shader-based)
+ *
+ * Not migrated (deferred):
  *   - Matrix stack: glPushMatrix/glPopMatrix, glMatrixMode, glLoadIdentity,
  *     glTranslatef, glScalef, glRotatef, glMultMatrixf
- *     -> CMatrix44f + shader uniforms
- *   - Immediate mode: glBegin/glEnd, glVertex*, glColor*
- *     -> TypedRenderBuffer with VA_TYPE_C or VA_TYPE_TC
- *   - FFP texturing: glEnable/glDisable(GL_TEXTURE_2D)
- *     -> Shader-based texturing
+ *     -> CMatrix44f + shader uniforms (used by RenderBuffer shaders)
+ *   - DrawModel: glColor4f before unit->localModel.Draw() (model drawing)
+ *   - DrawWeaponStates: glColor4f before font->glFormat/glPrint (FFP font coloring)
+ *   - DrawWeaponStates: glEnable(GL_TEXTURE_2D) (font-related)
  *
  * Completion Criteria:
- *   [ ] Convert immediate-mode drawing to vertex buffers
+ *   [x] Convert immediate-mode drawing to vertex buffers
  *   [ ] Replace matrix stack with CMatrix44f uniforms
  *   [x] Document GL::SubState -> RHI::PipelineDesc mapping
  */
@@ -108,30 +114,29 @@ void HUDDrawer::DrawModel(const CUnit* unit)
 
 void HUDDrawer::DrawUnitDirectionArrow(const CUnit* unit)
 {
-	glDisable(GL_TEXTURE_2D);
-
 	if (unit->moveType->UseHeading()) {
 		glPushMatrix();
 			glTranslatef(-0.8f, -0.4f, 0.0f);
 			glScalef(0.33f, 0.33f * globalRendering->aspectRatio, 0.33f);
 			glRotatef(unit->heading * 180.0f / 32768 + 180, 0.0f, 0.0f, 1.0f);
 
-			glColor4f(0.3f, 0.9f, 0.3f, 0.4f);
-			glBegin(GL_TRIANGLE_FAN);
-				glVertex2f(-0.2f, -0.3f);
-				glVertex2f(-0.2f,  0.3f);
-				glVertex2f( 0.0f,  0.4f);
-				glVertex2f( 0.2f,  0.3f);
-				glVertex2f( 0.2f, -0.3f);
-				glVertex2f(-0.2f, -0.3f);
-			glEnd();
+			const SColor color(0.3f, 0.9f, 0.3f, 0.4f);
+			auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+			auto& sh = rb.GetShader();
+			sh.Enable();
+			rb.AddVertex({ {-0.2f, -0.3f, 0.0f}, color });
+			rb.AddVertex({ {-0.2f,  0.3f, 0.0f}, color });
+			rb.AddVertex({ { 0.0f,  0.4f, 0.0f}, color });
+			rb.AddVertex({ { 0.2f,  0.3f, 0.0f}, color });
+			rb.AddVertex({ { 0.2f, -0.3f, 0.0f}, color });
+			rb.AddVertex({ {-0.2f, -0.3f, 0.0f}, color });
+			rb.DrawArrays(GL_TRIANGLE_FAN);
+			sh.Disable();
 		glPopMatrix();
 	}
 }
 void HUDDrawer::DrawCameraDirectionArrow(const CUnit* unit)
 {
-	glDisable(GL_TEXTURE_2D);
-
 	if (unit->moveType->UseHeading()) {
 		glPushMatrix();
 			glTranslatef(-0.8f, -0.4f, 0.0f);
@@ -143,15 +148,18 @@ void HUDDrawer::DrawCameraDirectionArrow(const CUnit* unit)
 			);
 			glScalef(0.4f, 0.4f, 0.3f);
 
-			glColor4f(0.4f, 0.4f, 1.0f, 0.6f);
-			glBegin(GL_TRIANGLE_FAN);
-				glVertex2f(-0.2f, -0.3f);
-				glVertex2f(-0.2f,  0.3f);
-				glVertex2f( 0.0f,  0.5f);
-				glVertex2f( 0.2f,  0.3f);
-				glVertex2f( 0.2f, -0.3f);
-				glVertex2f(-0.2f, -0.3f);
-			glEnd();
+			const SColor color(0.4f, 0.4f, 1.0f, 0.6f);
+			auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+			auto& sh = rb.GetShader();
+			sh.Enable();
+			rb.AddVertex({ {-0.2f, -0.3f, 0.0f}, color });
+			rb.AddVertex({ {-0.2f,  0.3f, 0.0f}, color });
+			rb.AddVertex({ { 0.0f,  0.5f, 0.0f}, color });
+			rb.AddVertex({ { 0.2f,  0.3f, 0.0f}, color });
+			rb.AddVertex({ { 0.2f, -0.3f, 0.0f}, color });
+			rb.AddVertex({ {-0.2f, -0.3f, 0.0f}, color });
+			rb.DrawArrays(GL_TRIANGLE_FAN);
+			sh.Disable();
 		glPopMatrix();
 	}
 }
@@ -220,8 +228,6 @@ void HUDDrawer::DrawWeaponStates(const CUnit* unit)
 
 void HUDDrawer::DrawTargetReticle(const CUnit* unit)
 {
-	glDisable(GL_TEXTURE_2D);
-
 	// draw the reticle in world coordinates
 	glMatrixMode(GL_PROJECTION);
 		glLoadIdentity();
@@ -232,21 +238,22 @@ void HUDDrawer::DrawTargetReticle(const CUnit* unit)
 
 	glPushMatrix();
 
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		auto& sh = rb.GetShader();
+		sh.Enable();
+
 		for (unsigned int a = 0; a < unit->weapons.size(); ++a) {
 			const CWeapon* w = unit->weapons[a];
 
 			if (!w) {
 				continue;
 			}
+
+			SColor color;
 			switch (a) {
-				case 0:
-					glColor4f(0.0f, 1.0f, 0.0f, 0.7f);
-					break;
-				case 1:
-					glColor4f(1.0f, 0.0f, 0.0f, 0.7f);
-					break;
-				default:
-					glColor4f(0.0f, 0.0f, 1.0f, 0.7f);
+				case 0:  color = SColor(0.0f, 1.0f, 0.0f, 0.7f); break;
+				case 1:  color = SColor(1.0f, 0.0f, 0.0f, 0.7f); break;
+				default: color = SColor(0.0f, 0.0f, 1.0f, 0.7f); break;
 			}
 
 			if (w->HaveTarget()) {
@@ -259,12 +266,11 @@ void HUDDrawer::DrawTargetReticle(const CUnit* unit)
 				if (w->GetCurrentTarget().type == Target_Unit)
 					radius = w->GetCurrentTarget().unit->radius;
 
-				// draw the reticle
-				glBegin(GL_LINE_STRIP);
+				// draw the target reticle circle
 				for (int b = 0; b <= 80; ++b) {
-					glVertexf3(pos + (v2 * fastmath::sin(b * math::TWOPI / 80) + v3 * fastmath::cos(b * math::TWOPI / 80)) * radius);
+					rb.AddVertex({ pos + (v2 * fastmath::sin(b * math::TWOPI / 80) + v3 * fastmath::cos(b * math::TWOPI / 80)) * radius, color });
 				}
-				glEnd();
+				rb.DrawArrays(GL_LINE_STRIP);
 
 				if (!w->onlyForward) {
 					const CPlayer* p = w->owner->fpsControlPlayer;
@@ -277,31 +283,33 @@ void HUDDrawer::DrawTargetReticle(const CUnit* unit)
 					v3 = (v2.cross(v1)).ANormalize();
 					radius = dist / 100.0f;
 
-					glBegin(GL_LINE_STRIP);
+					// draw the aim reticle circle
 					for (int b = 0; b <= 80; ++b) {
-						glVertexf3(pos + (v2 * fastmath::sin(b * math::TWOPI / 80) + v3 * fastmath::cos(b *math::TWOPI / 80)) * radius);
+						rb.AddVertex({ pos + (v2 * fastmath::sin(b * math::TWOPI / 80) + v3 * fastmath::cos(b * math::TWOPI / 80)) * radius, color });
 					}
-					glEnd();
+					rb.DrawArrays(GL_LINE_STRIP);
 				}
 
-				glBegin(GL_LINES);
+				// draw crosshair lines
 				if (!w->onlyForward) {
-					glVertexf3(pos);
-					glVertexf3(w->GetCurrentTargetPos());
+					rb.AddVertex({ pos, color });
+					rb.AddVertex({ w->GetCurrentTargetPos(), color });
 
-					glVertexf3(pos + (v2 * fastmath::sin(math::PI * 0.25f) + v3 * fastmath::cos(math::PI * 0.25f)) * radius);
-					glVertexf3(pos + (v2 * fastmath::sin(math::PI * 1.25f) + v3 * fastmath::cos(math::PI * 1.25f)) * radius);
+					rb.AddVertex({ pos + (v2 * fastmath::sin(math::PI * 0.25f) + v3 * fastmath::cos(math::PI * 0.25f)) * radius, color });
+					rb.AddVertex({ pos + (v2 * fastmath::sin(math::PI * 1.25f) + v3 * fastmath::cos(math::PI * 1.25f)) * radius, color });
 
-					glVertexf3(pos + (v2 * fastmath::sin(math::PI * -0.25f) + v3 * fastmath::cos(math::PI * -0.25f)) * radius);
-					glVertexf3(pos + (v2 * fastmath::sin(math::PI * -1.25f) + v3 * fastmath::cos(math::PI * -1.25f)) * radius);
+					rb.AddVertex({ pos + (v2 * fastmath::sin(math::PI * -0.25f) + v3 * fastmath::cos(math::PI * -0.25f)) * radius, color });
+					rb.AddVertex({ pos + (v2 * fastmath::sin(math::PI * -1.25f) + v3 * fastmath::cos(math::PI * -1.25f)) * radius, color });
 				}
 				if ((w->GetCurrentTargetPos() - camera->GetPos()).ANormalize().dot(camera->GetDir()) < 0.7f) {
-					glVertexf3(w->GetCurrentTargetPos());
-					glVertexf3(camera->GetPos() + camera->GetDir() * 100.0f);
+					rb.AddVertex({ w->GetCurrentTargetPos(), color });
+					rb.AddVertex({ camera->GetPos() + camera->GetDir() * 100.0f, color });
 				}
-				glEnd();
+				rb.DrawArrays(GL_LINES);
 			}
 		}
+
+		sh.Disable();
 
 	glPopMatrix();
 }
