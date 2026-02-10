@@ -62,23 +62,33 @@ void SmoothHeightMeshDrawer::DrawInMiniMap()
 		glTranslatef3(UpVector);
 		glScalef(1.0f / mapDims.mapx, -1.0f / mapDims.mapy, 1.0f);
 
-	glDisable(GL_TEXTURE_2D);
-	glColor4f(1.0f, 1.0f, 0.0f, 0.7f);
+	{
+		const SColor color(1.0f, 1.0f, 0.0f, 0.7f);
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		auto& sh = rb.GetShader();
 
-	const SmoothHeightMesh::MapChangeTrack& mapChangeTrack = smoothGround.mapChangeTrack;
-	const float tileSize = SAMPLES_PER_QUAD * smoothGround.resolution;
-	int i = 0;
-	for (auto changed : mapChangeTrack.damageMap) {
-		if (changed){
-			const float x = (i % mapChangeTrack.width) * tileSize;
-			const float y = (i / mapChangeTrack.width) * tileSize;
-			glRectf(x, y, x + tileSize, y + tileSize);
+		const SmoothHeightMesh::MapChangeTrack& mapChangeTrack = smoothGround.mapChangeTrack;
+		const float tileSize = SAMPLES_PER_QUAD * smoothGround.resolution;
+		int i = 0;
+		for (auto changed : mapChangeTrack.damageMap) {
+			if (changed){
+				const float x = (i % mapChangeTrack.width) * tileSize;
+				const float y = (i / mapChangeTrack.width) * tileSize;
+
+				rb.AddQuadTriangles(
+					{ {x, y, 0.0f}, color },
+					{ {x + tileSize, y, 0.0f}, color },
+					{ {x + tileSize, y + tileSize, 0.0f}, color },
+					{ {x, y + tileSize, 0.0f}, color }
+				);
+			}
+			i++;
 		}
-		i++;
-	}
 
-	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-	glEnable(GL_TEXTURE_2D);
+		sh.Enable();
+		rb.DrawElements(GL_TRIANGLES);
+		sh.Disable();
+	}
 
 	glMatrixMode(GL_PROJECTION);
 		glPopMatrix();

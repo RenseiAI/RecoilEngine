@@ -11,6 +11,7 @@
 #include "Map/MetalMap.h"
 #include "Map/ReadMap.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
@@ -68,13 +69,22 @@ void CTooltipConsole::Draw()
 	auto* ctx = RHI::GetDevice()->GetContext();
 	const std::string& s = mouse->GetCurrentTooltip();
 
-	glDisable(GL_TEXTURE_2D);
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
 	if (!outFont) {
-		glColor4f(0.2f, 0.2f, 0.2f, CInputReceiver::guiAlpha);
-		glRectf(x, y, (x + w), (y + h));
+		const SColor bgColor(0.2f, 0.2f, 0.2f, CInputReceiver::guiAlpha);
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		auto& sh = rb.GetShader();
+		sh.Enable();
+		rb.AddQuadTriangles(
+			{ {x, y, 0.0f}, bgColor },
+			{ {x + w, y, 0.0f}, bgColor },
+			{ {x + w, y + h, 0.0f}, bgColor },
+			{ {x, y + h, 0.0f}, bgColor }
+		);
+		rb.DrawElements(GL_TRIANGLES);
+		sh.Disable();
 	}
 
 	const float fontSize   = (h * globalRendering->viewSizeY) * (smallFont->GetLineHeight() / 5.75f);

@@ -44,6 +44,7 @@
 #include "Rendering/CommandDrawer.h"
 #include "Rendering/LineDrawer.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/DebugDrawerAI.h"
 #include "Rendering/HUDDrawer.h"
 #include "Rendering/IconHandler.h"
@@ -2080,14 +2081,36 @@ void CGame::DrawSkip(bool blackscreen) {
 	font->glFormat(0.5f, 0.45f, 2.0f, FONT_CENTER | FONT_SCALE | FONT_NORM, "(%i frames left)", framesLeft);
 
 	const float ff = (float)framesLeft / (float)skipTotalFrames;
-	glDisable(GL_TEXTURE_2D);
 	const float b = 0.004f; // border
 	const float yn = 0.35f;
 	const float yp = 0.38f;
-	glColor3f(0.2f, 0.2f, 1.0f);
-	glRectf(0.25f - b, yn - b, 0.75f + b, yp + b);
-	glColor3f(0.25f + (0.75f * ff), 1.0f - (0.75f * ff), 0.0f);
-	glRectf(0.5 - (0.25f * ff), yn, 0.5f + (0.25f * ff), yp);
+
+	{
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		auto& sh = rb.GetShader();
+		sh.Enable();
+
+		// Border (blue)
+		const SColor borderColor(0.2f, 0.2f, 1.0f, 1.0f);
+		rb.AddQuadTriangles(
+			{ {0.25f - b, yn - b, 0.0f}, borderColor },
+			{ {0.75f + b, yn - b, 0.0f}, borderColor },
+			{ {0.75f + b, yp + b, 0.0f}, borderColor },
+			{ {0.25f - b, yp + b, 0.0f}, borderColor }
+		);
+
+		// Progress bar (gradient color based on progress)
+		const SColor progressColor(0.25f + (0.75f * ff), 1.0f - (0.75f * ff), 0.0f, 1.0f);
+		rb.AddQuadTriangles(
+			{ {0.5f - (0.25f * ff), yn, 0.0f}, progressColor },
+			{ {0.5f + (0.25f * ff), yn, 0.0f}, progressColor },
+			{ {0.5f + (0.25f * ff), yp, 0.0f}, progressColor },
+			{ {0.5f - (0.25f * ff), yp, 0.0f}, progressColor }
+		);
+
+		rb.DrawElements(GL_TRIANGLES);
+		sh.Disable();
+	}
 	#endif
 }
 

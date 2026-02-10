@@ -37,8 +37,9 @@
 
 // RHI Migration Status (QTPFSPathDrawer):
 // - MIGRATED: depth test, blend enable, line width, polygon mode via ctx->SetXxx() (with explicit state restore)
+// - MIGRATED: DrawInMiniMap glRectf loop to TypedRenderBuffer<VA_TYPE_C>
 // - LEGACY FFP in DrawInMiniMap(): glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity,
-//   glOrtho, glTranslatef3, glScalef, glColor4f, glRectf, glEnable/Disable(GL_TEXTURE_2D)
+//   glOrtho, glTranslatef3, glScalef (matrix stack - deferred)
 
 static std::vector<const QTPFS::QTNode*> visibleNodes;
 
@@ -486,8 +487,6 @@ void QTPFSPathDrawer::DrawInMiniMap()
 		glTranslatef3(UpVector);
 		glScalef(1.0f / mapDims.mapx, -1.0f / mapDims.mapy, 1.0f);
 
-	glDisable(GL_TEXTURE_2D);
-
 	const int blockSize = QTPFS::PathManager::DAMAGE_MAP_BLOCK_SIZE;
 
 	auto width = mdt.width;
@@ -504,17 +503,29 @@ void QTPFSPathDrawer::DrawInMiniMap()
 		}
 	}
 
-	for (int i = 0; i < mapDamageStrength.size(); ++i) {
-		if (mapDamageStrength[i] == 0.f) { continue; }
-		const int blockIdxX = (i % width) * blockSize;
-		const int blockIdxY = (i / width) * blockSize;
-		const float drawStrength = 0.2f + 0.55f*(mapDamageStrength[i] / maxStrength);
-		glColor4f(1.0f, 1.0f, 0.0f, drawStrength);
-		glRectf(blockIdxX, blockIdxY, blockIdxX + blockSize, blockIdxY + blockSize);
-	}
+	{
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		auto& sh = rb.GetShader();
 
-	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-	glEnable(GL_TEXTURE_2D);
+		for (int i = 0; i < mapDamageStrength.size(); ++i) {
+			if (mapDamageStrength[i] == 0.f) { continue; }
+			const int blockIdxX = (i % width) * blockSize;
+			const int blockIdxY = (i / width) * blockSize;
+			const float drawStrength = 0.2f + 0.55f*(mapDamageStrength[i] / maxStrength);
+			const SColor color(1.0f, 1.0f, 0.0f, drawStrength);
+
+			rb.AddQuadTriangles(
+				{ {static_cast<float>(blockIdxX), static_cast<float>(blockIdxY), 0.0f}, color },
+				{ {static_cast<float>(blockIdxX + blockSize), static_cast<float>(blockIdxY), 0.0f}, color },
+				{ {static_cast<float>(blockIdxX + blockSize), static_cast<float>(blockIdxY + blockSize), 0.0f}, color },
+				{ {static_cast<float>(blockIdxX), static_cast<float>(blockIdxY + blockSize), 0.0f}, color }
+			);
+		}
+
+		sh.Enable();
+		rb.DrawElements(GL_TRIANGLES);
+		sh.Disable();
+	}
 
 	glMatrixMode(GL_PROJECTION);
 		glPopMatrix();
