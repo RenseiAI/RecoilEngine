@@ -4,11 +4,14 @@
 #define DEBUG_DRAWER_AI_HDR
 
 #include <deque>
+#include <memory>
 #include <vector>
 
 #include "System/float3.h"
 #include "System/type2.h"
 #include "System/UnorderedMap.hpp"
+
+namespace RHI { class IRHITexture; }
 
 class DebugDrawerAI {
 public:
@@ -93,6 +96,12 @@ private:
 	public:
 		TexSet(): curTexHandle(0) {}
 		~TexSet() {}
+
+		TexSet(TexSet&&) = default;
+		TexSet& operator=(TexSet&&) = default;
+		TexSet(const TexSet&) = delete;
+		TexSet& operator=(const TexSet&) = delete;
+
 		void Clear();
 
 		void Draw();
@@ -109,7 +118,12 @@ private:
 			Texture(int, int, const float*);
 			~Texture();
 
-			unsigned int GetID() const { return id; }
+			Texture(Texture&&) = default;
+			Texture& operator=(Texture&&) = default;
+			Texture(const Texture&) = delete;
+			Texture& operator=(const Texture&) = delete;
+
+			RHI::IRHITexture* GetTexture() const { return rhiTexture.get(); }
 
 			int GetWidth() const { return xsize; }
 			int GetHeight() const { return ysize; }
@@ -125,10 +139,10 @@ private:
 			void SetSize(const float3& s) { size = s; }
 			void SetLabel(const std::string&);
 
-			bool operator < (const Texture& t) const { return (id < t.id); }
+			bool operator < (const Texture& t) const { return (rhiTexture.get() < t.rhiTexture.get()); }
 
 		private:
-			unsigned int id;
+			std::unique_ptr<RHI::IRHITexture> rhiTexture;
 
 			int xsize;   // in pixels
 			int ysize;   // in pixels

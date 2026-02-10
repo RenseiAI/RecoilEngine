@@ -8,7 +8,9 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "Rendering/RHI/RHITypes.h"
 #include "Sim/Misc/TeamHandler.h"
 
@@ -20,13 +22,12 @@
 //   glLineWidth -> ctx->SetLineWidth()
 //   glDisable/glEnable(GL_LIGHTING) -> REMOVED (FFP lighting never used)
 //   glDisable/glEnable(GL_TEXTURE_2D) -> REMOVED (shader-based rendering, FFP state irrelevant)
-// PENDING (texture management):
 //   glGenTextures + glBindTexture + glTexParameteri + glTexImage2D
-//     -> IRHIDevice::CreateTexture + IRHITexture::Upload/SetMinFilter/SetMagFilter/SetWrapS/SetWrapT
-//   glDeleteTextures -> IRHITexture destructor
+//     -> device->CreateTexture() + IRHITexture::SetMinFilter/SetMagFilter/SetWrapS/SetWrapT/Upload
+//   glDeleteTextures -> IRHITexture destructor (automatic via unique_ptr)
 //   glTexSubImage2D -> IRHITexture::Upload (sub-region)
 //   glBindTexture(GL_TEXTURE_2D, id) -> texture->Bind(unit)
-//   Requires: changing `uint32_t id` member to std::unique_ptr<RHI::IRHITexture>
+//   TexSet::Texture: raw GLuint -> std::unique_ptr<RHI::IRHITexture>
 // NON-MIGRATABLE (FFP - no RHI equivalent):
 //   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity (matrix stack)
 //   glPushAttrib/glPopAttrib (state stack)
@@ -36,7 +37,7 @@ static constexpr float3 GRAPH_MAX_SCALE(-1e9, -1e9, 0.0f);
 
 DebugDrawerAI::DebugDrawerAI(): draw(false) {
 	graphs.resize(teamHandler.ActiveTeams(), Graph(GRAPH_MIN_SCALE, GRAPH_MAX_SCALE));
-	texsets.resize(teamHandler.ActiveTeams(), TexSet());
+	texsets.resize(teamHandler.ActiveTeams());
 }
 DebugDrawerAI::~DebugDrawerAI() {
 	for (Graph& graph: graphs) {
@@ -414,9 +415,7 @@ void DebugDrawerAI::TexSet::UpdateTexture(int texHandle, const float* data, int 
 	if ((y + h) > (it->second).GetHeight())
 		return;
 
-	glBindTexture(GL_TEXTURE_2D, (it->second).GetID());
-	glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_RED, GL_FLOAT, data);
-	glBindTexture(GL_TEXTURE_2D, 0);
+	(it->second).GetTexture()->Upload(0, x, y, w, h, data);
 }
 
 void DebugDrawerAI::TexSet::DelTexture(int texHandle) {
@@ -471,7 +470,7 @@ void DebugDrawerAI::TexSet::Draw() {
 		const float3& pos = tex.GetPos();
 		const float3& size = tex.GetSize();
 
-		glBindTexture(GL_TEXTURE_2D, tex.GetID());
+		tex.GetTexture()->Bind(0);
 
 		rb.AddQuadTriangles(
 			{ pos,                                0.0f, 1.0f },
@@ -484,7 +483,7 @@ void DebugDrawerAI::TexSet::Draw() {
 		rb.DrawElements(GL_TRIANGLES);
 		sh.Disable();
 
-		glBindTexture(GL_TEXTURE_2D, 0);
+		tex.GetTexture()->Unbind(0);
 
 		const float tx = pos.x + size.x * 0.5f - ((tex.GetLabelWidth() * 0.5f) / globalRendering->viewSizeX) * size.x;
 		const float ty = pos.y + size.y        + ((tex.GetLabelHeight() * 0.5f) / globalRendering->viewSizeY) * size.y;
@@ -498,7 +497,6 @@ void DebugDrawerAI::TexSet::Draw() {
 
 
 DebugDrawerAI::TexSet::Texture::Texture(int w, int h, const float* data):
-	id(0),
 	xsize(w),
 	ysize(h),
 	pos(ZeroVector),
@@ -507,22 +505,22 @@ DebugDrawerAI::TexSet::Texture::Texture(int w, int h, const float* data):
 	labelWidth(0.0f),
 	labelHeight(0.0f)
 {
-	const int intFormat = GL_RGBA;  // note: data only holds the red component
-	const int extFormat = GL_RED;
-	const int dataType  = GL_FLOAT;
-
-	glGenTextures(1, &id);
-	glBindTexture(GL_TEXTURE_2D, id);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glTexImage2D(GL_TEXTURE_2D, 0, intFormat, w, h, 0, extFormat, dataType, data);
-	glBindTexture(GL_TEXTURE_2D, 0);
+	auto* device = RHI::GetDevice();
+	rhiTexture = device->CreateTexture(
+		RHI::TextureType::Texture2D,
+		RHI::TextureFormat::R32F,
+		w, h, 1, 1);
+	rhiTexture->SetMinFilter(RHI::TextureFilter::Nearest);
+	rhiTexture->SetMagFilter(RHI::TextureFilter::Nearest);
+	rhiTexture->SetWrapS(RHI::TextureWrap::ClampToEdge);
+	rhiTexture->SetWrapT(RHI::TextureWrap::ClampToEdge);
+	rhiTexture->SetSwizzle(0, 0, 0, 5);  // R,R,R,One - grayscale display
+	if (data)
+		rhiTexture->Upload(0, 0, 0, w, h, data);
 }
 
 DebugDrawerAI::TexSet::Texture::~Texture() {
-	glDeleteTextures(1, &id);
+	// unique_ptr automatically handles cleanup
 }
 
 void DebugDrawerAI::TexSet::Texture::SetLabel(const std::string& s) {
