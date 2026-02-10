@@ -3,7 +3,7 @@
 /**
  * World Drawer - Implementation
  *
- * RHI Migration Status: PARTIAL (~15 GL state calls migrated, ~11 remaining)
+ * RHI Migration Status: PARTIAL (~15 GL state calls migrated, ~6 remaining)
  * ---------------------------------------------------------------------------
  * Migrated:
  *   - glClearColor/glClear -> ctx->ClearColor()/Clear()
@@ -12,14 +12,14 @@
  *   - glEnable/glDisable(GL_BLEND) -> ctx->SetBlendEnabled()
  *   - glBlendFunc -> ctx->SetBlendFunc()
  *   - glDepthFunc -> ctx->SetDepthFunc()
+ *   - DrawBelowWaterOverlay: FFP client arrays -> TypedRenderBuffer<VA_TYPE_C>
+ *     (glEnableClientState/glVertexPointer/glDrawArrays/glColor4f removed)
  *
  * Remaining (not yet migrated):
  *   - FFP matrix stack (glMatrixMode/glPushMatrix/glPopMatrix/glLoadIdentity/gluOrtho2D)
- *     -> Needs uniform-based matrix system
+ *     -> Needs uniform-based matrix system (used in ResetMVPMatrices, DrawAlphaObjects)
  *   - FFP clip planes (glClipPlane/glEnable(GL_CLIP_PLANE3))
  *     -> Needs shader-based clipping or SetClipDistanceEnabled()
- *   - FFP immediate mode (glEnableClientState/glVertexPointer/glDrawArrays/glColor4f)
- *     -> Needs IRHIBuffer + vertex layout
  *   - glDisable(GL_FOG) -> FFP fog, no RHI equivalent (should be shader-based)
  */
 
@@ -29,6 +29,7 @@
 #include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/GL/RenderBuffers.h"
 #include "Sim/Units/UnitDefHandler.h"
 #include "Sim/Features/FeatureDefHandler.h"
 #include "Sim/Weapons/WeaponDefHandler.h"
@@ -539,16 +540,18 @@ void CWorldDrawer::DrawBelowWaterOverlay() const
 	auto* ctx = device->GetContext();
 
 	{
-		// FFP client state - not migrated (needs IRHIBuffer + vertex layout)
-		glEnableClientState(GL_VERTEX_ARRAY);
-
 		const float3& cpos = camera->GetPos();
 		const float vr = camera->GetFarPlaneDist() * 0.5f;
 
 		ctx->SetDepthWriteEnabled(false);
-		glDisable(GL_TEXTURE_2D);
-		glColor4f(0.0f, 0.5f, 0.3f, 0.50f);
 
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		auto& sh = rb.GetShader();
+		sh.Enable();
+
+		const SColor color(0.0f, 0.5f, 0.3f, 0.50f);
+
+		// Water surface quad
 		{
 			const float3 verts[] = {
 				float3(cpos.x - vr, 0.0f, cpos.z - vr),
@@ -557,10 +560,16 @@ void CWorldDrawer::DrawBelowWaterOverlay() const
 				float3(cpos.x + vr, 0.0f, cpos.z - vr)
 			};
 
-			glVertexPointer(3, GL_FLOAT, 0, verts);
-			glDrawArrays(GL_QUADS, 0, 4);
+			// GL_QUADS: v0, v1, v2, v3 -> becomes top-left, top-right, bottom-right, bottom-left
+			rb.AddQuadTriangles(
+				{ verts[0], color },
+				{ verts[1], color },
+				{ verts[2], color },
+				{ verts[3], color }
+			);
 		}
 
+		// Underwater walls (quad strip)
 		{
 			const float3 verts[] = {
 				float3(cpos.x - vr, 0.0f, cpos.z - vr),
@@ -575,22 +584,52 @@ void CWorldDrawer::DrawBelowWaterOverlay() const
 				float3(cpos.x - vr,  -vr, cpos.z - vr),
 			};
 
-			glVertexPointer(3, GL_FLOAT, 0, verts);
-			glDrawArrays(GL_QUAD_STRIP, 0, 10);
+			// GL_QUAD_STRIP with 10 vertices produces 4 quads
+			// Quad 0: v0, v1, v3, v2 (indices 0, 1, 3, 2)
+			// Quad 1: v2, v3, v5, v4 (indices 2, 3, 5, 4)
+			// Quad 2: v4, v5, v7, v6 (indices 4, 5, 7, 6)
+			// Quad 3: v6, v7, v9, v8 (indices 6, 7, 9, 8)
+			rb.AddQuadTriangles(
+				{ verts[0], color },
+				{ verts[2], color },
+				{ verts[3], color },
+				{ verts[1], color }
+			);
+			rb.AddQuadTriangles(
+				{ verts[2], color },
+				{ verts[4], color },
+				{ verts[5], color },
+				{ verts[3], color }
+			);
+			rb.AddQuadTriangles(
+				{ verts[4], color },
+				{ verts[6], color },
+				{ verts[7], color },
+				{ verts[5], color }
+			);
+			rb.AddQuadTriangles(
+				{ verts[6], color },
+				{ verts[8], color },
+				{ verts[9], color },
+				{ verts[7], color }
+			);
 		}
 
+		rb.DrawElements(GL_TRIANGLES);
+		sh.Disable();
+
 		ctx->SetDepthWriteEnabled(true);
-		// FFP client state - not migrated
-		glDisableClientState(GL_VERTEX_ARRAY);
 	}
 
 	{
 		// draw water-coloration quad in raw screenspace
 		ResetMVPMatrices();
 
-		glEnableClientState(GL_VERTEX_ARRAY);
-		glDisable(GL_TEXTURE_2D);
-		glColor4f(0.0f, 0.2f, 0.8f, 0.333f);
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		auto& sh = rb.GetShader();
+		sh.Enable();
+
+		const SColor color(0.0f, 0.2f, 0.8f, 0.333f);
 
 		const float3 verts[] = {
 			float3(0.0f, 0.0f, -1.0f),
@@ -599,8 +638,14 @@ void CWorldDrawer::DrawBelowWaterOverlay() const
 			float3(0.0f, 1.0f, -1.0f),
 		};
 
-		glVertexPointer(3, GL_FLOAT, 0, verts);
-		glDrawArrays(GL_QUADS, 0, 4);
-		glDisableClientState(GL_VERTEX_ARRAY);
+		rb.AddQuadTriangles(
+			{ verts[0], color },
+			{ verts[1], color },
+			{ verts[2], color },
+			{ verts[3], color }
+		);
+
+		rb.DrawElements(GL_TRIANGLES);
+		sh.Disable();
 	}
 }
