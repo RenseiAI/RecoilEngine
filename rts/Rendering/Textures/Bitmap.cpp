@@ -1798,7 +1798,6 @@ uint32_t CBitmap::CreateDDSTexture(const GL::TextureCreationParams& tcp) const
 			break;
 
 		case nv_dds::TextureFlat:    // 1D, 2D, and rectangle textures
-			glEnable(GL_TEXTURE_2D);
 			glBindTexture(GL_TEXTURE_2D, texID);
 
 			if (!ddsimage.upload_texture2D(0, GL_TEXTURE_2D)) {
@@ -1816,7 +1815,6 @@ uint32_t CBitmap::CreateDDSTexture(const GL::TextureCreationParams& tcp) const
 			break;
 
 		case nv_dds::Texture3D:
-			glEnable(GL_TEXTURE_3D);
 			glBindTexture(GL_TEXTURE_3D, texID);
 
 			if (!ddsimage.upload_texture3D()) {
@@ -1832,7 +1830,6 @@ uint32_t CBitmap::CreateDDSTexture(const GL::TextureCreationParams& tcp) const
 			break;
 
 		case nv_dds::TextureCubemap:
-			glEnable(GL_TEXTURE_CUBE_MAP);
 			glBindTexture(GL_TEXTURE_CUBE_MAP, texID);
 
 			if (!ddsimage.upload_textureCubemap()) {

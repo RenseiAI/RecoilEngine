@@ -1,9 +1,9 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-// RHI Migration Status: ~60% migrated
+// RHI Migration Status: ~70% migrated
 // - MIGRATED: glDepthMask → ctx->SetDepthWriteEnabled
 // - MIGRATED: glPolygonMode → ctx->SetPolygonMode
-// - KEPT (FFP, no RHI equivalent): glDisable(GL_ALPHA_TEST), glEnable(GL_TEXTURE_2D)
+// - REMOVED: GL_ALPHA_TEST (FFP no-op in shader rendering)
 // - KEPT (external boundary): glDeleteTextures, glBindTexture (waiting for CBitmap to return IRHITexture)
 // - KEPT (scoped state): glPushAttrib/glPopAttrib (ScopedPipeline requires full blend state tracking)
 
@@ -114,9 +114,6 @@ void CBasicWater::Draw()
 	//   RHI::ScopedPipeline scope(device, desc);
 	// This requires access to the RHI device and proper state tracking.
 
-	// RHI-GAP: GL_ALPHA_TEST is deprecated FFP state, no-op in core profile.
-	// Safe to remove once all code paths use shaders with discard.
-	glDisable(GL_ALPHA_TEST);
 	ctx->SetDepthWriteEnabled(false);
 
 	const auto& sky = ISky::GetSky();
@@ -139,5 +136,4 @@ void CBasicWater::Draw()
 	// Restore state explicitly
 	ctx->SetDepthWriteEnabled(true);
 	ctx->SetPolygonMode(RHI::PolygonMode::Fill);
-	glEnable(GL_ALPHA_TEST);
 }
