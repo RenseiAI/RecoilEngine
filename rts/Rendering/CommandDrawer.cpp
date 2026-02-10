@@ -16,23 +16,17 @@
 /**
  * RHI_MIGRATION_STATUS(CommandDrawer)
  *
- * Migration Status: PARTIAL - Dynamic state migrated, FFP client arrays remain
+ * Migration Status: COMPLETE - All GL calls migrated to RHI
  *
  * Migrated:
  *   [x] glDisable/glEnable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled()
  *   [x] glEnable(GL_BLEND) + glBlendFunc -> ctx->SetBlendEnabled() + ctx->SetBlendFunc()
  *   [x] glLineWidth() -> ctx->SetLineWidth()
  *   [x] glPolygonMode() -> ctx->SetPolygonMode()
- *
- * Remaining (FFP - requires vertex buffer refactor):
- *   - glDisable(GL_TEXTURE_2D) - FFP texture state
- *   - glEnableClientState, glVertexPointer, glColorPointer - FFP client arrays
- *   - glPushAttrib/glPopAttrib - FFP state stack
- *   - glColor4f - FFP vertex color
- *   - glDrawArrays(GL_QUADS) - deprecated primitive type
- *
- * Note: DrawQuedBuildingSquares uses FFP client arrays and needs full refactor
- * to TypedRenderBuffer or IRHIBuffer before further migration is possible.
+ *   [x] DrawQuedBuildingSquares FFP client arrays -> TypedRenderBuffer<VA_TYPE_C>
+ *   [x] glDisable(GL_TEXTURE_2D) removed (no RHI equivalent needed)
+ *   [x] glColor4f -> explicit SColor parameter
+ *   [x] glDrawArrays(GL_QUADS) -> AddQuadTriangles
  */
 #include "Sim/Features/Feature.h"
 #include "Sim/Features/FeatureHandler.h"
@@ -107,7 +101,6 @@ void CommandDrawer::DrawLuaQueuedUnitSetCommands() const
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glDisable(GL_TEXTURE_2D);
 	ctx->SetDepthTestEnabled(false);
 
 	lineDrawer.Configure(cmdColors.UseColorRestarts(),
@@ -696,7 +689,7 @@ void CommandDrawer::DrawDefaultCommand(const Command& c, const CUnit* owner) con
 	lineDrawer.DrawLineAndIcon(dd->cmdIconID, unit->GetObjDrawErrorPos(owner->allyteam), dd->color);
 }
 
-void CommandDrawer::DrawQuedBuildingSquares(const CBuilderCAI* cai) const
+void CommandDrawer::DrawQuedBuildingSquares(const CBuilderCAI* cai, const SColor& color) const
 {
 	const CCommandQueue& commandQue = cai->commandQue;
 	const auto& buildOptions = cai->buildOptions;
@@ -719,17 +712,13 @@ void CommandDrawer::DrawQuedBuildingSquares(const CBuilderCAI* cai) const
 		uwaterCommands += (bi.pos.y < CGround::GetWaterLevel(bi.pos.x, bi.pos.z));
 	}
 
-	// worst case - 2 squares per building (when underwater) - 8 vertices * 3 floats
-	std::vector<GLfloat>   quadVerts(buildCommands * 12);
-	std::vector<GLfloat> uwquadVerts(buildCommands * 12); // underwater
-	// 4 vertical lines
-	std::vector<GLfloat> lineVerts(uwaterCommands * 24);
-	// colors for lines
-	std::vector<GLfloat> lineColors(uwaterCommands * 48);
+	if (buildCommands == 0)
+		return;
 
-	unsigned int   quadcounter = 0;
-	unsigned int uwquadcounter = 0;
-	unsigned int   linecounter = 0;
+	auto* ctx = RHI::GetDevice()->GetContext();
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+
+	ctx->SetPolygonMode(RHI::PolygonMode::Line);
 
 	for (const Command& c: commandQue) {
 		if (buildOptions.find(c.GetID()) == buildOptions.end())
@@ -751,99 +740,49 @@ void CommandDrawer::DrawQuedBuildingSquares(const CBuilderCAI* cai) const
 		const float x2 = bi.pos.x + xsize;
 		const float z2 = bi.pos.z + zsize;
 
-		quadVerts[quadcounter++] = x1;
-		quadVerts[quadcounter++] = h + 1;
-		quadVerts[quadcounter++] = z1;
-		quadVerts[quadcounter++] = x1;
-		quadVerts[quadcounter++] = h + 1;
-		quadVerts[quadcounter++] = z2;
-		quadVerts[quadcounter++] = x2;
-		quadVerts[quadcounter++] = h + 1;
-		quadVerts[quadcounter++] = z2;
-		quadVerts[quadcounter++] = x2;
-		quadVerts[quadcounter++] = h + 1;
-		quadVerts[quadcounter++] = z1;
+		// Draw outline square at building height
+		rb.AddQuadTriangles(
+			{float3(x1, h + 1, z1), color},
+			{float3(x1, h + 1, z2), color},
+			{float3(x2, h + 1, z2), color},
+			{float3(x2, h + 1, z1), color}
+		);
 
-		if (bi.pos.y >= 0.0f)
-			continue;
+		// For underwater buildings, draw water surface quad and vertical lines
+		if (bi.pos.y < 0.0f) {
+			const SColor uwColor(0.0f, 0.5f, 1.0f, 1.0f); // end color of underwater gradient
+			const SColor lineStartColor(0.0f, 0.0f, 1.0f, 0.5f);
+			const SColor lineEndColor(0.0f, 0.5f, 1.0f, 1.0f);
 
-		const float col[8] = {
-			0.0f, 0.0f, 1.0f, 0.5f, // start color
-			0.0f, 0.5f, 1.0f, 1.0f, // end color
-		};
+			// Draw quad at water surface (y=0)
+			rb.AddQuadTriangles(
+				{float3(x1, 0.0f, z1), uwColor},
+				{float3(x1, 0.0f, z2), uwColor},
+				{float3(x2, 0.0f, z2), uwColor},
+				{float3(x2, 0.0f, z1), uwColor}
+			);
 
-		uwquadVerts[uwquadcounter++] = x1;
-		uwquadVerts[uwquadcounter++] = 0.0f;
-		uwquadVerts[uwquadcounter++] = z1;
-		uwquadVerts[uwquadcounter++] = x1;
-		uwquadVerts[uwquadcounter++] = 0.0f;
-		uwquadVerts[uwquadcounter++] = z2;
-		uwquadVerts[uwquadcounter++] = x2;
-		uwquadVerts[uwquadcounter++] = 0.0f;
-		uwquadVerts[uwquadcounter++] = z2;
-		uwquadVerts[uwquadcounter++] = x2;
-		uwquadVerts[uwquadcounter++] = 0.0f;
-		uwquadVerts[uwquadcounter++] = z1;
+			// Draw 4 vertical lines from building height to water surface
+			// Each line has gradient from lineStartColor (at building) to lineEndColor (at water)
+			rb.AddVertex({float3(x1, h, z1), lineStartColor});
+			rb.AddVertex({float3(x1, 0.0f, z1), lineEndColor});
 
-		for (int i = 0; i < 4; ++i) {
-			std::copy(col, col + 8, lineColors.begin() + linecounter * 2 + i * 8);
+			rb.AddVertex({float3(x2, h, z1), lineStartColor});
+			rb.AddVertex({float3(x2, 0.0f, z1), lineEndColor});
+
+			rb.AddVertex({float3(x2, h, z2), lineStartColor});
+			rb.AddVertex({float3(x2, 0.0f, z2), lineEndColor});
+
+			rb.AddVertex({float3(x1, h, z2), lineStartColor});
+			rb.AddVertex({float3(x1, 0.0f, z2), lineEndColor});
 		}
-
-		lineVerts[linecounter++] = x1;
-		lineVerts[linecounter++] = h;
-		lineVerts[linecounter++] = z1;
-		lineVerts[linecounter++] = x1;
-		lineVerts[linecounter++] = 0.0f;
-		lineVerts[linecounter++] = z1;
-
-		lineVerts[linecounter++] = x2;
-		lineVerts[linecounter++] = h;
-		lineVerts[linecounter++] = z1;
-		lineVerts[linecounter++] = x2;
-		lineVerts[linecounter++] = 0.0f;
-		lineVerts[linecounter++] = z1;
-
-		lineVerts[linecounter++] = x2;
-		lineVerts[linecounter++] = h;
-		lineVerts[linecounter++] = z2;
-		lineVerts[linecounter++] = x2;
-		lineVerts[linecounter++] = 0.0f;
-		lineVerts[linecounter++] = z2;
-
-		lineVerts[linecounter++] = x1;
-		lineVerts[linecounter++] = h;
-		lineVerts[linecounter++] = z2;
-		lineVerts[linecounter++] = x1;
-		lineVerts[linecounter++] = 0.0f;
-		lineVerts[linecounter++] = z2;
 	}
 
-	if (quadcounter > 0) {
-		auto* ctx = RHI::GetDevice()->GetContext();
+	auto& shader = rb.GetShader();
+	shader.Enable();
+	rb.DrawElements(GL_LINES);
+	shader.Disable();
 
-		glEnableClientState(GL_VERTEX_ARRAY);
-		ctx->SetPolygonMode(RHI::PolygonMode::Line);
-		glVertexPointer(3, GL_FLOAT, 0, &quadVerts[0]);
-		glDrawArrays(GL_QUADS, 0, quadcounter / 3);
-
-		if (linecounter > 0) {
-			// Save current color state for later restore
-			glGetFloatv(GL_CURRENT_COLOR, savedColor);
-			glColor4f(0.0f, 0.5f, 1.0f, 1.0f); // same as end color of lines
-			glVertexPointer(3, GL_FLOAT, 0, &uwquadVerts[0]);
-			glDrawArrays(GL_QUADS, 0, uwquadcounter / 3);
-			// Restore color explicitly
-			glColor4fv(savedColor);
-
-			glEnableClientState(GL_COLOR_ARRAY);
-			glColorPointer(4, GL_FLOAT, 0, &lineColors[0]);
-			glVertexPointer(3, GL_FLOAT, 0, &lineVerts[0]);
-			glDrawArrays(GL_LINES, 0, linecounter / 3);
-			glDisableClientState(GL_COLOR_ARRAY);
-		}
-
-		glDisableClientState(GL_VERTEX_ARRAY);
-		ctx->SetPolygonMode(RHI::PolygonMode::Fill);
-	}
+	ctx->SetPolygonMode(RHI::PolygonMode::Fill);
 }
 

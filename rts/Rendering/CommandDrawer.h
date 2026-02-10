@@ -4,6 +4,7 @@
 #define COMMAND_DRAWER_H
 
 #include "System/UnorderedSet.hpp"
+#include "System/Color.h"
 
 struct Command;
 class CCommandAI;
@@ -22,7 +23,7 @@ public:
 
 	void Draw(const CCommandAI*, int queueDrawDepth = -1) const;
 	void DrawLuaQueuedUnitSetCommands() const;
-	void DrawQuedBuildingSquares(const CBuilderCAI*) const;
+	void DrawQuedBuildingSquares(const CBuilderCAI*, const SColor& color) const;
 
 	void AddLuaQueuedUnit(const CUnit* unit, int queueDrawDepth = 0);
 
@@ -39,8 +40,6 @@ private:
 private:
 	spring::unordered_set<std::pair<int, int>> luaQueuedUnitSet; //unitID, queueDepth (if > 0)
 	static constexpr uint32_t cmdCircleResolution = 100;
-
-	mutable float savedColor[4] = {1.0f, 1.0f, 1.0f, 1.0f}; // For state save/restore
 };
 
 #define commandDrawer (CommandDrawer::GetInstance())

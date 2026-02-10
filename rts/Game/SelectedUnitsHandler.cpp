@@ -1,7 +1,7 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 // RHI migration status: GL state calls migrated to RHI dynamic state context methods
-// Remaining: FFP texture/color calls (glDisable(GL_TEXTURE_2D), glColor4fv)
+// Remaining: None (glColor4fv calls removed, replaced with explicit SColor parameters)
 
 #include "SelectedUnitsHandler.h"
 #include "SelectedUnitsAI.h"
@@ -612,7 +612,6 @@ void CSelectedUnitsHandler::Draw()
 	RECOIL_DETAILED_TRACY_ZONE;
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glDisable(GL_TEXTURE_2D);
 	ctx->SetDepthWriteEnabled(false);
 	ctx->SetDepthTestEnabled(false);
 	ctx->SetBlendEnabled(true); // for line smoothing
@@ -698,26 +697,17 @@ void CSelectedUnitsHandler::Draw()
 					(guihandler->inCommand < int(guihandler->commands.size())) &&
 					(guihandler->commands[guihandler->inCommand].id < 0)))) {
 
-			bool myColor = true;
-			glColor4fv(cmdColors.buildBox);
+			const SColor myTeamColor(cmdColors.buildBox);
+			const SColor allyTeamColor(cmdColors.allyBuildBox);
 
 			for (const auto& [bid, builderCAI] : unitHandler.GetBuilderCAIs()) {
 				const CUnit* builder = builderCAI->owner;
 
 				if (builder->team == gu->myTeam) {
-					if (!myColor) {
-						glColor4fv(cmdColors.buildBox);
-						myColor = true;
-					}
-					commandDrawer->DrawQuedBuildingSquares(builderCAI);
+					commandDrawer->DrawQuedBuildingSquares(builderCAI, myTeamColor);
 				}
-
 				else if (teamHandler.AlliedTeams(builder->team, gu->myTeam)) {
-					if (myColor) {
-						glColor4fv(cmdColors.allyBuildBox);
-						myColor = false;
-					}
-					commandDrawer->DrawQuedBuildingSquares(builderCAI);
+					commandDrawer->DrawQuedBuildingSquares(builderCAI, allyTeamColor);
 				}
 			}
 		}
@@ -728,7 +718,6 @@ void CSelectedUnitsHandler::Draw()
 	ctx->SetBlendEnabled(false);
 	ctx->SetDepthTestEnabled(true);
 	ctx->SetDepthWriteEnabled(true);
-	glEnable(GL_TEXTURE_2D);
 }
 
 
@@ -925,7 +914,6 @@ void CSelectedUnitsHandler::DrawCommands()
 {
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glDisable(GL_TEXTURE_2D);
 	ctx->SetDepthTestEnabled(false);
 
 	lineDrawer.Configure(cmdColors.UseColorRestarts(),
