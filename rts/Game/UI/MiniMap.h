@@ -5,6 +5,7 @@
 
 #include <string>
 #include <deque>
+#include <memory>
 #include "InputReceiver.h"
 #include "Rendering/GL/FBO.h"
 #include "Rendering/GL/RenderBuffersFwd.h"
@@ -15,6 +16,10 @@
 
 
 class CUnit;
+
+namespace RHI {
+	class IRHITexture;
+}
 
 namespace Shader {
 	struct IProgramObject;
@@ -196,10 +201,10 @@ protected:
 
 	FBO fbo;
 	FBO fboResolve;
-	GLuint minimapTex = 0;
+	std::unique_ptr<RHI::IRHITexture> minimapTexture;
 	int2 minimapTexSize;
 
-	GLuint buttonsTextureID;
+	std::unique_ptr<RHI::IRHITexture> buttonsTexture;
 
 	struct Notification {
 		float creationTime;

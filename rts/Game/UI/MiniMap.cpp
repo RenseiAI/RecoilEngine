@@ -3,7 +3,8 @@
  * - Migrated: glEnable/glDisable(GL_BLEND), glBlendFunc, glDepthMask, glLineWidth, glDisable(GL_DEPTH_TEST), glDisable(GL_SAMPLE_SHADING)
  * - Migrated: glViewport, glScissor, glClearColor, glClear, GL_SCISSOR_TEST
  * - Migrated: Removed glPushAttrib/glPopAttrib, replaced with explicit state save/restore
- * - Not migrated: GL_TEXTURE_2D (FFP), FFP matrix operations, texture binding (non-state operations)
+ * - Migrated: buttonsTextureID and minimapTex textures to IRHITexture (23 GL calls removed)
+ * - Not migrated: GL_TEXTURE_2D (FFP), FFP matrix operations, other texture bindings
  */
 
 #include <array>
@@ -45,6 +46,8 @@
 #include "Rendering/Textures/Bitmap.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "Sim/Units/CommandAI/CommandAI.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Units/UnitHandler.h"
@@ -139,28 +142,27 @@ CMiniMap::CMiniMap()
 	bgShader->Disable();
 
 	// setup the buttons' texture and texture coordinates
-	buttonsTextureID = 0;
 	CBitmap bitmap;
 	bool unfiltered = false;
 	if (bitmap.Load("bitmaps/minimapbuttons.png")) {
 		if ((bitmap.ysize == buttonSize) && (bitmap.xsize == (buttonSize * 4))) {
 			unfiltered = true;
 		}
-		glGenTextures(1, &buttonsTextureID);
-		glBindTexture(GL_TEXTURE_2D, buttonsTextureID);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
-								 bitmap.xsize, bitmap.ysize, 0,
-								 GL_RGBA, GL_UNSIGNED_BYTE, bitmap.GetRawMem());
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		auto* device = RHI::GetDevice();
+		buttonsTexture = device->CreateTexture(
+			RHI::TextureType::Texture2D,
+			RHI::TextureFormat::RGBA8,
+			bitmap.xsize, bitmap.ysize, 1, 1);
+		buttonsTexture->SetWrapS(RHI::TextureWrap::ClampToEdge);
+		buttonsTexture->SetWrapT(RHI::TextureWrap::ClampToEdge);
 		if (unfiltered) {
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+			buttonsTexture->SetMinFilter(RHI::TextureFilter::Nearest);
+			buttonsTexture->SetMagFilter(RHI::TextureFilter::Nearest);
 		} else {
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			buttonsTexture->SetMinFilter(RHI::TextureFilter::Linear);
+			buttonsTexture->SetMagFilter(RHI::TextureFilter::Linear);
 		}
-		glBindTexture(GL_TEXTURE_2D, 0);
+		buttonsTexture->Upload(0, 0, 0, bitmap.xsize, bitmap.ysize, bitmap.GetRawMem());
 	}
 	const float xshift = unfiltered ? 0.0f : (0.5f / bitmap.xsize);
 	const float yshift = unfiltered ? 0.0f : (0.5f / bitmap.ysize);
@@ -187,9 +189,6 @@ CMiniMap::~CMiniMap()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	shaderHandler->ReleaseProgramObjects("[MiniMap]");
-
-	glDeleteTextures(1, &buttonsTextureID);
-	glDeleteTextures(1, &minimapTex);
 
 	configHandler->RemoveObserver(this);
 }
@@ -1144,22 +1143,20 @@ void CMiniMap::ResizeTextureCache()
 		}
 	}
 
-	glDeleteTextures(1, &minimapTex);
-	glGenTextures(1, &minimapTex);
-
-	glBindTexture(GL_TEXTURE_2D, minimapTex);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-
-	// GL_LINEAR makes no sense for both below, because sampling is always pixel perfect and minimapTex is not exposed outside
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, minimapTexSize.x, minimapTexSize.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+	auto* device = RHI::GetDevice();
+	minimapTexture = device->CreateTexture(
+		RHI::TextureType::Texture2D,
+		RHI::TextureFormat::RGBA8,
+		minimapTexSize.x, minimapTexSize.y, 1, 1);
+	minimapTexture->SetWrapS(RHI::TextureWrap::ClampToBorder);
+	minimapTexture->SetWrapT(RHI::TextureWrap::ClampToBorder);
+	minimapTexture->SetMinFilter(RHI::TextureFilter::Nearest);
+	minimapTexture->SetMagFilter(RHI::TextureFilter::Nearest);
 
 	if (multisampledFBO) {
 		// resolve FBO with attached final texture target
 		fboResolve.Bind();
-		fboResolve.AttachTexture(minimapTex);
+		fboResolve.AttachTexture(minimapTexture->GetNativeHandle());
 
 		if (!fboResolve.CheckStatus("MINIMAP-RESOLVE")) {
 			renderToTexture = false;
@@ -1168,7 +1165,7 @@ void CMiniMap::ResizeTextureCache()
 	} else {
 		// directly render to texture without multisampling (fallback solution)
 		fbo.Bind();
-		fbo.AttachTexture(minimapTex);
+		fbo.AttachTexture(minimapTexture->GetNativeHandle());
 
 		if (!fbo.CheckStatus("MINIMAP-RESOLVE")) {
 			renderToTexture = false;
@@ -1268,7 +1265,8 @@ void CMiniMap::DrawMinimizedButtonQuad() const
 	const float ymin = 1.0f - (1 + buttonSize) * py;
 	const float ymax = 1.0f - (1 +          0) * py;
 
-	glBindTexture(GL_TEXTURE_2D, buttonsTextureID);
+	if (buttonsTexture)
+		buttonsTexture->Bind(0);
 
 	rb.AddQuadTriangles(
 		{ xmin, ymin, minimizeBox.xminTx, minimizeBox.yminTx, {1.0f, 1.0f, 1.0f, 1.0f} },
@@ -1630,8 +1628,8 @@ void CMiniMap::DrawButtons()
 	rbBox.AssertSubmission();
 	auto& shBox = rbBox.GetShader();
 
-	if (buttonsTextureID) {
-		glBindTexture(GL_TEXTURE_2D, buttonsTextureID);
+	if (buttonsTexture) {
+		buttonsTexture->Bind(0);
 
 		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2DT>();
 		rb.AssertSubmission();
@@ -1661,19 +1659,19 @@ void CMiniMap::DrawButtons()
 	//glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 	SColor boxColor = SColor(1.0f, 1.0f, 1.0f, 0.4f);
 	if (mouseResize || (!mouseMove && resizeBox.Inside(x, y))) {
-		if (!buttonsTextureID) { boxColor = SColor(0.3f, 0.4f, 1.0f, 0.9f); }
+		if (!buttonsTexture) { boxColor = SColor(0.3f, 0.4f, 1.0f, 0.9f); }
 		resizeBox.GetBoxRenderData(rbBox, boxColor);
 	}
 	else if (mouseMove || (!mouseResize && moveBox.Inside(x, y))) {
-		if (!buttonsTextureID) { boxColor = SColor(1.0f, 1.0f, 1.0f, 0.3f); }
+		if (!buttonsTexture) { boxColor = SColor(1.0f, 1.0f, 1.0f, 0.3f); }
 		moveBox.GetBoxRenderData(rbBox, boxColor);
 	}
 	else if (!mouseMove && !mouseResize) {
 		if (minimizeBox.Inside(x, y)) {
-			if (!buttonsTextureID) { boxColor = SColor(1.0f, 0.2f, 0.2f, 0.6f); }
+			if (!buttonsTexture) { boxColor = SColor(1.0f, 0.2f, 0.2f, 0.6f); }
 			minimizeBox.GetBoxRenderData(rbBox, boxColor);
 		} else if (maximizeBox.Inside(x, y)) {
-			if (!buttonsTextureID) { boxColor = SColor(1.0f, 1.0f, 1.0f, 0.3f); }
+			if (!buttonsTexture) { boxColor = SColor(1.0f, 1.0f, 1.0f, 0.3f); }
 			maximizeBox.GetBoxRenderData(rbBox, boxColor);
 		}
 	}
@@ -1775,7 +1773,8 @@ bool CMiniMap::RenderCachedTexture(bool useNormalizedCoors)
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glBindTexture(GL_TEXTURE_2D, minimapTex);
+	if (minimapTexture)
+		minimapTexture->Bind(0);
 	ctx->SetBlendEnabled(false);
 
 	if (useNormalizedCoors) {
