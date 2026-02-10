@@ -22,6 +22,14 @@
 // texture alpha-masking is done in both passes
 uniform vec4 teamColor;
 uniform vec4 nanoColor;
+uniform vec4 alphaCtrl = vec4(0.0, 0.0, 0.0, 1.0); //always pass
+
+bool AlphaDiscard(float a) {
+	float alphaTestGT = float(a > alphaCtrl.x) * alphaCtrl.y;
+	float alphaTestLT = float(a < alphaCtrl.x) * alphaCtrl.z;
+
+	return ((alphaTestGT + alphaTestLT + alphaCtrl.w) == 0.0);
+}
 
 varying vec4 vertexWorldPos;
 varying vec3 cameraDir;
@@ -93,6 +101,9 @@ void main(void)
 
 	vec3 shadowMult = GetShadowMult(NdotL);
 	float alpha = teamColor.a * extraColor.a; // apply one-bit mask
+
+	if (AlphaDiscard(alpha))
+		discard;
 
 	specular *= (extraColor.g * 4.0);
 	// no highlights if in shadowMult; decrease light to ambient level

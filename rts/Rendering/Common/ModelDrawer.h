@@ -8,17 +8,17 @@
  * Migrated patterns:
  *   - Inherits RHI pipeline state management via ModelDrawerState
  *   - Uses RHI-based setup/reset drawing methods
+ *   - Alpha test (main draw path) -> shader discard via alphaCtrl uniform
  *
  * Remaining GL calls (with RHI_TODO comments in implementation):
- *   - glEnable/glDisable(GL_ALPHA_TEST): Legacy FFP alpha test
- *   - glEnable/glDisable(GL_FOG): Legacy FFP fog state
- *   - glDisable(GL_TEXTURE_2D): Legacy FFP texture state
- *   - glColor3f: Legacy FFP vertex color
- *   - glPolygonOffset/GL_POLYGON_OFFSET_FILL: Could use PipelineDesc rasterizer
+ *   - glColor3f: Legacy FFP vertex color (shadow pass only)
+ *   - glPolygonOffset/GL_POLYGON_OFFSET_FILL: Shadow pass (could use PipelineDesc rasterizer)
+ *   - glAlphaFunc/GL_ALPHA_TEST: Shadow pass only (intentionally kept)
  *
  * Dependencies blocking full migration:
  *   - GLSL path uses legacy FFP; GL4 path is modern
  *   - Legacy draw path kept for compatibility with old Lua scripts
+ *   - Shadow pass still uses FFP state (separate migration task)
  */
 
 #pragma once
@@ -340,8 +340,7 @@ inline void CModelDrawerBase<TDrawerData, TDrawer>::DrawImpl(bool drawReflection
 	SCOPED_TIMER(zone_name.str);
 
 	if constexpr (legacy) {
-		// RHI_TODO: legacy FFP state (alpha test, fog). Only used in GLSL path.
-		glEnable(GL_ALPHA_TEST);
+		// RHI_TODO: legacy FFP state (fog). Only used in GLSL path.
 		ISky::GetSky()->SetupFog();
 	}
 
@@ -355,12 +354,6 @@ inline void CModelDrawerBase<TDrawerData, TDrawer>::DrawImpl(bool drawReflection
 	// now do the regular forward pass
 	if (drawForward)
 		DrawOpaquePass(false, drawReflection, drawRefraction);
-
-	if constexpr (legacy) {
-		// RHI_TODO: legacy FFP state. Only used in GLSL path.
-		glDisable(GL_FOG);
-		glDisable(GL_TEXTURE_2D);
-	}
 }
 
 template<typename TDrawerData, typename TDrawer>

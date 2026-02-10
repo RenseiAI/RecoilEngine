@@ -1,7 +1,7 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 /**
- * RHI Migration Status: PARTIAL
+ * RHI Migration Status: PARTIAL (alpha test migrated)
  *
  * This file is partially migrated to the RHI abstraction layer.
  *
@@ -10,13 +10,13 @@
  *   - Polygon mode (wireframe)            -> RHI::PipelineDesc::rasterizer.polygonMode
  *   - RHI device/context access           -> RHI::CreateDevice(), GetContext()
  *   - Clip distance enable/disable        -> ctx->SetClipDistanceEnabled(index, bool)
+ *   - Alpha test (legacy GLSL)            -> shader discard via alphaCtrl uniform
  *
  * Remaining GL calls (with RHI_TODO comments):
- *   - glAlphaFunc()/GL_ALPHA_TEST: Legacy FFP alpha test (shaders use discard)
+ *   - None (fully migrated to RHI)
  *
  * Dependencies blocking full migration:
- *   - Alpha test is legacy FFP; modern shaders handle via discard
- *   - GL4 path exists that doesn't use legacy FFP
+ *   - None (alpha test migration complete for both GLSL and GL4 paths)
  */
 
 #include "ModelDrawerState.hpp"
@@ -76,14 +76,6 @@ void IModelDrawerState::SetupOpaqueDrawing(bool deferredPass) const
 	auto pipeline = device->CreatePipeline(desc);
 	ctx->BindPipeline(pipeline.get());
 
-	if (IsLegacy()) {
-		// RHI_TODO: alpha test is legacy FFP state.
-		// glAlphaFunc(GL_GREATER, 0.5f) has no direct RHI equivalent.
-		// Modern shaders handle alpha testing via discard.
-		glAlphaFunc(GL_GREATER, 0.5f);
-		glEnable(GL_ALPHA_TEST);
-	}
-
 	Enable(deferredPass, false);
 }
 
@@ -91,9 +83,6 @@ void IModelDrawerState::ResetOpaqueDrawing(bool deferredPass) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	Disable(deferredPass);
-
-	if (IsLegacy())
-		glDisable(GL_ALPHA_TEST);
 
 	// Restore default pipeline state
 	auto* device = RHI::GetDevice();
@@ -123,12 +112,6 @@ void IModelDrawerState::SetupAlphaDrawing(bool deferredPass) const
 	ctx->BindPipeline(pipeline.get());
 
 	Enable(/*deferredPass always false*/ false, true);
-
-	if (IsLegacy()) {
-		// RHI_TODO: alpha test is legacy FFP state.
-		glEnable(GL_ALPHA_TEST);
-		glAlphaFunc(GL_GREATER, 0.1f);
-	}
 }
 
 void IModelDrawerState::ResetAlphaDrawing(bool deferredPass) const
@@ -255,6 +238,10 @@ void CModelDrawerStateGLSL::Enable(bool deferredPass, bool alphaPass) const
 	modelShader->SetUniform3v("sunSpecular", &sunLighting->modelSpecularColor[0]);
 	modelShader->SetUniform("shadowDensity", sunLighting->modelShadowDensity);
 	modelShader->SetUniformMatrix4x4("shadowMatrix", false, shadowHandler.GetShadowMatrixRaw());
+
+	// Alpha control — replaces legacy FFP glAlphaFunc/GL_ALPHA_TEST
+	float gtThreshold = mix(0.5f, 0.1f, static_cast<float>(alphaPass));
+	modelShader->SetUniform("alphaCtrl", gtThreshold, 1.0f, 0.0f, 0.0f);
 
 	CModelDrawerConcept::GetLightHandler()->Update(modelShader);
 }

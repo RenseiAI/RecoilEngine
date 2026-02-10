@@ -35,6 +35,7 @@ struct SunParams {
 struct ModelUniforms {
     float4 teamColor;
     float4 nanoColor;
+    float4 alphaCtrl;  // default: (0.0, 0.0, 0.0, 1.0) - always pass
 #ifdef USE_SHADOWS
     float shadowDensity;
 #endif
@@ -49,6 +50,12 @@ struct GBufferOut {
     float4 misc [[color(4)]];
 };
 #endif
+
+bool AlphaDiscard(float a, float4 alphaCtrl) {
+    float alphaTestGT = float(a > alphaCtrl.x) * alphaCtrl.y;
+    float alphaTestLT = float(a < alphaCtrl.x) * alphaCtrl.z;
+    return ((alphaTestGT + alphaTestLT + alphaCtrl.w) == 0.0);
+}
 
 #ifdef USE_SHADOWS
 float3 GetShadowMult(
@@ -123,6 +130,10 @@ fragment float4 modelFragProg(
 #endif
 
     float alpha = uniforms.teamColor.a * extraColor.a;
+
+    if (AlphaDiscard(alpha, uniforms.alphaCtrl)) {
+        discard_fragment();
+    }
 
     specular *= (extraColor.g * 4.0);
     specular *= shadowMult;
