@@ -44,27 +44,23 @@ DebugCubeMapTexture::DebugCubeMapTexture()
 
 		dims = { FALLBACK_DIM, FALLBACK_DIM };
 
-		glEnable(GL_TEXTURE_CUBE_MAP);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, texId);
 		for (GLenum glFace = GL_TEXTURE_CUBE_MAP_POSITIVE_X; glFace <= GL_TEXTURE_CUBE_MAP_NEGATIVE_Z; ++glFace) {
 			std::fill(debugColorVec.begin(), debugColorVec.end(), debugFaceColors[glFace - GL_TEXTURE_CUBE_MAP_POSITIVE_X]);
 			glTexImage2D(glFace, 0, GL_RGBA8, FALLBACK_DIM, FALLBACK_DIM, 0, GL_RGBA, GL_UNSIGNED_BYTE, debugColorVec.data());
 		}
 		glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
-		glDisable(GL_TEXTURE_CUBE_MAP);
 	} else {
 		dims = { btex.xsize, btex.ysize };
 		texId = btex.CreateTexture();
 	}
 
-	glEnable(GL_TEXTURE_CUBE_MAP);
 	glBindTexture(GL_TEXTURE_CUBE_MAP, texId);
 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
-	glDisable(GL_TEXTURE_CUBE_MAP);
 
 	shader = shaderHandler->CreateProgramObject("[DebugCubeMap]", "DebugCubeMap");
 	shader->AttachShaderObject(shaderHandler->CreateShaderObject("GLSL/CubeMapVS.glsl", "", GL_VERTEX_SHADER));
@@ -111,7 +107,6 @@ void DebugCubeMapTexture::Draw(uint32_t face) const
 	}
 
 	// NOTE: cubemap bind retained as raw GL - texId is a raw GL texture ID
-	glEnable(GL_TEXTURE_CUBE_MAP);
 	glBindTexture(GL_TEXTURE_CUBE_MAP, texId);
 
 	// FFP matrix stack - no RHI equivalent
@@ -142,7 +137,6 @@ void DebugCubeMapTexture::Draw(uint32_t face) const
 	glPopMatrix();
 
 	glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
-	glDisable(GL_TEXTURE_CUBE_MAP);
 #endif
 }
 

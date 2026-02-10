@@ -13,7 +13,7 @@
  *   - glGetIntegerv(GL_VIEWPORT): FFP viewport query for state save/restore
  *   - glDrawBuffer: Framebuffer draw buffer selection (no RHI equivalent)
  *   - glGenTextures, glBindTexture, glTexParameteri, glTexImage2D, glDeleteTextures,
- *     glGenerateMipmapEXT, glEnable/glDisable(GL_TEXTURE_CUBE_MAP):
+ *     glGenerateMipmapEXT:
  *     Raw GL texture operations for cubemap creation/conversion and for binding
  *     skyTex (MapTexture stores raw GL IDs, not RHI texture objects).
  *     Migration blocked on MapTexture refactor.
@@ -77,8 +77,6 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 			[]() { uint32_t tempID = 0; glGenTextures(1, &tempID); return tempID; }(),
 			[](uint32_t texID) { if (texID > 0) glDeleteTextures(1, &texID); }
 		);
-
-		glEnable(GL_TEXTURE_CUBE_MAP);
 
 		glBindTexture(GL_TEXTURE_CUBE_MAP, cubeTexID);
 
@@ -204,8 +202,6 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 			}
 		}
 
-		glDisable(GL_TEXTURE_CUBE_MAP);
-
 		glDeleteTextures(1, &textureID); // release 2D texture
 
 		skyTex.SetRawTexID(cubeTexID.Release());
@@ -218,12 +214,10 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 		skyTex.SetRawSize(int2(xsize, ysize));
 	}
 
-	glEnable(GL_TEXTURE_CUBE_MAP);
 	glBindTexture(GL_TEXTURE_CUBE_MAP, skyTex.GetID());
 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
-	glDisable(GL_TEXTURE_CUBE_MAP);
 
 	shader = shaderHandler->CreateProgramObject("[SkyBox]", "SkyBox");
 	shader->AttachShaderObject(shaderHandler->CreateShaderObject("GLSL/CubeMapVS.glsl", "", GL_VERTEX_SHADER));
@@ -298,7 +292,6 @@ void CSkyBox::Draw()
 
 	// NOTE: cubemap bind retained as raw GL - skyTex stores a raw GL texture ID
 	// (MapTexture), not an RHI texture object
-	glEnable(GL_TEXTURE_CUBE_MAP);
 	glBindTexture(GL_TEXTURE_CUBE_MAP, skyTex.GetID());
 
 	skyVAO.Bind();
@@ -319,7 +312,6 @@ void CSkyBox::Draw()
 	skyVAO.Unbind();
 
 	glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
-	glDisable(GL_TEXTURE_CUBE_MAP);
 
 	// glMatrixMode(GL_PROJECTION);
 	glPopMatrix();
