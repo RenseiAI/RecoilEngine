@@ -3,12 +3,15 @@
 #ifndef IN_MAP_DRAW_VIEW_H
 #define IN_MAP_DRAW_VIEW_H
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "System/float3.h"
 #include "Game/InMapDrawModel.h"
 #include "Rendering/GL/RenderBuffers.h"
+
+namespace RHI { class IRHITexture; }
 
 /**
  * The V in MVC for InMapDraw.
@@ -27,7 +30,7 @@ private:
 	TypedRenderBuffer<VA_TYPE_TC>& rbp = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_TC>();
 	TypedRenderBuffer<VA_TYPE_C >& rbl = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C >();
 
-	uint32_t texture;
+	std::unique_ptr<RHI::IRHITexture> texture;
 
 	std::vector<const CInMapDrawModel::MapPoint*> visibleLabels;
 };

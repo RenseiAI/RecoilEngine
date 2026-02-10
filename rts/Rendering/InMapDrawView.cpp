@@ -8,26 +8,23 @@
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHITexture.h"
+
+#include <cmath>
 
 #include "Game/Camera.h"
 #include "Game/InMapDrawModel.h"
 #include "Map/ReadMap.h"
 #include "Sim/Misc/TeamHandler.h"
 
-// RHI Migration Notes (InMapDrawView):
-// Texture lifecycle in constructor/destructor is directly mappable:
-//   glGenTextures + glBindTexture + glTexParameteri + glTexImage2D
-//     -> IRHIDevice::CreateTexture() + IRHITexture::SetMinFilter/SetMagFilter/SetWrapS/SetWrapT
-//   RecoilBuildMipmaps -> IRHITexture::GenerateMipmaps() (after Upload)
-//   glDeleteTextures -> IRHITexture destructor (unique_ptr)
-//   Requires: changing `GLuint texture` member to std::unique_ptr<RHI::IRHITexture>
-// Pipeline state in Draw():
-//   glDepthMask(GL_FALSE) -> RHI::DepthStencilState{depthWriteEnabled=false}
-//   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-//     -> RHI::BlendState{srcColor=SrcAlpha, dstColor=OneMinusSrcAlpha}
-//   glEnable(GL_BLEND) -> RHI::BlendState{enabled=true}
-//   glLineWidth(3.0f) -> RHI::RasterizerState{lineWidth=3.0f}
-//   glBindTexture(GL_TEXTURE_2D, texture) -> IRHIContext::BindTexture(tex, 0)
+// RHI Migration Status (InMapDrawView):
+// MIGRATED:
+//   - Texture lifecycle: std::unique_ptr<RHI::IRHITexture> with CreateTexture/Upload/GenerateMipmaps
+//   - Texture binding: IRHITexture::Bind()/Unbind()
+//   - Pipeline state: ctx->SetDepthWriteEnabled, SetBlendFunc, SetBlendEnabled, SetLineWidth
+// RETAINED (no RHI equivalent):
+//   - GL_LINES primitive in DrawArrays (passed through RenderBuffer)
 
 CInMapDrawView* inMapDrawerView = nullptr;
 
@@ -101,21 +98,22 @@ CInMapDrawView::CInMapDrawView()
 		}
 	}
 
-	glGenTextures(1, &texture);
-	glBindTexture(GL_TEXTURE_2D, texture);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	RecoilBuildMipmaps(GL_TEXTURE_2D, GL_RGBA8, 128, 64, GL_RGBA, GL_UNSIGNED_BYTE, tex[0]);
-	glBindTexture(GL_TEXTURE_2D, 0);
+	const int mipLevels = 1 + static_cast<int>(std::floor(std::log2(std::max(128, 64))));
+	auto* device = RHI::GetDevice();
+	texture = device->CreateTexture(
+		RHI::TextureType::Texture2D,
+		RHI::TextureFormat::RGBA8,
+		128, 64, 1, mipLevels);
+	texture->SetMagFilter(RHI::TextureFilter::Linear);
+	texture->SetMinFilter(RHI::TextureFilter::LinearMipmapNearest);
+	texture->SetWrapS(RHI::TextureWrap::ClampToEdge);
+	texture->SetWrapT(RHI::TextureWrap::ClampToEdge);
+	texture->Upload(0, 0, 0, 128, 64, tex[0]);
+	texture->GenerateMipmaps();
 }
 
 
-CInMapDrawView::~CInMapDrawView()
-{
-	glDeleteTextures(1, &texture);
-}
+CInMapDrawView::~CInMapDrawView() = default;
 
 
 struct InMapDraw_QuadDrawer: public CReadMap::IQuadDrawer
@@ -236,12 +234,12 @@ void CInMapDrawView::Draw()
 	// draw points
 
 	{
-		glBindTexture(GL_TEXTURE_2D, texture);
+		texture->Bind(0);
 		auto& sh = rbp.GetShader();
 		sh.Enable();
 		rbp.DrawElements(GL_TRIANGLES); //! draw point markers
 		sh.Disable();
-		glBindTexture(GL_TEXTURE_2D, 0);
+		texture->Unbind(0);
 	}
 
 	if (!visibleLabels.empty()) {
