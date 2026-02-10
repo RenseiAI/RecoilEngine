@@ -14,7 +14,6 @@
  * Remaining GL calls (with RHI_TODO comments):
  *   - glActiveTexture/glBindTexture(0): Texture unbinding not supported by IRHITexture
  *   - glActiveTexture/glBindTexture(cube maps): cubeMapHandler doesn't expose RHI textures
- *   - glEnable/glDisable(GL_TEXTURE_2D/GL_TEXTURE_CUBE_MAP): Legacy FFP state, no RHI equivalent
  *   - glMatrixMode/glPushMatrix/glPopMatrix: Legacy FFP matrix stack, no RHI equivalent
  *   - glGetIntegerv(GL_MATRIX_MODE): Legacy FFP state query, no RHI equivalent
  *
@@ -22,7 +21,6 @@
  *   - cubeMapHandler needs to expose IRHITexture* getters (currently only GetNativeHandle())
  *   - IRHITexture needs Unbind() method or context->UnbindTexture(unit)
  *   - FFP matrix stack used by legacy path; GL4 path uses uniform buffers
- *   - FFP texture enables/disables should be removed when shader-only rendering is enforced
  */
 
 #include "ModelDrawerHelpers.h"
@@ -73,14 +71,8 @@ bool CModelDrawerHelper::ObjectVisibleReflection(const float3& objPos, const flo
 void CModelDrawerHelper::EnableTexturesCommon()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: glEnable(GL_TEXTURE_2D/GL_TEXTURE_CUBE_MAP) is legacy FFP state with no
-	// RHI equivalent. Modern shaders don't need these enables. Keep for FFP compatibility
-	// until shader migration is complete.
 	// RHI_TODO: cubeMapHandler doesn't yet expose RHI texture objects (only GetNativeHandle),
 	// so cube map binding still uses raw GL calls.
-
-	glActiveTexture(GL_TEXTURE1);
-	glEnable(GL_TEXTURE_2D);
 
 	if (shadowHandler.ShadowsLoaded()) {
 		shadowHandler.SetupShadowTexSampler(GL_TEXTURE2, true);
@@ -94,39 +86,21 @@ void CModelDrawerHelper::EnableTexturesCommon()
 
 	// Cube map textures - use GL until cubeMapHandler exposes RHI texture objects
 	glActiveTexture(GL_TEXTURE4);
-	glEnable(GL_TEXTURE_CUBE_MAP);
 	glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapHandler.GetEnvReflectionTextureID());
 
 	glActiveTexture(GL_TEXTURE5);
-	glEnable(GL_TEXTURE_CUBE_MAP);
 	glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapHandler.GetSpecularTextureID());
 
 	glActiveTexture(GL_TEXTURE0);
-	glEnable(GL_TEXTURE_2D);
 }
 
 void CModelDrawerHelper::DisableTexturesCommon()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: glDisable(GL_TEXTURE_2D/GL_TEXTURE_CUBE_MAP) is legacy FFP state with no
-	// RHI equivalent. Modern shaders don't need these disables. Keep for FFP compatibility
-	// until shader migration is complete.
-
-	glActiveTexture(GL_TEXTURE1);
-	glDisable(GL_TEXTURE_2D);
-
 	if (shadowHandler.ShadowsLoaded())
 		shadowHandler.ResetShadowTexSampler(GL_TEXTURE2, true);
 
-	// Disable cube map texture units
-	glActiveTexture(GL_TEXTURE3);
-	glDisable(GL_TEXTURE_CUBE_MAP);
-
-	glActiveTexture(GL_TEXTURE4);
-	glDisable(GL_TEXTURE_CUBE_MAP);
-
 	glActiveTexture(GL_TEXTURE0);
-	glDisable(GL_TEXTURE_2D);
 }
 
 void CModelDrawerHelper::PushTransform(const CCamera* cam)
@@ -305,10 +279,7 @@ void CModelDrawerHelper3DO::UnbindOpaqueTex() const
 void CModelDrawerHelper3DO::BindShadowTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: glEnable(GL_TEXTURE_2D) is legacy FFP state with no RHI equivalent.
-	// Modern shaders don't need this. Keep for FFP compatibility until shader migration complete.
 	glActiveTexture(GL_TEXTURE0);
-	glEnable(GL_TEXTURE_2D);
 
 	// Use RHI texture binding for 3DO atlas texture
 	if (auto* tex2 = textureHandler3DO.GetAtlasTex2()) {
@@ -319,9 +290,10 @@ void CModelDrawerHelper3DO::BindShadowTex(const CS3OTextureHandler::S3OTexMat* t
 void CModelDrawerHelper3DO::UnbindShadowTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: see BindShadowTex note
+	// RHI_TODO: Unbinding textures (glBindTexture(target, 0)) is not currently
+	// supported by IRHITexture interface. This is typically unnecessary in modern
+	// GL as subsequent Bind() calls will override, but keeping GL fallback for now.
 	glBindTexture(GL_TEXTURE_2D, 0);
-	glDisable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE0);
 }
 
@@ -354,10 +326,7 @@ void CModelDrawerHelperS3O::UnbindOpaqueTex() const
 void CModelDrawerHelperS3O::BindShadowTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: glEnable(GL_TEXTURE_2D) is legacy FFP state with no RHI equivalent.
-	// Modern shaders don't need this. Keep for FFP compatibility until shader migration complete.
 	glActiveTexture(GL_TEXTURE0);
-	glEnable(GL_TEXTURE_2D);
 
 	// Use RHI texture binding for S3O texture
 	if (textureMat->tex2RHI) {
@@ -368,9 +337,10 @@ void CModelDrawerHelperS3O::BindShadowTex(const CS3OTextureHandler::S3OTexMat* t
 void CModelDrawerHelperS3O::UnbindShadowTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: see BindShadowTex note
+	// RHI_TODO: Unbinding textures (glBindTexture(target, 0)) is not currently
+	// supported by IRHITexture interface. This is typically unnecessary in modern
+	// GL as subsequent Bind() calls will override, but keeping GL fallback for now.
 	glBindTexture(GL_TEXTURE_2D, 0);
-	glDisable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE0);
 }
 
@@ -403,10 +373,7 @@ void CModelDrawerHelperASS::UnbindOpaqueTex() const
 void CModelDrawerHelperASS::BindShadowTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: glEnable(GL_TEXTURE_2D) is legacy FFP state with no RHI equivalent.
-	// Modern shaders don't need this. Keep for FFP compatibility until shader migration complete.
 	glActiveTexture(GL_TEXTURE0);
-	glEnable(GL_TEXTURE_2D);
 
 	// Use RHI texture binding for ASS (Assimp) texture
 	if (textureMat->tex2RHI) {
@@ -417,8 +384,9 @@ void CModelDrawerHelperASS::BindShadowTex(const CS3OTextureHandler::S3OTexMat* t
 void CModelDrawerHelperASS::UnbindShadowTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: see BindShadowTex note
+	// RHI_TODO: Unbinding textures (glBindTexture(target, 0)) is not currently
+	// supported by IRHITexture interface. This is typically unnecessary in modern
+	// GL as subsequent Bind() calls will override, but keeping GL fallback for now.
 	glBindTexture(GL_TEXTURE_2D, 0);
-	glDisable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE0);
 }
