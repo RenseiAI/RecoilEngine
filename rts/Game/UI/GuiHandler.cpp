@@ -2647,8 +2647,6 @@ void CGuiHandler::Draw()
 	ctx->SetDepthTestEnabled(false);
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
-	glEnable(GL_ALPHA_TEST);
-	glAlphaFunc(GL_GEQUAL, 0.01f);
 
 	if (iconsCount > 0)
 		DrawButtons();
@@ -2656,7 +2654,6 @@ void CGuiHandler::Draw()
 	// Restore state explicitly
 	ctx->SetDepthTestEnabled(true);
 	ctx->SetBlendEnabled(false);
-	glDisable(GL_ALPHA_TEST);
 }
 
 
@@ -3663,7 +3660,6 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap)
 		ctx->SetDepthWriteEnabled(false);
 		ctx->SetBlendEnabled(true);
 		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
-		glDisable(GL_ALPHA_TEST);
 	}
 
 	float3 tracePos;

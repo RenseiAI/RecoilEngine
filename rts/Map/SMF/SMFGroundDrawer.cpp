@@ -360,14 +360,14 @@ void CSMFGroundDrawer::DrawBorder(const DrawPass::e drawPass)
 	ctx->SetCullFaceEnabled(true);
 	ctx->SetCullFace(RHI::CullMode::Back);
 
-	glActiveTexture(GL_TEXTURE2); glEnable(GL_TEXTURE_2D);
+	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, smfMap->GetDetailTexture());
 
-	glActiveTexture(GL_TEXTURE1); glEnable(GL_TEXTURE_2D);
+	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, smfMap->GetHeightMapTexture());
 
 	//for CSMFGroundTextures::BindSquareTexture()
-	glActiveTexture(GL_TEXTURE0); glEnable(GL_TEXTURE_2D);
+	glActiveTexture(GL_TEXTURE0);
 
 	ctx->SetPolygonMode(wireframe ? RHI::PolygonMode::Line : RHI::PolygonMode::Fill);
 
@@ -381,15 +381,12 @@ void CSMFGroundDrawer::DrawBorder(const DrawPass::e drawPass)
 
 	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, 0);
-	glDisable(GL_TEXTURE_2D);
 
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, 0);
-	glDisable(GL_TEXTURE_2D);
 
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, 0);
-	glDisable(GL_TEXTURE_2D);
 
 	ctx->SetCullFaceEnabled(false);
 	ctx->SetBlendEnabled(false);

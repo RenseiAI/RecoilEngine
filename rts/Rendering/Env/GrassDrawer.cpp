@@ -712,7 +712,6 @@ void CGrassDrawer::SetupGlStateNear()
 		glLoadIdentity();
 
 	glActiveTextureARB(GL_TEXTURE0_ARB);
-	glDisable(GL_ALPHA_TEST);
 
 	// RHI dynamic state
 	auto* ctx = RHI::GetDevice()->GetContext();
@@ -809,8 +808,6 @@ void CGrassDrawer::ResetGlStateFar()
 			glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_TEXTURE_MODE_ARB, GL_LUMINANCE);
 		glActiveTextureARB(GL_TEXTURE0_ARB);
 	}
-
-	glDisable(GL_ALPHA_TEST);
 
 	// RHI dynamic state
 	auto* ctx = RHI::GetDevice()->GetContext();
@@ -954,7 +951,6 @@ void CGrassDrawer::CreateFarTex()
 	glPushMatrix();
 
 	glDisable(GL_FOG);
-	glDisable(GL_ALPHA_TEST);
 	if (grassBladeTex) {
 		grassBladeTex->Bind(0);
 	}

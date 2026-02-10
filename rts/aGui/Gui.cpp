@@ -30,7 +30,6 @@ void Gui::Draw()
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glDisable(GL_ALPHA_TEST);
 	ctx->SetBlendEnabled(true);
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
