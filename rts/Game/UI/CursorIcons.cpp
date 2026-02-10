@@ -58,10 +58,6 @@ void CCursorIcons::Draw()
 	RECOIL_DETAILED_TRACY_ZONE;
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	// Save current color
-	float savedColor[4];
-	glGetFloatv(GL_CURRENT_COLOR, savedColor);
-
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 	ctx->SetDepthWriteEnabled(false);
@@ -72,12 +68,9 @@ void CCursorIcons::Draw()
 	DrawBuilds();
 	Clear();
 
-	glBindTexture(GL_TEXTURE_2D, 0);
-
 	// Restore state
 	ctx->SetBlendEnabled(false);
 	ctx->SetDepthWriteEnabled(true);
-	glColor4fv(savedColor);
 }
 
 

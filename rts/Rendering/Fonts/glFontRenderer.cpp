@@ -232,7 +232,6 @@ void CglShaderFontRenderer::PushGLState(const CglFont& fnt)
 
 	// Save state (explicit restore replaces glPushAttrib/glPopAttrib)
 	ctx->SetDepthTestEnabled(false);
-	glDisable(GL_ALPHA_TEST); // FFP feature, no RHI equivalent
 	ctx->SetBlendEnabled(true);
 	if (!userDefinedBlending)
 		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
@@ -269,7 +268,6 @@ void CglShaderFontRenderer::PopGLState(const CglFont& fnt)
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetDepthTestEnabled(true);
 	ctx->SetBlendEnabled(false);
-	glEnable(GL_ALPHA_TEST);
 }
 
 void CglShaderFontRenderer::GetStats(std::array<size_t, 8>& stats) const

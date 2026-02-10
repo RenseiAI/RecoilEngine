@@ -73,10 +73,6 @@ void DebugDrawerAI::Draw() {
 	glPushMatrix();
 	glLoadIdentity();
 
-	// Save current color state
-	float savedColor[4];
-	glGetFloatv(GL_CURRENT_COLOR, savedColor);
-
 	auto* ctx = RHI::GetDevice()->GetContext();
 
 	ctx->SetDepthTestEnabled(false);
@@ -87,7 +83,6 @@ void DebugDrawerAI::Draw() {
 
 	// Restore state explicitly
 	ctx->SetDepthTestEnabled(true);
-	glColor4fv(savedColor);
 
 	glMatrixMode(GL_PROJECTION);
 	glPopMatrix();

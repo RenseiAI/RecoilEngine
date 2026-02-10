@@ -1560,9 +1560,6 @@ bool CGame::Draw() {
 
 void CGame::DrawInputReceivers()
 {
-
-	glEnable(GL_TEXTURE_2D);
-
 	if (!hideInterface) {
 		{
 			SCOPED_TIMER("Draw::Screen::InputReceivers");
@@ -1583,8 +1580,6 @@ void CGame::DrawInputReceivers()
 			minimap->Draw();
 		}
 	}
-
-	glEnable(GL_TEXTURE_2D);
 }
 
 void CGame::DrawInterfaceWidgets()
