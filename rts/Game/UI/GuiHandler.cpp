@@ -1,7 +1,8 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-// RHI Migration Status: GL state calls migrated to RHI dynamic state context methods
-// Remaining: FFP calls (glPushAttrib/glPopAttrib, glPushMatrix/glPopMatrix, glColor*, glVertex*, etc.)
+// RHI Migration Status: GL state + FFP immediate-mode drawing migrated to RHI/RenderBuffer
+// Remaining: matrix stack (glPushMatrix etc.), display list (GetConeList), stencil (glLogicOp),
+//   glAlphaFunc, glBindTexture (texture manager), glColor4f (font), DrawBoxShape/DrawCylinderShape/DrawMinMaxBox (glDrawVolume)
 
 #include "GuiHandler.h"
 
@@ -32,6 +33,7 @@
 #include "Rendering/IconHandler.h"
 #include "Rendering/Units/UnitDrawer.h"
 #include "Rendering/GL/glExtra.h"
+#include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
 #include "Rendering/Textures/Bitmap.h"
 #include "Rendering/Textures/NamedTextures.h"
@@ -2699,8 +2701,7 @@ void CGuiHandler::DrawCustomButton(const IconInfo& icon, bool highlight)
 	if (usedTexture)
 		return;
 
-	glColor4f(1.0f, 1.0f, 1.0f, 0.1f);
-	DrawIconFrame(icon);
+	DrawIconFrame(icon, SColor(1.0f, 1.0f, 1.0f, 0.1f));
 }
 
 
@@ -2713,16 +2714,20 @@ bool CGuiHandler::DrawUnitBuildIcon(const IconInfo& icon, int unitDefID)
 		return false;
 
 	const Box& b = icon.visual;
+	const SColor col(1.0f, 1.0f, 1.0f, textureAlpha);
 
-	glEnable(GL_TEXTURE_2D);
-	glColor4f(1.0f, 1.0f, 1.0f, textureAlpha);
 	glBindTexture(GL_TEXTURE_2D, CUnitDrawer::GetUnitDefImage(ud));
-	glBegin(GL_QUADS);
-		glTexCoord2f(0.0f, 0.0f); glVertex2f(b.x1, b.y1);
-		glTexCoord2f(1.0f, 0.0f); glVertex2f(b.x2, b.y1);
-		glTexCoord2f(1.0f, 1.0f); glVertex2f(b.x2, b.y2);
-		glTexCoord2f(0.0f, 1.0f); glVertex2f(b.x1, b.y2);
-	glEnd();
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_TC>();
+	auto& sh = rb.GetShader();
+	sh.Enable();
+	rb.AddQuadTriangles(
+		{ {b.x1, b.y1, 0.0f}, 0.0f, 0.0f, col },
+		{ {b.x2, b.y1, 0.0f}, 1.0f, 0.0f, col },
+		{ {b.x2, b.y2, 0.0f}, 1.0f, 1.0f, col },
+		{ {b.x1, b.y2, 0.0f}, 0.0f, 1.0f, col }
+	);
+	rb.DrawElements(GL_TRIANGLES);
+	sh.Disable();
 
 	return true;
 }
@@ -2898,17 +2903,21 @@ bool CGuiHandler::DrawTexture(const IconInfo& icon, const std::string& texName)
 		tex2.clear(); // cancel the scaled draw
 	}
 
-	glEnable(GL_TEXTURE_2D);
-	glColor4f(1.0f, 1.0f, 1.0f, textureAlpha);
+	const SColor col(1.0f, 1.0f, 1.0f, textureAlpha);
 
 	// draw the full size quad
 	const Box& b = icon.visual;
-	glBegin(GL_QUADS);
-	glTexCoord2f(0.0f, 0.0f); glVertex2f(b.x1, b.y1);
-	glTexCoord2f(1.0f, 0.0f); glVertex2f(b.x2, b.y1);
-	glTexCoord2f(1.0f, 1.0f); glVertex2f(b.x2, b.y2);
-	glTexCoord2f(0.0f, 1.0f); glVertex2f(b.x1, b.y2);
-	glEnd();
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_TC>();
+	auto& sh = rb.GetShader();
+	sh.Enable();
+	rb.AddQuadTriangles(
+		{ {b.x1, b.y1, 0.0f}, 0.0f, 0.0f, col },
+		{ {b.x2, b.y1, 0.0f}, 1.0f, 0.0f, col },
+		{ {b.x2, b.y2, 0.0f}, 1.0f, 1.0f, col },
+		{ {b.x1, b.y2, 0.0f}, 0.0f, 1.0f, col }
+	);
+	rb.DrawElements(GL_TRIANGLES);
+	sh.Disable();
 
 	if (tex2.empty())
 		return true; // success, no second texture to draw
@@ -2927,29 +2936,34 @@ bool CGuiHandler::DrawTexture(const IconInfo& icon, const std::string& texName)
 	const float y2 = b.y2 + (yIconSize * yscale);
 
 	// draw the scaled quad
-	glBegin(GL_QUADS);
-	glTexCoord2f(0.0f, 0.0f); glVertex2f(x1, y1);
-	glTexCoord2f(1.0f, 0.0f); glVertex2f(x2, y1);
-	glTexCoord2f(1.0f, 1.0f); glVertex2f(x2, y2);
-	glTexCoord2f(0.0f, 1.0f); glVertex2f(x1, y2);
-	glEnd();
+	sh.Enable();
+	rb.AddQuadTriangles(
+		{ {x1, y1, 0.0f}, 0.0f, 0.0f, col },
+		{ {x2, y1, 0.0f}, 1.0f, 0.0f, col },
+		{ {x2, y2, 0.0f}, 1.0f, 1.0f, col },
+		{ {x1, y2, 0.0f}, 0.0f, 1.0f, col }
+	);
+	rb.DrawElements(GL_TRIANGLES);
+	sh.Disable();
 
 	return true;
 }
 
 
-void CGuiHandler::DrawIconFrame(const IconInfo& icon)
+void CGuiHandler::DrawIconFrame(const IconInfo& icon, const SColor& color)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	const Box& b = icon.visual;
-	glDisable(GL_TEXTURE_2D);
-	glBegin(GL_LINE_LOOP);
 	constexpr float fudge = 0.001f; // avoids getting creamed if iconBorder == 0.0
-	glVertex2f(b.x1 + fudge, b.y1 - fudge);
-	glVertex2f(b.x2 - fudge, b.y1 - fudge);
-	glVertex2f(b.x2 - fudge, b.y2 + fudge);
-	glVertex2f(b.x1 + fudge, b.y2 + fudge);
-	glEnd();
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
+	sh.Enable();
+	rb.AddVertex({ {b.x1 + fudge, b.y1 - fudge, 0.0f}, color });
+	rb.AddVertex({ {b.x2 - fudge, b.y1 - fudge, 0.0f}, color });
+	rb.AddVertex({ {b.x2 - fudge, b.y2 + fudge, 0.0f}, color });
+	rb.AddVertex({ {b.x1 + fudge, b.y2 + fudge, 0.0f}, color });
+	rb.DrawArrays(GL_LINE_LOOP);
+	sh.Disable();
 }
 
 
@@ -3047,22 +3061,27 @@ void CGuiHandler::DrawHilightQuad(const IconInfo& icon)
 	RECOIL_DETAILED_TRACY_ZONE;
 	auto* ctx = RHI::GetDevice()->GetContext();
 
+	SColor col;
 	if (icon.commandsID == inCommand) {
-		glColor4f(0.3f, 0.0f, 0.0f, 1.0f);
+		col = SColor(0.3f, 0.0f, 0.0f, 1.0f);
 	} else if (mouse->buttons[SDL_BUTTON_LEFT].pressed) {
-		glColor4f(0.2f, 0.0f, 0.0f, 1.0f);
+		col = SColor(0.2f, 0.0f, 0.0f, 1.0f);
 	} else {
-		glColor4f(0.0f, 0.0f, 0.2f, 1.0f);
+		col = SColor(0.0f, 0.0f, 0.2f, 1.0f);
 	}
 	const Box& b = icon.visual;
-	glDisable(GL_TEXTURE_2D);
 	ctx->SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One); // additive blending
-	glBegin(GL_QUADS);
-		glVertex2f(b.x1, b.y1);
-		glVertex2f(b.x2, b.y1);
-		glVertex2f(b.x2, b.y2);
-		glVertex2f(b.x1, b.y2);
-	glEnd();
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
+	sh.Enable();
+	rb.AddQuadTriangles(
+		{ {b.x1, b.y1, 0.0f}, col },
+		{ {b.x2, b.y1, 0.0f}, col },
+		{ {b.x2, b.y2, 0.0f}, col },
+		{ {b.x1, b.y2, 0.0f}, col }
+	);
+	rb.DrawElements(GL_TRIANGLES);
+	sh.Disable();
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 }
 
@@ -3078,13 +3097,18 @@ void CGuiHandler::DrawButtons() // Only called by Draw
 	// frame box
 	const float alpha = (frameAlpha < 0.0f) ? guiAlpha : frameAlpha;
 	if (alpha > 0.0f) {
-		glColor4f(0.2f, 0.2f, 0.2f, alpha);
-		glBegin(GL_QUADS);
-			glVertex2f(buttonBox.x1, buttonBox.y1);
-			glVertex2f(buttonBox.x1, buttonBox.y2);
-			glVertex2f(buttonBox.x2, buttonBox.y2);
-			glVertex2f(buttonBox.x2, buttonBox.y1);
-		glEnd();
+		const SColor frameCol(0.2f, 0.2f, 0.2f, alpha);
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		auto& sh = rb.GetShader();
+		sh.Enable();
+		rb.AddQuadTriangles(
+			{ {buttonBox.x1, buttonBox.y1, 0.0f}, frameCol },
+			{ {buttonBox.x1, buttonBox.y2, 0.0f}, frameCol },
+			{ {buttonBox.x2, buttonBox.y2, 0.0f}, frameCol },
+			{ {buttonBox.x2, buttonBox.y1, 0.0f}, frameCol }
+		);
+		rb.DrawElements(GL_TRIANGLES);
+		sh.Disable();
 	}
 
 	const int mouseIcon   = IconAtPos(mouse->lastx, mouse->lasty);
@@ -3145,21 +3169,18 @@ void CGuiHandler::DrawButtons() // Only called by Draw
 			if (!usedTexture || !onlyTexture) {
 				if ((cmdDesc.type == CMDTYPE_PREV) || (cmdDesc.type == CMDTYPE_NEXT)) {
 					// pick the color for the arrow
-					if (highlight) {
-						glColor4f(1.0f, 1.0f, 0.0f, 1.0f); // selected
-					} else {
-						glColor4f(0.7f, 0.7f, 0.7f, 1.0f); // normal
-					}
+					const SColor arrowCol = highlight
+						? SColor(1.0f, 1.0f, 0.0f, 1.0f)  // selected
+						: SColor(0.7f, 0.7f, 0.7f, 1.0f);  // normal
 					if (cmdDesc.type == CMDTYPE_PREV) {
-						DrawPrevArrow(icon);
+						DrawPrevArrow(icon, arrowCol);
 					} else {
-						DrawNextArrow(icon);
+						DrawNextArrow(icon, arrowCol);
 					}
 				}
 				else if (!usedTexture) {
 					// no texture, no arrow, ... draw a frame
-					glColor4f(1.0f, 1.0f, 1.0f, 0.1f);
-					DrawIconFrame(icon);
+					DrawIconFrame(icon, SColor(1.0f, 1.0f, 1.0f, 0.1f));
 				}
 
 				// draw the text
@@ -3183,26 +3204,36 @@ void CGuiHandler::DrawButtons() // Only called by Draw
 
 		// darken disabled commands
 		if (cmdDesc.disabled) {
-			glDisable(GL_TEXTURE_2D);
 			ctx->SetBlendFunc(RHI::BlendFactor::DstColor, RHI::BlendFactor::Zero);
-			glColor4f(0.5f, 0.5f, 0.5f, 0.5f);
+			const SColor darkenCol(0.5f, 0.5f, 0.5f, 0.5f);
 			const Box& vb = icon.visual;
-			glRectf(vb.x1, vb.y1, vb.x2, vb.y2);
+			auto& rbD = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+			auto& shD = rbD.GetShader();
+			shD.Enable();
+			rbD.AddQuadTriangles(
+				{ {vb.x1, vb.y1, 0.0f}, darkenCol },
+				{ {vb.x2, vb.y1, 0.0f}, darkenCol },
+				{ {vb.x2, vb.y2, 0.0f}, darkenCol },
+				{ {vb.x1, vb.y2, 0.0f}, darkenCol }
+			);
+			rbD.DrawElements(GL_TRIANGLES);
+			shD.Disable();
 			ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 		}
 
 		// highlight outline
 		if (highlight) {
+			SColor hlCol;
 			if (icon.commandsID == inCommand) {
-				glColor4f(1.0f, 1.0f, 0.0f, 0.75f);
+				hlCol = SColor(1.0f, 1.0f, 0.0f, 0.75f);
 			} else if (mouse->buttons[SDL_BUTTON_LEFT].pressed ||
 			           mouse->buttons[SDL_BUTTON_RIGHT].pressed) {
-				glColor4f(1.0f, 0.0f, 0.0f, 0.50f);
+				hlCol = SColor(1.0f, 0.0f, 0.0f, 0.50f);
 			} else {
-				glColor4f(1.0f, 1.0f, 1.0f, 0.50f);
+				hlCol = SColor(1.0f, 1.0f, 1.0f, 0.50f);
 			}
 			ctx->SetLineWidth(1.49f);
-			DrawIconFrame(icon);
+			DrawIconFrame(icon, hlCol);
 			ctx->SetLineWidth(1.0f);
 		}
 	}
@@ -3242,12 +3273,19 @@ void CGuiHandler::DrawMenuName() // Only called by drawbuttons
 
 	if (!outlineFonts) {
 		const float textHeight = fontScale * font->GetTextHeight(menuName) * globalRendering->pixelY;
-		glDisable(GL_TEXTURE_2D);
-		glColor4f(0.2f, 0.2f, 0.2f, guiAlpha);
-		glRectf(buttonBox.x1,
-		        buttonBox.y2,
-		        buttonBox.x2,
-		        buttonBox.y2 + textHeight + (yIconSize * 0.25f));
+		const SColor menuBgCol(0.2f, 0.2f, 0.2f, guiAlpha);
+		const float menuY2 = buttonBox.y2 + textHeight + (yIconSize * 0.25f);
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		auto& sh = rb.GetShader();
+		sh.Enable();
+		rb.AddQuadTriangles(
+			{ {buttonBox.x1, buttonBox.y2, 0.0f}, menuBgCol },
+			{ {buttonBox.x2, buttonBox.y2, 0.0f}, menuBgCol },
+			{ {buttonBox.x2, menuY2,       0.0f}, menuBgCol },
+			{ {buttonBox.x1, menuY2,       0.0f}, menuBgCol }
+		);
+		rb.DrawElements(GL_TRIANGLES);
+		sh.Disable();
 		font->glPrint(xp, yp, fontScale, FONT_CENTER | FONT_SCALE | FONT_NORM, menuName);
 	} else {
 		font->SetColors(); // default
@@ -3278,12 +3316,24 @@ void CGuiHandler::DrawSelectionInfo()
 			const float textDescender = fontSize * descender * globalRendering->pixelY; //! descender is always negative
 			textHeight -= textDescender;
 
-			glDisable(GL_TEXTURE_2D);
-			glColor4f(0.2f, 0.2f, 0.2f, guiAlpha);
-			glRectf(xSelectionPos - frameBorder,
-			        ySelectionPos - frameBorder,
-			        xSelectionPos + frameBorder + textWidth,
-			        ySelectionPos + frameBorder + textHeight);
+			{
+				const SColor selBgCol(0.2f, 0.2f, 0.2f, guiAlpha);
+				const float sx1 = xSelectionPos - frameBorder;
+				const float sy1 = ySelectionPos - frameBorder;
+				const float sx2 = xSelectionPos + frameBorder + textWidth;
+				const float sy2 = ySelectionPos + frameBorder + textHeight;
+				auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+				auto& sh = rb.GetShader();
+				sh.Enable();
+				rb.AddQuadTriangles(
+					{ {sx1, sy1, 0.0f}, selBgCol },
+					{ {sx2, sy1, 0.0f}, selBgCol },
+					{ {sx2, sy2, 0.0f}, selBgCol },
+					{ {sx1, sy2, 0.0f}, selBgCol }
+				);
+				rb.DrawElements(GL_TRIANGLES);
+				sh.Disable();
+			}
 			glColor4f(1.0f, 1.0f, 1.0f, 0.8f);
 			smallFont->glPrint(xSelectionPos, ySelectionPos - textDescender, fontSize, FONT_BASELINE | FONT_NORM, buf.str());
 		} else {
@@ -3303,25 +3353,52 @@ void CGuiHandler::DrawNumberInput() // Only called by drawbuttons
 
 		if (cd.type == CMDTYPE_NUMBER) {
 			const float value = GetNumberInput(cd);
-			glDisable(GL_TEXTURE_2D);
-			glColor4f(1.0f, 1.0f, 1.0f, 0.8f);
 			const float mouseX = (float)mouse->lastx / (float)globalRendering->viewSizeX;
 			const float slideX = std::min(std::max(mouseX, 0.25f), 0.75f);
 			//const float mouseY = 1.0f - (float)(mouse->lasty - 16) / (float)globalRendering->viewSizeY;
-			glColor4f(1.0f, 1.0f, 0.0f, 0.8f);
-			glRectf(0.235f, 0.45f, 0.25f, 0.55f);
-			glRectf(0.75f, 0.45f, 0.765f, 0.55f);
-			glColor4f(0.0f, 0.0f, 1.0f, 0.8f);
-			glRectf(0.25f, 0.49f, 0.75f, 0.51f);
-			glBegin(GL_TRIANGLES);
-				glColor4f(1.0f, 0.0f, 0.0f, 1.0f);
-				glVertex2f(slideX + 0.015f, 0.55f);
-				glVertex2f(slideX - 0.015f, 0.55f);
-				glVertex2f(slideX, 0.50f);
-				glVertex2f(slideX - 0.015f, 0.45f);
-				glVertex2f(slideX + 0.015f, 0.45f);
-				glVertex2f(slideX, 0.50f);
-			glEnd();
+
+			auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+			auto& sh = rb.GetShader();
+
+			// yellow end caps
+			const SColor yellowCol(1.0f, 1.0f, 0.0f, 0.8f);
+			rb.AddQuadTriangles(
+				{ {0.235f, 0.45f, 0.0f}, yellowCol },
+				{ {0.25f,  0.45f, 0.0f}, yellowCol },
+				{ {0.25f,  0.55f, 0.0f}, yellowCol },
+				{ {0.235f, 0.55f, 0.0f}, yellowCol }
+			);
+			rb.AddQuadTriangles(
+				{ {0.75f,  0.45f, 0.0f}, yellowCol },
+				{ {0.765f, 0.45f, 0.0f}, yellowCol },
+				{ {0.765f, 0.55f, 0.0f}, yellowCol },
+				{ {0.75f,  0.55f, 0.0f}, yellowCol }
+			);
+			// blue bar
+			const SColor blueCol(0.0f, 0.0f, 1.0f, 0.8f);
+			rb.AddQuadTriangles(
+				{ {0.25f, 0.49f, 0.0f}, blueCol },
+				{ {0.75f, 0.49f, 0.0f}, blueCol },
+				{ {0.75f, 0.51f, 0.0f}, blueCol },
+				{ {0.25f, 0.51f, 0.0f}, blueCol }
+			);
+
+			sh.Enable();
+			rb.DrawElements(GL_TRIANGLES);
+			sh.Disable();
+
+			// red slider triangles
+			const SColor redCol(1.0f, 0.0f, 0.0f, 1.0f);
+			sh.Enable();
+			rb.AddVertex({ {slideX + 0.015f, 0.55f, 0.0f}, redCol });
+			rb.AddVertex({ {slideX - 0.015f, 0.55f, 0.0f}, redCol });
+			rb.AddVertex({ {slideX,          0.50f, 0.0f}, redCol });
+			rb.AddVertex({ {slideX - 0.015f, 0.45f, 0.0f}, redCol });
+			rb.AddVertex({ {slideX + 0.015f, 0.45f, 0.0f}, redCol });
+			rb.AddVertex({ {slideX,          0.50f, 0.0f}, redCol });
+			rb.DrawArrays(GL_TRIANGLES);
+			sh.Disable();
+
 			glColor4f(1.0f, 1.0f, 1.0f, 0.9f);
 			font->glFormat(slideX, 0.56f, 2.0f, FONT_CENTER | FONT_SCALE | FONT_NORM, "%i", (int)value);
 		}
@@ -3329,7 +3406,7 @@ void CGuiHandler::DrawNumberInput() // Only called by drawbuttons
 }
 
 
-void CGuiHandler::DrawPrevArrow(const IconInfo& icon)
+void CGuiHandler::DrawPrevArrow(const IconInfo& icon, const SColor& color)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	const Box& b = icon.visual;
@@ -3337,18 +3414,20 @@ void CGuiHandler::DrawPrevArrow(const IconInfo& icon)
 	const float xSize = 0.166f * math::fabs(b.x2 - b.x1);
 	const float ySize = 0.125f * math::fabs(b.y2 - b.y1);
 	const float xSiz2 = 2.0f * xSize;
-	glDisable(GL_TEXTURE_2D);
-	glBegin(GL_POLYGON);
-		glVertex2f(b.x2 - xSize, yCenter - ySize);
-		glVertex2f(b.x1 + xSiz2, yCenter - ySize);
-		glVertex2f(b.x1 + xSize, yCenter);
-		glVertex2f(b.x1 + xSiz2, yCenter + ySize);
-		glVertex2f(b.x2 - xSize, yCenter + ySize);
-	glEnd();
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
+	sh.Enable();
+	rb.AddVertex({ {b.x2 - xSize, yCenter - ySize, 0.0f}, color });
+	rb.AddVertex({ {b.x1 + xSiz2, yCenter - ySize, 0.0f}, color });
+	rb.AddVertex({ {b.x1 + xSize, yCenter,         0.0f}, color });
+	rb.AddVertex({ {b.x1 + xSiz2, yCenter + ySize, 0.0f}, color });
+	rb.AddVertex({ {b.x2 - xSize, yCenter + ySize, 0.0f}, color });
+	rb.DrawArrays(GL_TRIANGLE_FAN);
+	sh.Disable();
 }
 
 
-void CGuiHandler::DrawNextArrow(const IconInfo& icon)
+void CGuiHandler::DrawNextArrow(const IconInfo& icon, const SColor& color)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	const Box& b = icon.visual;
@@ -3356,14 +3435,16 @@ void CGuiHandler::DrawNextArrow(const IconInfo& icon)
 	const float xSize = 0.166f * math::fabs(b.x2 - b.x1);
 	const float ySize = 0.125f * math::fabs(b.y2 - b.y1);
 	const float xSiz2 = 2.0f * xSize;
-	glDisable(GL_TEXTURE_2D);
-	glBegin(GL_POLYGON);
-		glVertex2f(b.x1 + xSize, yCenter - ySize);
-		glVertex2f(b.x2 - xSiz2, yCenter - ySize);
-		glVertex2f(b.x2 - xSize, yCenter);
-		glVertex2f(b.x2 - xSiz2, yCenter + ySize);
-		glVertex2f(b.x1 + xSize, yCenter + ySize);
-	glEnd();
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
+	sh.Enable();
+	rb.AddVertex({ {b.x1 + xSize, yCenter - ySize, 0.0f}, color });
+	rb.AddVertex({ {b.x2 - xSiz2, yCenter - ySize, 0.0f}, color });
+	rb.AddVertex({ {b.x2 - xSize, yCenter,         0.0f}, color });
+	rb.AddVertex({ {b.x2 - xSiz2, yCenter + ySize, 0.0f}, color });
+	rb.AddVertex({ {b.x1 + xSize, yCenter + ySize, 0.0f}, color });
+	rb.DrawArrays(GL_TRIANGLE_FAN);
+	sh.Disable();
 }
 
 
@@ -3382,45 +3463,65 @@ void CGuiHandler::DrawOptionLEDs(const IconInfo& icon)
 
 	glLoadIdentity();
 
-	glDisable(GL_TEXTURE_2D);
-
 	const float xs = xIconSize / float(1 + (pCount * 2));
 	const float ys = yIconSize * 0.125f;
 	const float x1 = icon.visual.x1;
 	const float y2 = icon.visual.y2;
 	const float yp = 1.0f / float(globalRendering->viewSizeY);
 
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
+
 	for (int x = 0; x < pCount; x++) {
+		SColor ledCol;
 		if (x != option) {
-			glColor4f(0.25f, 0.25f, 0.25f, 0.50f); // dark
+			ledCol = SColor(0.25f, 0.25f, 0.25f, 0.50f); // dark
 		} else {
 			if (pCount == 2) {
 				if (option == 0) {
-					glColor4f(1.0f, 0.0f, 0.0f, 0.75f); // red
+					ledCol = SColor(1.0f, 0.0f, 0.0f, 0.75f); // red
 				} else {
-					glColor4f(0.0f, 1.0f, 0.0f, 0.75f); // green
+					ledCol = SColor(0.0f, 1.0f, 0.0f, 0.75f); // green
 				}
 			} else if (pCount == 3) {
 				if (option == 0) {
-					glColor4f(1.0f, 0.0f, 0.0f, 0.75f); // red
+					ledCol = SColor(1.0f, 0.0f, 0.0f, 0.75f); // red
 				} else if (option == 1) {
-					glColor4f(1.0f, 1.0f, 0.0f, 0.75f); // yellow
+					ledCol = SColor(1.0f, 1.0f, 0.0f, 0.75f); // yellow
 				} else {
-					glColor4f(0.0f, 1.0f, 0.0f, 0.75f); // green
+					ledCol = SColor(0.0f, 1.0f, 0.0f, 0.75f); // green
 				}
 			} else {
-				glColor4f(0.75f, 0.75f, 0.75f, 0.75f); // light
+				ledCol = SColor(0.75f, 0.75f, 0.75f, 0.75f); // light
 			}
 		}
 
 		const float startx = x1 + (xs * float(1 + (2 * x)));
 		const float starty = y2 + (3.0f * yp) + textBorder;
 
-		glRectf(startx, starty, startx + xs, starty + ys);
+		// filled LED rect
+		sh.Enable();
+		rb.AddQuadTriangles(
+			{ {startx,      starty,      0.0f}, ledCol },
+			{ {startx + xs, starty,      0.0f}, ledCol },
+			{ {startx + xs, starty + ys, 0.0f}, ledCol },
+			{ {startx,      starty + ys, 0.0f}, ledCol }
+		);
+		rb.DrawElements(GL_TRIANGLES);
+		sh.Disable();
 
+		// outline
+		const SColor outlineCol(1.0f, 1.0f, 1.0f, 0.5f);
 		ctx->SetPolygonMode(RHI::PolygonMode::Line);
-		glColor4f(1.0f, 1.0f, 1.0f, 0.5f);
-		glRectf(startx, starty, startx + xs, starty + ys);
+		sh.Enable();
+		rb.AddQuadTriangles(
+			{ {startx,      starty,      0.0f}, outlineCol },
+			{ {startx + xs, starty,      0.0f}, outlineCol },
+			{ {startx + xs, starty + ys, 0.0f}, outlineCol },
+			{ {startx,      starty + ys, 0.0f}, outlineCol }
+		);
+		rb.DrawElements(GL_TRIANGLES);
+		sh.Disable();
 		ctx->SetPolygonMode(RHI::PolygonMode::Fill);
 	}
 }
@@ -3682,18 +3783,20 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap)
 						if (!onMiniMap) {
 							DrawArea(innerPos, radius, color);
 						} else {
-							glColor4f(color[0], color[1], color[2], 0.5f);
-							glBegin(GL_TRIANGLE_FAN);
-
+							const SColor mmCircCol(color[0], color[1], color[2], 0.5f);
+							auto& rbMC = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+							auto& shMC = rbMC.GetShader();
+							shMC.Enable();
 							constexpr int divs = 256;
 							for (int i = 0; i <= divs; ++i) {
 								const float radians = math::TWOPI * (float)i / (float)divs;
 								float3 p(innerPos.x, 0.0f, innerPos.z);
 								p.x += (fastmath::sin(radians) * radius);
 								p.z += (fastmath::cos(radians) * radius);
-								glVertexf3(p);
+								rbMC.AddVertex({ p, mmCircCol });
 							}
-							glEnd();
+							rbMC.DrawArrays(GL_TRIANGLE_FAN);
+							shMC.Disable();
 						}
 					}
 				} break;
@@ -3719,13 +3822,18 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap)
 						if (!onMiniMap) {
 							DrawSelectBox(innerPos, outerPos, tracePos);
 						} else {
-							glColor4f(1.0f, 0.0f, 0.0f, 0.5f);
-							glBegin(GL_QUADS);
-							glVertex3f(innerPos.x, 0.0f, innerPos.z);
-							glVertex3f(outerPos.x, 0.0f, innerPos.z);
-							glVertex3f(outerPos.x, 0.0f, outerPos.z);
-							glVertex3f(innerPos.x, 0.0f, outerPos.z);
-							glEnd();
+							const SColor mmRectCol(1.0f, 0.0f, 0.0f, 0.5f);
+							auto& rbMR = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+							auto& shMR = rbMR.GetShader();
+							shMR.Enable();
+							rbMR.AddQuadTriangles(
+								{ {innerPos.x, 0.0f, innerPos.z}, mmRectCol },
+								{ {outerPos.x, 0.0f, innerPos.z}, mmRectCol },
+								{ {outerPos.x, 0.0f, outerPos.z}, mmRectCol },
+								{ {innerPos.x, 0.0f, outerPos.z}, mmRectCol }
+							);
+							rbMR.DrawElements(GL_TRIANGLES);
+							shMR.Disable();
 						}
 					}
 				} break;
@@ -3994,26 +4102,49 @@ void CGuiHandler::DrawMiniMapMarker(const float3& cameraPos)
 	glRotatef(360.0f * (spinTime / 2.0f), 0.0f, 1.0f, 0.0f);
 
 	ctx->SetBlendEnabled(true);
-	glShadeModel(GL_FLAT);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::One);
-	glBegin(GL_TRIANGLE_FAN);
-		                       glVertex3f(0.0f, 0.0f, 0.0f);
-		                       glVertex3f(  +w,   +h, 0.0f);
-		glColor4fv(colors[4]); glVertex3f(0.0f,   +h,   +w);
-		glColor4fv(colors[5]); glVertex3f(  -w,   +h, 0.0f);
-		glColor4fv(colors[6]); glVertex3f(0.0f,   +h,   -w);
-		glColor4fv(colors[7]); glVertex3f(  +w,   +h, 0.0f);
-	glEnd();
-	glBegin(GL_TRIANGLE_FAN);
-		                       glVertex3f(0.0f, h * 2.0f, 0.0f);
-		                       glVertex3f(  +w,   +h, 0.0f);
-		glColor4fv(colors[3]); glVertex3f(0.0f,   +h,   -w);
-		glColor4fv(colors[2]); glVertex3f(  -w,   +h, 0.0f);
-		glColor4fv(colors[1]); glVertex3f(0.0f,   +h,   +w);
-		glColor4fv(colors[0]); glVertex3f(  +w,   +h, 0.0f);
-	glEnd();
+
+	// Convert per-face colors from GL_FLAT shading to per-vertex:
+	// In GL_FLAT with TRIANGLE_FAN, the provoking vertex (last) determines face color.
+	// We emit individual triangles with uniform color per triangle.
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
+
+	const auto toSColor = [](const float c[4]) { return SColor(c[0], c[1], c[2], c[3]); };
+	const SColor c4 = toSColor(colors[4]);
+	const SColor c5 = toSColor(colors[5]);
+	const SColor c6 = toSColor(colors[6]);
+	const SColor c7 = toSColor(colors[7]);
+	const SColor c0 = toSColor(colors[0]);
+	const SColor c1 = toSColor(colors[1]);
+	const SColor c2 = toSColor(colors[2]);
+	const SColor c3 = toSColor(colors[3]);
+
+	sh.Enable();
+	// bottom diamond (fan center = origin)
+	// face 0: origin, (+w,+h,0), (0,+h,+w) — color from colors[4]
+	rb.AddVertex({ {0.0f, 0.0f, 0.0f}, c4 }); rb.AddVertex({ {+w, +h, 0.0f}, c4 }); rb.AddVertex({ {0.0f, +h, +w}, c4 });
+	// face 1: origin, (0,+h,+w), (-w,+h,0) — color from colors[5]
+	rb.AddVertex({ {0.0f, 0.0f, 0.0f}, c5 }); rb.AddVertex({ {0.0f, +h, +w}, c5 }); rb.AddVertex({ {-w, +h, 0.0f}, c5 });
+	// face 2: origin, (-w,+h,0), (0,+h,-w) — color from colors[6]
+	rb.AddVertex({ {0.0f, 0.0f, 0.0f}, c6 }); rb.AddVertex({ {-w, +h, 0.0f}, c6 }); rb.AddVertex({ {0.0f, +h, -w}, c6 });
+	// face 3: origin, (0,+h,-w), (+w,+h,0) — color from colors[7]
+	rb.AddVertex({ {0.0f, 0.0f, 0.0f}, c7 }); rb.AddVertex({ {0.0f, +h, -w}, c7 }); rb.AddVertex({ {+w, +h, 0.0f}, c7 });
+	rb.DrawArrays(GL_TRIANGLES);
+
+	// top diamond (fan center = (0,2h,0))
+	// face 0: (0,2h,0), (+w,+h,0), (0,+h,-w) — color from colors[3]
+	rb.AddVertex({ {0.0f, h * 2.0f, 0.0f}, c3 }); rb.AddVertex({ {+w, +h, 0.0f}, c3 }); rb.AddVertex({ {0.0f, +h, -w}, c3 });
+	// face 1: (0,2h,0), (0,+h,-w), (-w,+h,0) — color from colors[2]
+	rb.AddVertex({ {0.0f, h * 2.0f, 0.0f}, c2 }); rb.AddVertex({ {0.0f, +h, -w}, c2 }); rb.AddVertex({ {-w, +h, 0.0f}, c2 });
+	// face 2: (0,2h,0), (-w,+h,0), (0,+h,+w) — color from colors[1]
+	rb.AddVertex({ {0.0f, h * 2.0f, 0.0f}, c1 }); rb.AddVertex({ {-w, +h, 0.0f}, c1 }); rb.AddVertex({ {0.0f, +h, +w}, c1 });
+	// face 3: (0,2h,0), (0,+h,+w), (+w,+h,0) — color from colors[0]
+	rb.AddVertex({ {0.0f, h * 2.0f, 0.0f}, c0 }); rb.AddVertex({ {0.0f, +h, +w}, c0 }); rb.AddVertex({ {+w, +h, 0.0f}, c0 });
+	rb.DrawArrays(GL_TRIANGLES);
+	sh.Disable();
+
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
-	glShadeModel(GL_SMOOTH);
 	glPopMatrix();
 }
 
@@ -4084,22 +4215,24 @@ void CGuiHandler::DrawArea(float3 pos, float radius, const float* color)
 		return;
 	}
 
-	glDisable(GL_TEXTURE_2D);
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
-	glColor4f(color[0], color[1], color[2], 0.25f);
+	const SColor areaCol(color[0], color[1], color[2], 0.25f);
 
 	ctx->SetDepthTestEnabled(false);
 	glDisable(GL_FOG);
-	glBegin(GL_TRIANGLE_FAN);
-		glVertexf3(pos);
-		for(int a=0;a<=40;++a){
-			float3 p(fastmath::cos(a * math::TWOPI / 40.0f) * radius, 0.0f, fastmath::sin(a * math::TWOPI / 40.0f) * radius);
-			p+=pos;
-			p.y=CGround::GetHeightAboveWater(p.x, p.z, false);
-			glVertexf3(p);
-		}
-	glEnd();
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
+	sh.Enable();
+	rb.AddVertex({ pos, areaCol });
+	for (int a = 0; a <= 40; ++a) {
+		float3 p(fastmath::cos(a * math::TWOPI / 40.0f) * radius, 0.0f, fastmath::sin(a * math::TWOPI / 40.0f) * radius);
+		p += pos;
+		p.y = CGround::GetHeightAboveWater(p.x, p.z, false);
+		rb.AddVertex({ p, areaCol });
+	}
+	rb.DrawArrays(GL_TRIANGLE_FAN);
+	sh.Disable();
 	ctx->SetDepthTestEnabled(true);
 	glEnable(GL_FOG);
 }
@@ -4141,36 +4274,44 @@ void CGuiHandler::DrawFormationFrontOrder(
 		pos2.y = CGround::GetHeightAboveWater(pos2.x, pos2.z, false);
 	}
 
-	glColor4f(0.5f, 1.0f, 0.5f, 0.5f);
+	const SColor frontCol(0.5f, 1.0f, 0.5f, 0.5f);
 
 	if (onMinimap) {
 		pos1 += (pos1 - pos2);
 		ctx->SetLineWidth(2.0f);
-		glBegin(GL_LINES);
-		glVertexf3(pos1);
-		glVertexf3(pos2);
-		glEnd();
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		auto& sh = rb.GetShader();
+		sh.Enable();
+		rb.AddVertex({ pos1, frontCol });
+		rb.AddVertex({ pos2, frontCol });
+		rb.DrawArrays(GL_LINES);
+		sh.Disable();
 		return;
 	}
 
-	glDisable(GL_TEXTURE_2D);
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
 	{
 		// direction arrow
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		auto& sh = rb.GetShader();
 		ctx->SetDepthTestEnabled(false);
-		glBegin(GL_QUADS);
-			glVertexf3(pos1 + side * 25.0f                   );
-			glVertexf3(pos1 - side * 25.0f                   );
-			glVertexf3(pos1 - side * 25.0f + forward *  50.0f);
-			glVertexf3(pos1 + side * 25.0f + forward *  50.0f);
-
-			glVertexf3(pos1 + side * 40.0f + forward *  50.0f);
-			glVertexf3(pos1 - side * 40.0f + forward *  50.0f);
-			glVertexf3(pos1 +                forward * 100.0f);
-			glVertexf3(pos1 +                forward * 100.0f);
-		glEnd();
+		sh.Enable();
+		rb.AddQuadTriangles(
+			{ pos1 + side * 25.0f,                    frontCol },
+			{ pos1 - side * 25.0f,                    frontCol },
+			{ pos1 - side * 25.0f + forward *  50.0f, frontCol },
+			{ pos1 + side * 25.0f + forward *  50.0f, frontCol }
+		);
+		rb.AddQuadTriangles(
+			{ pos1 + side * 40.0f + forward *  50.0f, frontCol },
+			{ pos1 - side * 40.0f + forward *  50.0f, frontCol },
+			{ pos1 +                forward * 100.0f,  frontCol },
+			{ pos1 +                forward * 100.0f,  frontCol }
+		);
+		rb.DrawElements(GL_TRIANGLES);
+		sh.Disable();
 		ctx->SetDepthTestEnabled(true);
 	}
 
@@ -4183,8 +4324,10 @@ void CGuiHandler::DrawFormationFrontOrder(
 
 	{
 		// vertical quad
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		auto& sh = rb.GetShader();
 		glDisable(GL_FOG);
-		glBegin(GL_QUAD_STRIP);
+		sh.Enable();
 		const float3 delta = (pos2 - pos1) / (float)steps;
 		for (int i = 0; i <= steps; i++) {
 			float3 p;
@@ -4192,10 +4335,11 @@ void CGuiHandler::DrawFormationFrontOrder(
 			p.x = pos1.x + (d * delta.x);
 			p.z = pos1.z + (d * delta.z);
 			p.y = CGround::GetHeightAboveWater(p.x, p.z, false);
-			p.y -= 100.f; glVertexf3(p);
-			p.y += 200.f; glVertexf3(p);
+			p.y -= 100.f; rb.AddVertex({ p, frontCol });
+			p.y += 200.f; rb.AddVertex({ p, frontCol });
 		}
-		glEnd();
+		rb.DrawArrays(GL_QUAD_STRIP);
+		sh.Disable();
 		glEnable(GL_FOG);
 	}
 }
@@ -4257,15 +4401,18 @@ static void DrawCornerPosts(const float3& pos0, const float3& pos1)
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 	ctx->SetLineWidth(2.0f);
-	glBegin(GL_LINES);
-		glColor4f(1.0f, 1.0f, 0.0f, 0.9f);
-		glVertexf3(corner0); glVertexf3(corner0 + lineVector);
-		glColor4f(0.0f, 1.0f, 0.0f, 0.9f);
-		glVertexf3(corner1); glVertexf3(corner1 + lineVector);
-		glColor4f(0.0f, 0.0f, 1.0f, 0.9f);
-		glVertexf3(corner2); glVertexf3(corner2 + lineVector);
-		glVertexf3(corner3); glVertexf3(corner3 + lineVector);
-	glEnd();
+	const SColor yellow(1.0f, 1.0f, 0.0f, 0.9f);
+	const SColor green(0.0f, 1.0f, 0.0f, 0.9f);
+	const SColor blue(0.0f, 0.0f, 1.0f, 0.9f);
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
+	sh.Enable();
+	rb.AddVertex({ corner0,              yellow }); rb.AddVertex({ corner0 + lineVector, yellow });
+	rb.AddVertex({ corner1,              green  }); rb.AddVertex({ corner1 + lineVector, green  });
+	rb.AddVertex({ corner2,              blue   }); rb.AddVertex({ corner2 + lineVector, blue   });
+	rb.AddVertex({ corner3,              blue   }); rb.AddVertex({ corner3 + lineVector, blue   });
+	rb.DrawArrays(GL_LINES);
+	sh.Disable();
 	ctx->SetLineWidth(1.0f);
 }
 
@@ -4459,13 +4606,16 @@ void CGuiHandler::DrawSelectCircle(const float3& pos, float radius,
 
 	// draw the center line
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
-	glColor4f(color[0], color[1], color[2], 0.9f);
+	const SColor lineCol(color[0], color[1], color[2], 0.9f);
 	ctx->SetLineWidth(2.0f);
 	const float3 base(pos.x, CGround::GetHeightAboveWater(pos.x, pos.z, false), pos.z);
-	glBegin(GL_LINES);
-		glVertexf3(base);
-		glVertexf3(base + float3(0.0f, 128.0f, 0.0f));
-	glEnd();
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
+	sh.Enable();
+	rb.AddVertex({ base, lineCol });
+	rb.AddVertex({ base + float3(0.0f, 128.0f, 0.0f), lineCol });
+	rb.DrawArrays(GL_LINES);
+	sh.Disable();
 	ctx->SetLineWidth(1.0f);
 
 	glEnable(GL_FOG);

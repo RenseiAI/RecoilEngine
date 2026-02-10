@@ -16,6 +16,7 @@
 #define DEFAULT_GUI_CONFIG "ctrlpanel.txt"
 
 class CUnit;
+struct SColor;
 struct UnitDef;
 
 class Action;
@@ -139,10 +140,10 @@ private:
 	void DrawSWtext(const IconInfo& icon, const std::string& text);
 	void DrawNEtext(const IconInfo& icon, const std::string& text);
 	void DrawSEtext(const IconInfo& icon, const std::string& text);
-	void DrawPrevArrow(const IconInfo& icon);
-	void DrawNextArrow(const IconInfo& icon);
+	void DrawPrevArrow(const IconInfo& icon, const SColor& color);
+	void DrawNextArrow(const IconInfo& icon, const SColor& color);
 	void DrawHilightQuad(const IconInfo& icon);
-	void DrawIconFrame(const IconInfo& icon);
+	void DrawIconFrame(const IconInfo& icon, const SColor& color);
 	void DrawOptionLEDs(const IconInfo& icon);
 	void DrawMenuName();
 	void DrawSelectionInfo();
