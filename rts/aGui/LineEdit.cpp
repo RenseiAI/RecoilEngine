@@ -3,9 +3,11 @@
 #include "LineEdit.h"
 
 #include "Rendering/GL/myGL.h"
+#include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/Fonts/glFont.h"
+#include "System/Color.h"
 #include "System/Misc/SpringTime.h"
 
 
@@ -76,8 +78,20 @@ void LineEdit::DrawSelf()
 		float cw = font->GetSize() * font->GetCharacterWidth(c) /float(screensize[0]);
 		float csx = pos[0] + 0.01 + caretWidth;
 		float f = 0.5f * (1.0f + fastmath::sin(spring_now().toMilliSecsf() * 0.015f));
-		glColor4f(f, f, f, opacity);
-		glRectf(csx, textCenter + cursorHeight/2, csx + cw, textCenter - cursorHeight/2);
+		{
+			auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+			const SColor color(f, f, f, opacity);
+			rb.AddQuadTriangles(
+				{ float3(csx, textCenter + cursorHeight/2, 0.0f), color },
+				{ float3(csx + cw, textCenter + cursorHeight/2, 0.0f), color },
+				{ float3(csx + cw, textCenter - cursorHeight/2, 0.0f), color },
+				{ float3(csx, textCenter - cursorHeight/2, 0.0f), color }
+			);
+			auto& sh = rb.GetShader();
+			sh.Enable();
+			rb.DrawElements(GL_TRIANGLES);
+			sh.Disable();
+		}
 		glColor4f(0.0f, 0.0f, 0.0f, 1.0f); // black
 	}
 

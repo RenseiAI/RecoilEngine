@@ -13,7 +13,9 @@
 #include "Game/UI/KeyCodes.h"
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/GlobalRendering.h"
+#include "System/Color.h"
 #include "System/SpringMath.h"
 #include "System/StringHash.h"
 #include "System/StringUtil.h"
@@ -71,8 +73,20 @@ void GameControllerTextInput::Draw() {
 		const float caretScrPos = inputTextPosX + caretRelPos;
 		const float caretIllum = 0.5f * (1.0f + fastmath::sin(spring_now().toMilliSecsf() * 0.015f));
 
-		glColor4f(caretIllum, caretIllum, caretIllum, 0.75f);
-		glRectf(caretScrPos, inputTextPosY, caretScrPos + caretWidth, inputTextPosY + caretHeight);
+		{
+			auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+			const SColor color(caretIllum, caretIllum, caretIllum, 0.75f);
+			rb.AddQuadTriangles(
+				{ float3(caretScrPos, inputTextPosY, 0.0f), color },
+				{ float3(caretScrPos + caretWidth, inputTextPosY, 0.0f), color },
+				{ float3(caretScrPos + caretWidth, inputTextPosY + caretHeight, 0.0f), color },
+				{ float3(caretScrPos, inputTextPosY + caretHeight, 0.0f), color }
+			);
+			auto& sh = rb.GetShader();
+			sh.Enable();
+			rb.DrawElements(GL_TRIANGLES);
+			sh.Disable();
+		}
 	}
 
 	// setup the color
