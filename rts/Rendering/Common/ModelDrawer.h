@@ -9,16 +9,16 @@
  *   - Inherits RHI pipeline state management via ModelDrawerState
  *   - Uses RHI-based setup/reset drawing methods
  *   - Alpha test (main draw path) -> shader discard via alphaCtrl uniform
+ *   - Alpha test (shadow pass) -> shader discard via alphaCtrl uniform
  *
  * Remaining GL calls (with RHI_TODO comments in implementation):
  *   - glColor3f: Legacy FFP vertex color (shadow pass only)
  *   - glPolygonOffset/GL_POLYGON_OFFSET_FILL: Shadow pass (could use PipelineDesc rasterizer)
- *   - glAlphaFunc/GL_ALPHA_TEST: Shadow pass only (intentionally kept)
  *
  * Dependencies blocking full migration:
  *   - GLSL path uses legacy FFP; GL4 path is modern
  *   - Legacy draw path kept for compatibility with old Lua scripts
- *   - Shadow pass still uses FFP state (separate migration task)
+ *   - Shadow pass still uses FFP color and polygon offset
  */
 
 #pragma once
@@ -424,14 +424,11 @@ inline void CModelDrawerBase<TDrawerData, TDrawer>::DrawShadowPassImpl() const
 	assert((CCameraHandler::GetActiveCamera())->GetCamType() == CCamera::CAMTYPE_SHADOW);
 
 	if constexpr (legacy) {
-		// RHI_TODO: legacy FFP state (color, polygon offset, alpha test).
+		// RHI_TODO: legacy FFP state (color, polygon offset).
 		// Only used in GLSL path. GL4 path sets these via shader uniforms.
 		glColor3f(1.0f, 1.0f, 1.0f);
 		glPolygonOffset(1.0f, 1.0f);
 		glEnable(GL_POLYGON_OFFSET_FILL);
-
-		glAlphaFunc(GL_GREATER, 0.5f);
-		glEnable(GL_ALPHA_TEST);
 	}
 
 	CShadowHandler::ShadowGenProgram shadowGenProgram;
@@ -464,7 +461,6 @@ inline void CModelDrawerBase<TDrawerData, TDrawer>::DrawShadowPassImpl() const
 
 	if constexpr (legacy) {
 		// RHI_TODO: legacy FFP state cleanup. Only used in GLSL path.
-		glDisable(GL_ALPHA_TEST);
 		glDisable(GL_POLYGON_OFFSET_FILL);
 	}
 

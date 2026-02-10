@@ -296,6 +296,8 @@ void CShadowHandler::LoadShadowGenShaders()
 		po->Enable();
 		po->SetUniform("alphaMaskTex", 0);
 		po->SetUniform("alphaParams", mapInfo->map.voidAlphaMin, 0.0f);
+		if (i == SHADOWGEN_PROGRAM_MODEL)
+			po->SetUniform("alphaCtrl", 0.5f, 1.0f, 0.0f, 0.0f); // test > 0.5 (model alpha mask)
 		po->Disable();
 		po->Validate();
 
@@ -306,6 +308,8 @@ void CShadowHandler::LoadShadowGenShaders()
 			po->Enable();
 			po->SetUniform("alphaMaskTex", 0);
 			po->SetUniform("alphaParams", mapInfo->map.voidAlphaMin, 0.0f);
+			if (i == SHADOWGEN_PROGRAM_MODEL)
+				po->SetUniform("alphaCtrl", 0.5f, 1.0f, 0.0f, 0.0f); // test > 0.5 (model alpha mask)
 			po->Disable();
 			po->Validate();
 		}
