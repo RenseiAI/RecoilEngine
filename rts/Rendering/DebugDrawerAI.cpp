@@ -16,8 +16,10 @@
 
 // RHI Migration Status (DebugDrawerAI):
 // MIGRATED:
-//   glDisable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled(false) [line 78]
-//   glLineWidth -> ctx->SetLineWidth() [lines 362, 380]
+//   glDisable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled(false)
+//   glLineWidth -> ctx->SetLineWidth()
+//   glDisable/glEnable(GL_LIGHTING) -> REMOVED (FFP lighting never used)
+//   glDisable/glEnable(GL_TEXTURE_2D) -> REMOVED (shader-based rendering, FFP state irrelevant)
 // PENDING (texture management):
 //   glGenTextures + glBindTexture + glTexParameteri + glTexImage2D
 //     -> IRHIDevice::CreateTexture + IRHITexture::Upload/SetMinFilter/SetMagFilter/SetWrapS/SetWrapT
@@ -28,8 +30,6 @@
 // NON-MIGRATABLE (FFP - no RHI equivalent):
 //   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity (matrix stack)
 //   glPushAttrib/glPopAttrib (state stack)
-//   glDisable(GL_LIGHTING) (FFP lighting)
-//   glEnable/glDisable(GL_TEXTURE_2D) (FFP texture unit)
 
 static constexpr float3 GRAPH_MIN_SCALE( 1e9,  1e9, 0.0f);
 static constexpr float3 GRAPH_MAX_SCALE(-1e9, -1e9, 0.0f);
@@ -79,9 +79,7 @@ void DebugDrawerAI::Draw() {
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glDisable(GL_LIGHTING);
 	ctx->SetDepthTestEnabled(false);
-	glDisable(GL_TEXTURE_2D);
 
 	// draw data for the (AI) team being spectated
 	graphs[gu->myTeam].Draw();
@@ -89,8 +87,6 @@ void DebugDrawerAI::Draw() {
 
 	// Restore state explicitly
 	ctx->SetDepthTestEnabled(true);
-	glEnable(GL_LIGHTING);
-	glEnable(GL_TEXTURE_2D);
 	glColor4fv(savedColor);
 
 	glMatrixMode(GL_PROJECTION);
@@ -475,7 +471,6 @@ void DebugDrawerAI::TexSet::Draw() {
 	rb.AssertSubmission();
 	auto& sh = rb.GetShader();
 
-	glEnable(GL_TEXTURE_2D);
 	for (auto it = textures.begin(); it != textures.end(); ++it) {
 		const TexSet::Texture& tex = it->second;
 		const float3& pos = tex.GetPos();
@@ -501,7 +496,6 @@ void DebugDrawerAI::TexSet::Draw() {
 
 		font->glFormat(tx, ty, 1.0f, FONT_SCALE | FONT_NORM, "%s", (tex.GetLabel()).c_str());
 	}
-	glDisable(GL_TEXTURE_2D);
 
 	font->End();
 }

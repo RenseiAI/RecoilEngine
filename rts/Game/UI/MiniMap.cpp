@@ -1235,13 +1235,11 @@ void CMiniMap::Draw()
 			DepthFunc(GL_LEQUAL),
 			DepthMask(GL_FALSE));
 
-		glDisable(GL_TEXTURE_2D);
 		glMatrixMode(GL_MODELVIEW);
 
 		if (minimized) {
 			DrawMinimizedButtonQuad();
 			DrawMinimizedButtonLoop();
-			glEnable(GL_TEXTURE_2D);
 			return;
 		}
 
@@ -1346,7 +1344,6 @@ void CMiniMap::DrawForReal(bool useNormalizedCoors, bool updateTex, bool luaCall
 	ctx->SetDepthTestEnabled(false);
 	ctx->SetDepthFunc(RHI::CompareFunc::LessEqual);
 	ctx->SetDepthWriteEnabled(false);
-	glDisable(GL_TEXTURE_2D);
 	glMatrixMode(GL_MODELVIEW);
 
 	if (useNormalizedCoors) {
@@ -1378,7 +1375,6 @@ void CMiniMap::DrawForReal(bool useNormalizedCoors, bool updateTex, bool luaCall
 	ctx->SetDepthTestEnabled(true);
 	ctx->SetDepthWriteEnabled(true);
 	ctx->SetBlendEnabled(false);
-	glEnable(GL_TEXTURE_2D);
 
 	// allow Lua scripts to draw into the minimap
 	SetClipPlanes(true);
@@ -1553,7 +1549,6 @@ void CMiniMap::DrawCameraFrustumAndMouseSelection()
 	glPopMatrix();
 
 	ctx->SetScissorTestEnabled(false);
-	glEnable(GL_TEXTURE_2D);
 }
 
 void CMiniMap::DrawFrame()
@@ -1781,7 +1776,6 @@ bool CMiniMap::RenderCachedTexture(bool useNormalizedCoors)
 	auto* ctx = RHI::GetDevice()->GetContext();
 
 	glBindTexture(GL_TEXTURE_2D, minimapTex);
-	glEnable(GL_TEXTURE_2D);
 	ctx->SetBlendEnabled(false);
 
 	if (useNormalizedCoors) {
@@ -1823,7 +1817,6 @@ bool CMiniMap::RenderCachedTexture(bool useNormalizedCoors)
 		glPopMatrix();
 	}
 
-	glDisable(GL_TEXTURE_2D);
 	// Restore blend state to disabled (expected at entry)
 	ctx->SetBlendEnabled(false);
 	return true;
@@ -1916,8 +1909,6 @@ void CMiniMap::DrawUnitIcons() const
 	glScalef(+1.0f / (mapDims.mapx * SQUARE_SIZE), -1.0f / (mapDims.mapy * SQUARE_SIZE), 1.0f);
 
 	unitDrawer->DrawUnitMiniMapIcons();
-
-	glDisable(GL_TEXTURE_2D); //maybe later stages need it
 
 	glPopMatrix();
 

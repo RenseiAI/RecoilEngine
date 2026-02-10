@@ -392,7 +392,6 @@ void CglNoShaderFontRenderer::PushGLState(const CglFont& fnt)
 	// Save current color state for later restore
 	glGetFloatv(GL_CURRENT_COLOR, savedColor);
 
-	glDisable(GL_LIGHTING);  // FFP feature, no RHI equivalent
 	ctx->SetDepthTestEnabled(false);
 	glDisable(GL_ALPHA_TEST);  // FFP feature, no RHI equivalent
 	ctx->SetBlendEnabled(true);
@@ -434,7 +433,6 @@ void CglNoShaderFontRenderer::PopGLState(const CglFont& fnt)
 	ctx->SetDepthTestEnabled(true);
 	ctx->SetBlendEnabled(false);
 	glEnable(GL_ALPHA_TEST);
-	glEnable(GL_LIGHTING);
 	glColor4fv(savedColor);
 }
 
