@@ -35,8 +35,6 @@
  *     glTranslatef, glScalef, glRotatef, glMultMatrixf
  *     -> CMatrix44f + shader uniforms (used by RenderBuffer shaders)
  *   - DrawModel: glColor4f before unit->localModel.Draw() (model drawing)
- *   - DrawWeaponStates: glColor4f before font->glFormat/glPrint (FFP font coloring)
- *   - DrawWeaponStates: glEnable(GL_TEXTURE_2D) (font-related)
  *
  * Completion Criteria:
  *   [x] Convert immediate-mode drawing to vertex buffers
@@ -170,7 +168,6 @@ void HUDDrawer::DrawWeaponStates(const CUnit* unit)
 	glLoadIdentity();
 	glMatrixMode(GL_MODELVIEW);
 
-	glColor4f(0.2f, 0.8f, 0.2f, 0.8f);
 	font->glFormat(-0.9f, 0.35f, 1.0f, FONT_SCALE | FONT_NORM, "Health: %.0f / %.0f", (float) unit->health, (float) unit->maxHealth);
 
 	if (playerHandler.Player(gu->myPlayerNum)->fpsController.mouse2)
@@ -203,21 +200,16 @@ void HUDDrawer::DrawWeaponStates(const CUnit* unit)
 
 				if (wd->stockpile && !w->numStockpiled) {
 					if (w->numStockpileQued) {
-						glColor4f(0.8f, 0.2f, 0.2f, 0.8f);
 						font->glFormat(-0.9f, yPos, fontSize, FONT_SCALE | FONT_NORM, "%s: Stockpiling (%i%%)", wd->description.c_str(), int(100.0f * w->buildPercent + 0.5f));
 					}
 					else {
-						glColor4f(0.8f, 0.2f, 0.2f, 0.8f);
 						font->glFormat(-0.9f, yPos, fontSize, FONT_SCALE | FONT_NORM, "%s: No ammo", wd->description.c_str());
 					}
 				} else if (w->reloadStatus > gs->frameNum) {
-					glColor4f(0.8f, 0.2f, 0.2f, 0.8f);
 					font->glFormat(-0.9f, yPos, fontSize, FONT_SCALE | FONT_NORM, "%s: Reloading (%i%%)", wd->description.c_str(), 100 - int(100.0f * (w->reloadStatus - gs->frameNum) / int(w->reloadTime / unit->reloadSpeed) + 0.5f));
 				} else if (!w->angleGood) {
-					glColor4f(0.6f, 0.6f, 0.2f, 0.8f);
 					font->glFormat(-0.9f, yPos, fontSize, FONT_SCALE | FONT_NORM, "%s: Aiming", wd->description.c_str());
 				} else {
-					glColor4f(0.2f, 0.8f, 0.2f, 0.8f);
 					font->glFormat(-0.9f, yPos, fontSize, FONT_SCALE | FONT_NORM, "%s: Ready", wd->description.c_str());
 				}
 			}

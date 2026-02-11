@@ -1029,8 +1029,6 @@ void CProjectileDrawer::DrawGroundFlashes()
 	if (gfc.empty())
 		return;
 
-	static constexpr GLfloat black[] = {0.0f, 0.0f, 0.0f, 0.0f};
-
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetDepthWriteEnabled(false);
 	ctx->SetBlendEnabled(true);
@@ -1038,12 +1036,7 @@ void CProjectileDrawer::DrawGroundFlashes()
 
 	glActiveTexture(GL_TEXTURE0);
 	groundFXAtlas->BindTexture();
-/*
-	glEnable(GL_ALPHA_TEST);
-	glAlphaFunc(GL_GREATER, 0.01f);
-*/
 	ctx->SetPolygonOffset(true, -20.0f, -1000.0f);
-//	glFogfv(GL_FOG_COLOR, black);
 
 	bool depthTest = true;
 	bool depthMask = false;

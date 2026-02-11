@@ -598,10 +598,6 @@ void CGrassDrawer::Draw()
 	if (grassOff || !readMap->GetGrassShadingTexture())
 		return;
 
-	// Save current color state for later restore
-	glGetFloatv(GL_CURRENT_COLOR, savedColor);
-	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-
 	if (!blockDrawer.inviewGrass.empty()) {
 		SetupGlStateNear();
 			DrawNear(blockDrawer.inviewGrass);
@@ -618,8 +614,6 @@ void CGrassDrawer::Draw()
 		ResetGlStateFar();
 	}
 
-	// Restore color explicitly
-	glColor4fv(savedColor);
 }
 
 
@@ -752,9 +746,6 @@ void CGrassDrawer::ResetGlStateNear()
 void CGrassDrawer::SetupGlStateFar()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	//glEnable(GL_ALPHA_TEST);
-	//glAlphaFunc(GL_GREATER, 0.01f);
-
 	// RHI dynamic state
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetBlendEnabled(true);

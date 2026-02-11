@@ -11,12 +11,8 @@
  *   - Polygon offset state          -> ctx->SetPolygonOffset()
  *   - Alpha test -> shader discard via alphaCtrl uniform (set by ModelDrawerState)
  *
- * Remaining GL calls (with RHI_TODO comments):
- *   - glColor3f: Legacy FFP vertex color
- *   - glDisable(GL_TEXTURE_2D): Legacy FFP texture state
- *
- * Dependencies blocking full migration:
- *   - Shadow pass state management depends on external shader setup
+ * Remaining GL calls:
+ *   None — shadow pass fully migrated to RHI + shader pipeline
  */
 
 #include "LuaObjectDrawer.h"
@@ -184,9 +180,6 @@ static void ResetAlphaFeatureDrawState(unsigned int modelType, bool deferredPass
 // shadow-pass state management funcs
 // FIXME: setup face culling for S3O?
 static void SetupShadowUnitDrawState(unsigned int modelType, bool deferredPass) {
-	// RHI_TODO: glColor3f is legacy FFP, should be handled by the shadow pipeline state.
-	glColor3f(1.0f, 1.0f, 1.0f);
-
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetPolygonOffset(true, 1.0f, 1.0f);
 
