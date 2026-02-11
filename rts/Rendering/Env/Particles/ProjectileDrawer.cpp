@@ -70,9 +70,7 @@
 //   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity, glLoadMatrixf
 //   (No RHI equivalent - requires uniform-based transform)
 //
-// 8. Legacy FFP fog:
-//   glDisable(GL_FOG) in DrawOpaque()
-//   (No RHI equivalent - fog is shader-based in modern rendering)
+// 8. Legacy FFP fog: REMOVED (glDisable(GL_FOG) was no-op with shader-based fog)
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/LosHandler.h"
 #include "Sim/Misc/TeamHandler.h"
@@ -767,7 +765,6 @@ void CProjectileDrawer::DrawOpaque(bool drawReflection, bool drawRefraction)
 	}
 
 	unitDrawer->ResetOpaqueDrawing(false);
-	glDisable(GL_FOG);
 }
 
 void CProjectileDrawer::DrawAlpha(bool drawAboveWater, bool drawBelowWater, bool drawReflection, bool drawRefraction)

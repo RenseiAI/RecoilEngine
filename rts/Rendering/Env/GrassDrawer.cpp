@@ -946,7 +946,6 @@ void CGrassDrawer::CreateFarTex()
 	glMatrixMode(GL_PROJECTION);
 	glPushMatrix();
 
-	glDisable(GL_FOG);
 	if (grassBladeTex) {
 		grassBladeTex->Bind(0);
 	}

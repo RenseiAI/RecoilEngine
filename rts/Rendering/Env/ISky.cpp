@@ -7,8 +7,7 @@
  * derived classes (ModernSky, SkyBox) handle rendering.
  *
  * Retained GL calls (no RHI equivalent):
- *   - glEnable(GL_FOG), glDisable(GL_FOG): FFP fog state
- *   - glFogfv, glFogi, glFogf: FFP fog parameters
+ *   - glFogfv, glFogi, glFogf: FFP fog parameters (read by gl_Fog.* built-in uniforms)
  *   Modern rendering uses shader-based fog. These remain until fog system migration.
  */
 
@@ -63,12 +62,6 @@ void ISky::SetupFog() {
 	// NOTE: FFP fog calls (glFog*) have no RHI equivalent.
 	// Modern rendering uses shader-based fog. These remain as direct GL
 	// calls until the fog system is migrated to a shader-based approach.
-	if (globalRendering->drawFog) {
-		glEnable(GL_FOG);
-	} else {
-		glDisable(GL_FOG);
-	}
-
 	glFogfv(GL_FOG_COLOR, fogColor);
 	glFogi(GL_FOG_MODE,   GL_LINEAR);
 	glFogf(GL_FOG_START,  camera->GetFarPlaneDist() * fogStart);

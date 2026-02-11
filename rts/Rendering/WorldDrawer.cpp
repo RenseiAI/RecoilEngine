@@ -20,7 +20,6 @@
  *     -> Needs uniform-based matrix system (used in ResetMVPMatrices, DrawAlphaObjects)
  *   - FFP clip planes (glClipPlane/glEnable(GL_CLIP_PLANE3))
  *     -> Needs shader-based clipping or SetClipDistanceEnabled()
- *   - glDisable(GL_FOG) -> FFP fog, no RHI equivalent (should be shader-based)
  */
 
 #include "Rendering/GL/myGL.h"
@@ -356,9 +355,6 @@ void CWorldDrawer::Draw() const
 
 	DrawMiscObjects();
 	DrawBelowWaterOverlay();
-
-	// FFP fog - not migrated (no RHI equivalent, should be shader-based)
-	glDisable(GL_FOG);
 }
 
 
