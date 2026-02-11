@@ -91,8 +91,6 @@ void CTooltipConsole::Draw()
 
 	float curX = x + 0.01f;
 	float curY = y + h - 0.5f * fontSize * smallFont->GetLineHeight() / globalRendering->viewSizeY;
-	glColor4f(1.0f, 1.0f, 1.0f, 0.8f);
-
 	smallFont->Begin();
 	smallFont->SetColors(); //default
 

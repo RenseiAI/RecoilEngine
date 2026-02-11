@@ -92,7 +92,6 @@ void LineEdit::DrawSelf()
 			rb.DrawElements(GL_TRIANGLES);
 			sh.Disable();
 		}
-		glColor4f(0.0f, 0.0f, 0.0f, 1.0f); // black
 	}
 
 	font->SetTextColor(); //default

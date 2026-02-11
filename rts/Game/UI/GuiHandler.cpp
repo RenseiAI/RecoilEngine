@@ -2978,7 +2978,6 @@ void CGuiHandler::DrawName(const IconInfo& icon, const std::string& text, bool o
 	const float xCenter = 0.5f * (b.x1 + b.x2);
 	const float yCenter = 0.5f * (b.y1 + b.y2 + yShrink);
 
-	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 	font->glPrint(xCenter, yCenter, fontScale, (dropShadows ? FONT_SHADOW : 0) | FONT_CENTER | FONT_VCENTER | FONT_SCALE | FONT_NORM, text);
 }
 
@@ -3231,11 +3230,6 @@ void CGuiHandler::DrawButtons() // Only called by Draw
 
 	// active page indicator
 	if (luaUI == NULL) {
-		if (selectedUnitsHandler.BuildIconsFirst()) {
-			glColor4fv(cmdColors.build);
-		} else {
-			glColor4f(0.7f, 0.7f, 0.7f, 1.0f);
-		}
 		const float textSize = 1.2f;
 		font->glFormat(xBpos, yBpos, textSize, FONT_CENTER | FONT_VCENTER | FONT_SCALE | FONT_NORM, "%i", activePage + 1);
 	}
@@ -3325,7 +3319,6 @@ void CGuiHandler::DrawSelectionInfo()
 				rb.DrawElements(GL_TRIANGLES);
 				sh.Disable();
 			}
-			glColor4f(1.0f, 1.0f, 1.0f, 0.8f);
 			smallFont->glPrint(xSelectionPos, ySelectionPos - textDescender, fontSize, FONT_BASELINE | FONT_NORM, buf.str());
 		} else {
 			smallFont->SetColors(); // default
@@ -3390,7 +3383,6 @@ void CGuiHandler::DrawNumberInput() // Only called by drawbuttons
 			rb.DrawArrays(GL_TRIANGLES);
 			sh.Disable();
 
-			glColor4f(1.0f, 1.0f, 1.0f, 0.9f);
 			font->glFormat(slideX, 0.56f, 2.0f, FONT_CENTER | FONT_SCALE | FONT_NORM, "%i", (int)value);
 		}
 	}
