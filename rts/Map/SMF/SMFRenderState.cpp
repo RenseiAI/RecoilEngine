@@ -354,6 +354,16 @@ void SMFRenderStateGLSL::UpdateShaderSkyUniforms()
 	}
 }
 
+void SMFRenderStateGLSL::SetAlphaTest(bool enable, float threshold) {
+	if (currShader == nullptr)
+		return;
+
+	if (enable)
+		currShader->SetUniform("alphaCtrl", threshold, 1.0f, 0.0f, 0.0f);
+	else
+		currShader->SetUniform("alphaCtrl", 0.0f, 0.0f, 0.0f, 1.0f);
+}
+
 bool SMFRenderStateGLSL::CanUseAdvShading(const CSMFGroundDrawer* smfGroundDrawer, ShaderStage shStage) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;

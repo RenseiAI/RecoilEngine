@@ -242,8 +242,7 @@ void CSMFGroundDrawer::DrawDeferredPass(const DrawPass::e& drawPass, bool alphaT
 		smfRenderStates[RENDER_STATE_SEL]->Enable(this, DrawPass::TerrainDeferred);
 
 		if (alphaTest) {
-			glEnable(GL_ALPHA_TEST);
-			glAlphaFunc(GL_GREATER, mapInfo->map.voidAlphaMin);
+			smfRenderStates[RENDER_STATE_SEL]->SetAlphaTest(true, mapInfo->map.voidAlphaMin);
 		}
 
 		if (alwaysDispatchEvents || HaveLuaRenderState())
@@ -252,7 +251,7 @@ void CSMFGroundDrawer::DrawDeferredPass(const DrawPass::e& drawPass, bool alphaT
 		meshDrawer->DrawMesh(drawPass);
 
 		if (alphaTest) {
-			glDisable(GL_ALPHA_TEST);
+			smfRenderStates[RENDER_STATE_SEL]->SetAlphaTest(false, 0.0f);
 		}
 
 		smfRenderStates[RENDER_STATE_SEL]->Disable(this, drawPass);
@@ -291,8 +290,7 @@ void CSMFGroundDrawer::DrawForwardPass(const DrawPass::e& drawPass, bool alphaTe
 		ctx->SetPolygonMode(RHI::PolygonMode::Line);
 
 	if (alphaTest) {
-		glEnable(GL_ALPHA_TEST);
-		glAlphaFunc(GL_GREATER, mapInfo->map.voidAlphaMin);
+		smfRenderStates[RENDER_STATE_SEL]->SetAlphaTest(true, mapInfo->map.voidAlphaMin);
 	}
 
 	if (alwaysDispatchEvents || HaveLuaRenderState())
@@ -304,7 +302,7 @@ void CSMFGroundDrawer::DrawForwardPass(const DrawPass::e& drawPass, bool alphaTe
 	if (wireframe)
 		ctx->SetPolygonMode(RHI::PolygonMode::Fill);
 	if (alphaTest)
-		glDisable(GL_ALPHA_TEST);
+		smfRenderStates[RENDER_STATE_SEL]->SetAlphaTest(false, 0.0f);
 
 	smfRenderStates[RENDER_STATE_SEL]->Disable(this, drawPass);
 	smfRenderStates[RENDER_STATE_SEL]->SetCurrentShader(this, DrawPass::Normal);

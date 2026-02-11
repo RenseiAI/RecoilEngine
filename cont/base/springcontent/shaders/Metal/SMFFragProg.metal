@@ -35,6 +35,7 @@ struct VertexOut {
 
 struct SMFUniforms {
     float2 specularTexGen;
+    float4 alphaCtrl; // default: (0.0, 0.0, 0.0, 1.0) - always pass
 #ifdef SMF_ADV_SHADING
     float2 normalTexGen;
     float3 groundAmbientColor;
@@ -97,6 +98,12 @@ float4 GetDetailTextureColor(float4 vertexWorldPos, texture2d<float> detailTex, 
     return detailCol;
 }
 #endif
+
+bool AlphaDiscard(float a, float4 alphaCtrl) {
+    float alphaTestGT = float(a > alphaCtrl.x) * alphaCtrl.y;
+    float alphaTestLT = float(a < alphaCtrl.x) * alphaCtrl.z;
+    return ((alphaTestGT + alphaTestLT + alphaCtrl.w) == 0.0);
+}
 
 #ifdef DEFERRED_MODE
 struct GBufferOut {
@@ -173,6 +180,10 @@ fragment float4 smfFragProg(
     fragColor.rgb = (diffuseCol.rgb + detailCol.rgb) * shadingTex.sample(texSampler, specTexCoords).rgb;
     fragColor.a = diffuseCol.a;
 #endif
+
+    if (AlphaDiscard(fragColor.a, uniforms.alphaCtrl)) {
+        discard_fragment();
+    }
 
     fragColor.rgb = mix(fog.color.rgb, fragColor.rgb, in.fogFactor);
     return fragColor;

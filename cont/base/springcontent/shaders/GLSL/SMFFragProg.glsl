@@ -42,6 +42,7 @@ uniform sampler2D detailTex;
 #endif
 
 uniform vec2 specularTexGen; // 1.0/mapSize
+uniform vec4 alphaCtrl = vec4(0.0, 0.0, 0.0, 1.0); // always pass
 
 #ifdef SMF_ADV_SHADING
 	uniform vec2 normalTexGen;   // either 1.0/mapSize (when NPOT are supported) or 1.0/mapSizePO2
@@ -252,6 +253,12 @@ vec4 GetSplatDetailTextureNormal(vec2 uv, out vec2 splatDetailStrength) {
 	}
 #endif // SMF_ADV_SHADING
 
+bool AlphaDiscard(float a) {
+	float alphaTestGT = float(a > alphaCtrl.x) * alphaCtrl.y;
+	float alphaTestLT = float(a < alphaCtrl.x) * alphaCtrl.z;
+	return ((alphaTestGT + alphaTestLT + alphaCtrl.w) == 0.0);
+}
+
 /***********************************************************************/
 // main()
 
@@ -387,6 +394,9 @@ void main() {
 			fragColor.a = diffuseCol.a;
 		}
 		#endif // SMF_ADV_SHADING
+
+		if (AlphaDiscard(fragColor.a))
+			discard;
 	#endif // DEFERRED_MODE
 
 	#ifdef SMF_LIGHT_EMISSION

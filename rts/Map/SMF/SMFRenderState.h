@@ -45,6 +45,7 @@ public:
 	virtual void SetSquareTexGen(const int sqx, const int sqy) const = 0;
 	virtual void SetCurrentShader(const CSMFGroundDrawer* smfGroundDrawer, const DrawPass::e& drawPass) = 0;
 	virtual void UpdateShaderSkyUniforms() = 0;
+	virtual void SetAlphaTest(bool enable, float threshold) {}
 };
 
 
@@ -97,6 +98,7 @@ public:
 	void SetSquareTexGen(const int sqx, const int sqy) const override;
 	void SetCurrentShader(const CSMFGroundDrawer* smfGroundDrawer, const DrawPass::e& drawPass) override;
 	void UpdateShaderSkyUniforms() override;
+	void SetAlphaTest(bool enable, float threshold) override;
 
 	enum ShaderStage {
 		GLSL_SHADER_FWD_STD = 0,
