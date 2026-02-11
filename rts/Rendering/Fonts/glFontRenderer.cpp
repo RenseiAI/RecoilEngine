@@ -1,6 +1,8 @@
-// RHI MIGRATION STATUS: Partially migrated
+// RHI MIGRATION STATUS: Mostly migrated
 // - Dynamic state calls (blend, depth test) migrated to RHI context methods
-// - FFP state (glPushAttrib, matrix stack, GL_TEXTURE_2D) remains raw GL (no RHI equivalent)
+// - Legacy CglNoShaderFontRenderer removed (display lists, FFP client state, matrix stack)
+// - Shader path uses TypedRenderBuffer with VBOs
+// - Remaining raw GL: glGetIntegerv(GL_CURRENT_PROGRAM), glUseProgram (shader save/restore)
 
 #include "glFontRenderer.h"
 
@@ -218,11 +220,7 @@ void CglShaderFontRenderer::HandleTextureUpdate(CFontTexture& fnt, bool onlyUplo
 	if (!onlyUpload)
 		fnt.UpdateGlyphAtlasTexture();
 
-	GLint dl = 0;
-	glGetIntegerv(GL_LIST_INDEX, &dl);
-	if (dl == 0) {
-		fnt.UploadGlyphAtlasTextureImpl();
-	}
+	fnt.UploadGlyphAtlasTextureImpl();
 }
 
 void CglShaderFontRenderer::PushGLState(const CglFont& fnt)
@@ -284,175 +282,11 @@ void CglShaderFontRenderer::GetStats(std::array<size_t, 8>& stats) const
 	stats[4 + 3] = outlineBufferTC.NumSubmits(true);
 }
 
-CglNoShaderFontRenderer::CglNoShaderFontRenderer()
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	for (auto& v : verts)
-		v.reserve(NUM_TRI_BUFFER_VERTS);
-	for (auto& i : indcs)
-		i.reserve(NUM_TRI_BUFFER_ELEMS);
-
-	textureSpaceMatrix = glGenLists(1);
-	glNewList(textureSpaceMatrix, GL_COMPILE);
-	glEndList();
-}
-
-CglNoShaderFontRenderer::~CglNoShaderFontRenderer()
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	glDeleteLists(textureSpaceMatrix, 1);
-}
-
-void CglNoShaderFontRenderer::AddQuadTrianglesImpl(bool primary, VA_TYPE_TC&& tl, VA_TYPE_TC&& tr, VA_TYPE_TC&& br, VA_TYPE_TC&& bl)
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	auto& v = verts[primary];
-	auto& i = indcs[primary];
-
-	const uint16_t baseIndex = static_cast<uint16_t>(v.size());
-
-	v.emplace_back(std::move(tl)); //0
-	v.emplace_back(std::move(tr)); //1
-	v.emplace_back(std::move(br)); //2
-	v.emplace_back(std::move(bl)); //3
-
-	//triangle 1 {tl, tr, bl}
-	i.emplace_back(baseIndex + 3);
-	i.emplace_back(baseIndex + 0);
-	i.emplace_back(baseIndex + 1);
-
-	//triangle 2 {bl, tr, br}
-	i.emplace_back(baseIndex + 3);
-	i.emplace_back(baseIndex + 1);
-	i.emplace_back(baseIndex + 2);
-}
-
-void CglNoShaderFontRenderer::AddQuadTrianglesPB(VA_TYPE_TC&& tl, VA_TYPE_TC&& tr, VA_TYPE_TC&& br, VA_TYPE_TC&& bl)
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	AddQuadTrianglesImpl(true , std::move(tl), std::move(tr), std::move(br), std::move(bl));
-}
-
-void CglNoShaderFontRenderer::AddQuadTrianglesOB(VA_TYPE_TC&& tl, VA_TYPE_TC&& tr, VA_TYPE_TC&& br, VA_TYPE_TC&& bl)
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	AddQuadTrianglesImpl(false, std::move(tl), std::move(tr), std::move(br), std::move(bl));
-}
-
-void CglNoShaderFontRenderer::DrawTraingleElements()
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	static constexpr GLsizei stride = sizeof(VA_TYPE_TC);
-
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-
-	for (size_t idx = 0; idx < 2; ++idx) {
-		glVertexPointer(3, GL_FLOAT, stride, &verts[idx].data()->pos);
-		glTexCoordPointer(2, GL_FLOAT, stride, &verts[idx].data()->s);
-		glColorPointer(4, GL_UNSIGNED_BYTE, stride, &verts[idx].data()->c.r);
-		glDrawRangeElements(GL_TRIANGLES, 0, verts[idx].size() - 1, indcs[idx].size(), GL_UNSIGNED_SHORT, indcs[idx].data());
-	};
-
-	for (auto& v : verts)
-		v.clear();
-	for (auto& i : indcs)
-		i.clear();
-}
-
-void CglNoShaderFontRenderer::HandleTextureUpdate(CFontTexture& fnt, bool onlyUpload)
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	if (!onlyUpload)
-		fnt.UpdateGlyphAtlasTexture();
-
-	GLint dl = 0;
-	glGetIntegerv(GL_LIST_INDEX, &dl);
-	if (dl == 0) {
-		fnt.UploadGlyphAtlasTextureImpl();
-
-		// update texture space dlist (this affects already compiled dlists too!)
-		glNewList(textureSpaceMatrix, GL_COMPILE);
-		glScalef(1.0f / fnt.GetTextureWidth(), 1.0f / fnt.GetTextureHeight(), 1.0f);
-		glEndList();
-	}
-}
-
-void CglNoShaderFontRenderer::PushGLState(const CglFont& fnt)
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	auto* ctx = RHI::GetDevice()->GetContext();
-
-	// NOTE: This entire legacy (no-shader) renderer uses fixed-function pipeline
-	// features (display lists, matrix stack, client state) that have no RHI equivalent.
-	// Only the texture bind and basic state calls are migrated to RHI; the rest stays as raw GL.
-
-	// Save current color state for later restore
-	glGetFloatv(GL_CURRENT_COLOR, savedColor);
-
-	ctx->SetDepthTestEnabled(false);
-	glDisable(GL_ALPHA_TEST);  // FFP feature, no RHI equivalent
-	ctx->SetBlendEnabled(true);
-	if (!userDefinedBlending)
-		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
-
-	glMatrixMode(GL_TEXTURE);
-	glPushMatrix();
-	glCallList(textureSpaceMatrix);
-
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	glEnableClientState(GL_COLOR_ARRAY);
-
-	// Bind font atlas texture via RHI
-	if (auto* tex = fnt.GetAtlasTexture())
-		tex->Bind(0);
-}
-
-void CglNoShaderFontRenderer::PopGLState(const CglFont& fnt)
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	// Unbind font atlas texture via RHI
-	if (auto* tex = fnt.GetAtlasTexture())
-		tex->Unbind(0);
-
-	glDisableClientState(GL_VERTEX_ARRAY);
-	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-	glDisableClientState(GL_COLOR_ARRAY);
-
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-
-	// Restore state explicitly
-	auto* ctx = RHI::GetDevice()->GetContext();
-	ctx->SetDepthTestEnabled(true);
-	ctx->SetBlendEnabled(false);
-	glEnable(GL_ALPHA_TEST);
-	glColor4fv(savedColor);
-}
-
-void CglNoShaderFontRenderer::GetStats(std::array<size_t, 8>& stats) const
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	/// placeholder
-	std::fill(stats.begin(), stats.end(), 0);
-}
-
-
 std::unique_ptr<CglFontRenderer> CglFontRenderer::CreateInstance()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 #ifndef HEADLESS
-	//return std::make_unique<CglNoShaderFontRenderer>();
-	if (globalRendering->amdHacks)
-		return std::make_unique<CglNoShaderFontRenderer>();
-
-	auto fr = std::make_unique<CglShaderFontRenderer>();
-	if (fr->IsValid())
-		return fr;
-
-	fr = nullptr;
-	return std::make_unique<CglNoShaderFontRenderer>();
+	return std::make_unique<CglShaderFontRenderer>();
 #else
 	return std::make_unique<CglNullFontRenderer>();
 #endif

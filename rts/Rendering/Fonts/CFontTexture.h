@@ -109,7 +109,6 @@ class CFontTexture
 public:
 	friend class CglFontRenderer;
 	friend class CglShaderFontRenderer;
-	friend class CglNoShaderFontRenderer;
 	friend class CglNullFontRenderer;
 
 	static void InitFonts();

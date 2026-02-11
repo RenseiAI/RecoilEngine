@@ -65,31 +65,6 @@ private:
 	static inline std::unique_ptr<Shader::IProgramObject> fontShaderColor = nullptr;
 };
 
-class CglNoShaderFontRenderer final: public CglFontRenderer {
-public:
-	CglNoShaderFontRenderer();
-	~CglNoShaderFontRenderer() override;
-
-	void AddQuadTrianglesPB(VA_TYPE_TC&& tl, VA_TYPE_TC&& tr, VA_TYPE_TC&& br, VA_TYPE_TC&& bl) override;
-	void AddQuadTrianglesOB(VA_TYPE_TC&& tl, VA_TYPE_TC&& tr, VA_TYPE_TC&& br, VA_TYPE_TC&& bl) override;
-	void DrawTraingleElements() override;
-	void HandleTextureUpdate(CFontTexture& font, bool onlyUpload) override;
-	void PushGLState(const CglFont& font) override;
-	void PopGLState(const CglFont& font) override;
-
-	bool IsLegacy() const override { return true; }
-	bool IsValid() const override { return true; }
-	void GetStats(std::array<size_t, 8>& stats) const override;
-private:
-	void AddQuadTrianglesImpl(bool primary, VA_TYPE_TC&& tl, VA_TYPE_TC&& tr, VA_TYPE_TC&& br, VA_TYPE_TC&& bl);
-
-	std::array<std::vector<VA_TYPE_TC>, 2> verts; // OL, PM
-	std::array<std::vector<uint16_t  >, 2> indcs; // OL, PM
-
-	uint32_t textureSpaceMatrix = 0u;
-	float savedColor[4] = {1.0f, 1.0f, 1.0f, 1.0f}; // For state save/restore
-};
-
 class CglNullFontRenderer final : public CglFontRenderer {
 	// Inherited via CglFontRenderer
 	void AddQuadTrianglesPB(VA_TYPE_TC&& tl, VA_TYPE_TC&& tr, VA_TYPE_TC&& br, VA_TYPE_TC&& bl) override {}
