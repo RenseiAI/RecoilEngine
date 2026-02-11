@@ -9,14 +9,13 @@
  *   - Pipeline state (blend, alpha) -> RHI::PipelineDesc + ctx->BindPipeline()
  *   - RHI device/context access     -> RHI::CreateDevice(), GetContext()
  *   - Polygon offset state          -> ctx->SetPolygonOffset()
+ *   - Alpha test -> shader discard via alphaCtrl uniform (set by ModelDrawerState)
  *
  * Remaining GL calls (with RHI_TODO comments):
- *   - glAlphaFunc()/GL_ALPHA_TEST: Legacy FFP alpha test (shaders use discard)
  *   - glColor3f: Legacy FFP vertex color
  *   - glDisable(GL_TEXTURE_2D): Legacy FFP texture state
  *
  * Dependencies blocking full migration:
- *   - Alpha test is legacy FFP; modern shaders handle via discard
  *   - Shadow pass state management depends on external shader setup
  */
 
@@ -376,13 +375,6 @@ void LuaObjectDrawer::DrawMaterialBins(LuaObjType objType, LuaMatType matType, b
 		desc.blend.dstAlpha = RHI::BlendFactor::OneMinusSrcAlpha;
 		auto pipeline = device->CreatePipeline(desc);
 		ctx->BindPipeline(pipeline.get());
-		// RHI_TODO: alpha test (glAlphaFunc) is legacy FFP. Modern shaders use discard.
-		glEnable(GL_ALPHA_TEST);
-		glAlphaFunc(GL_GREATER, 0.1f);
-	} else {
-		// RHI_TODO: alpha test is legacy FFP
-		glEnable(GL_ALPHA_TEST);
-		glAlphaFunc(GL_GREATER, 0.5f);
 	}
 
 	const LuaMaterial* prevMat = &LuaMaterial::defMat;
@@ -402,7 +394,6 @@ void LuaObjectDrawer::DrawMaterialBins(LuaObjType objType, LuaMatType matType, b
 		auto defaultPipeline = device->CreatePipeline(defaultDesc);
 		ctx->BindPipeline(defaultPipeline.get());
 	}
-	glDisable(GL_ALPHA_TEST);
 
 	inAlphaBin = false;
 	inDrawPass = false;
