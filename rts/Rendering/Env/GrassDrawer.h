@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "Rendering/GL/VertexArray.h"
+#include "Rendering/RHI/MatrixStack.h"
 #include "System/float3.h"
 #include "System/EventClient.h"
 
@@ -79,6 +80,7 @@ public:
 	};
 
 protected:
+	void FlushMatrices() const;
 	void LoadGrassShaders();
 	void CreateGrassBladeTex(unsigned char* buf);
 	void CreateFarTex();
@@ -127,6 +129,9 @@ protected:
 	bool grassOff;
 	bool updateBillboards;
 	bool updateVisibility;
+
+	mutable RHI::MatrixStack projStack;
+	mutable RHI::MatrixStack mvStack;
 };
 
 extern CGrassDrawer* grassDrawer;

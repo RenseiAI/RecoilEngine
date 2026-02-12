@@ -12,8 +12,13 @@
  * - Dynamic state: glEnable/glDisable(GL_CULL_FACE) -> ctx->SetCullFaceEnabled() (in commented DrawShadow)
  * - Dynamic state: glPolygonOffset + glEnable/glDisable(GL_POLYGON_OFFSET_FILL) -> ctx->SetPolygonOffset() (in commented DrawShadow)
  *
+ * - Matrix stack: glMatrixMode, glPushMatrix, glPopMatrix, glLoadIdentity, glMultMatrixf,
+ *   glRotatef, glTranslatef, glOrtho -> RHI::MatrixStack + RHI::ScopedMatrixPush
+ *   [x] All transform computation on CPU via MatrixStack
+ *   Remaining GL: glLoadMatrixf flush calls before draws (grass shader
+ *   reads gl_ModelViewProjectionMatrix from FFP state)
+ *
  * REMAINING (NOT MIGRATED):
- * - FFP matrix stack: glMatrixMode, glPushMatrix, glPopMatrix, glLoadIdentity, glMultMatrixf, glRotatef, glTranslatef, glOrtho
  * - FFP deprecated: GL_ALPHA_TEST, GL_FOG, GL_CLIP_PLANE0, glColor4f
  * - Display lists: glGenLists, glNewList, glCallList (no RHI equivalent, requires vertex buffer)
  * - Texture binding: glBindTexture, glActiveTexture (depends on external raw GLuint textures)
@@ -421,8 +426,16 @@ static float3 GetTurfParams(GrassRNG& rng, const int x, const int y)
 
 
 
-// TODO [RHI cross-cutting]: DrawNear uses fixed-function GL pipeline
-// (glPushMatrix/glPopMatrix, glTranslatef3, glRotatef, glCallList).
+void CGrassDrawer::FlushMatrices() const
+{
+	glMatrixMode(GL_PROJECTION);
+	glLoadMatrixf(projStack.Top());
+	glMatrixMode(GL_MODELVIEW);
+	glLoadMatrixf(mvStack.Top());
+}
+
+
+// TODO [RHI cross-cutting]: DrawNear uses display lists (glCallList).
 // Requires instanced rendering with per-turf transform data in a buffer.
 void CGrassDrawer::DrawNear(const std::vector<InviewNearGrass>& inviewGrass)
 {
@@ -441,11 +454,13 @@ void CGrassDrawer::DrawNear(const std::vector<InviewNearGrass>& inviewGrass)
 			pos.y -= CGround::GetSlope(p.x, p.y, false) * 30.0f;
 			pos.y -= 2.0f * mapInfo->grass.bladeHeight * alpha;
 
-			glPushMatrix();
-			glTranslatef3(pos);
-			glRotatef(p.z, 0.0f, 1.0f, 0.0f);
-			glCallList(grassDL);
-			glPopMatrix();
+			{
+				RHI::ScopedMatrixPush mvGuard(mvStack);
+				mvStack.Translate(pos.x, pos.y, pos.z)
+				       .RotateY(p.z * math::DEG_TO_RAD);
+				FlushMatrices();
+				glCallList(grassDL);
+			}
 		}
 	}
 }
@@ -625,8 +640,7 @@ void CGrassDrawer::DrawShadow()
 
 
 // TODO [RHI cross-cutting]: SetupGlStateNear/ResetGlStateNear use raw GLuint textures
-// from multiple subsystems, fixed-function matrix stack, and legacy GL state
-// (glActiveTextureARB, glBindTexture, glMatrixMode, glPushMatrix, glMultMatrixf).
+// from multiple subsystems and legacy GL state (glActiveTextureARB, glBindTexture).
 void CGrassDrawer::SetupGlStateNear()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -653,12 +667,11 @@ void CGrassDrawer::SetupGlStateNear()
 		glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D, shadowHandler.GetColorTextureID());
 	}
 
-	glMatrixMode(GL_PROJECTION);
-		glPushMatrix();
-		glMultMatrixf(camera->GetViewMatrix());
-	glMatrixMode(GL_MODELVIEW);
-		glPushMatrix();
-		glLoadIdentity();
+	projStack.Push()
+	         .LoadMatrix(camera->GetProjectionMatrix())
+	         .MultMatrix(camera->GetViewMatrix());
+	mvStack.Push().LoadIdentity();
+	FlushMatrices();
 
 	// RHI dynamic state
 	auto* ctx = RHI::GetDevice()->GetContext();
@@ -680,10 +693,9 @@ void CGrassDrawer::ResetGlStateNear()
 	if (shadowHandler.ShadowsLoaded())
 		shadowHandler.ResetShadowTexSamplerRaw();
 
-	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
+	projStack.Pop();
+	mvStack.Pop();
+	FlushMatrices();
 
 	// RHI dynamic state
 	auto* ctx = RHI::GetDevice()->GetContext();
@@ -691,8 +703,7 @@ void CGrassDrawer::ResetGlStateNear()
 }
 
 
-// TODO [RHI cross-cutting]: SetupGlStateFar/ResetGlStateFar use raw GLuint textures,
-// fixed-function matrix stack, blending state, and depth mask.
+// TODO [RHI cross-cutting]: SetupGlStateFar/ResetGlStateFar use raw GLuint textures.
 void CGrassDrawer::SetupGlStateFar()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -702,12 +713,11 @@ void CGrassDrawer::SetupGlStateFar()
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 	ctx->SetDepthWriteEnabled(false);
 
-	glMatrixMode(GL_PROJECTION);
-		glPushMatrix();
-		glMultMatrixf(camera->GetViewMatrix());
-	glMatrixMode(GL_MODELVIEW);
-		glPushMatrix();
-		glLoadIdentity();
+	projStack.Push()
+	         .LoadMatrix(camera->GetProjectionMatrix())
+	         .MultMatrix(camera->GetViewMatrix());
+	mvStack.Push().LoadIdentity();
+	FlushMatrices();
 
 	EnableShader(GRASS_PROGRAM_DIST);
 
@@ -733,10 +743,9 @@ void CGrassDrawer::ResetGlStateFar()
 	RECOIL_DETAILED_TRACY_ZONE;
 	grassShader->Disable();
 
-	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
+	projStack.Pop();
+	mvStack.Pop();
+	FlushMatrices();
 
 	if (shadowHandler.ShadowsLoaded())
 		shadowHandler.ResetShadowTexSamplerRaw();
@@ -824,14 +833,11 @@ void CGrassDrawer::CreateGrassBladeTex(unsigned char* buf)
 }
 
 // TODO [RHI cross-cutting]: CreateFarTex is heavily GL-dependent:
-// - glGenTextures/glBindTexture/glTexParameteri for far texture creation
 // - FBO operations for render-to-texture
-// - Fixed-function matrix stack (glPushMatrix/glLoadIdentity/glRotatef/glOrtho)
 // - glClipPlane (GL_CLIP_PLANE0) for clipping
 // - glBindFramebufferEXT/glBlitFramebufferEXT for MSAA resolve
-// - glGenerateMipmap for mipmap generation
 // - CVertexArray with glBegin/glEnd-style drawing
-// Viewport and clear operations have been migrated to RHI.
+// Viewport, clear, and matrix stack operations have been migrated to RHI.
 void CGrassDrawer::CreateFarTex()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -876,10 +882,8 @@ void CGrassDrawer::CreateFarTex()
 		return;
 	}
 
-	glPushMatrix();
-	glLoadIdentity();
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
+	mvStack.Push().LoadIdentity();
+	projStack.Push();
 
 	if (grassBladeTex) {
 		grassBladeTex->Bind(0);
@@ -905,13 +909,10 @@ void CGrassDrawer::CreateFarTex()
 	// render turf from different vertical angles
 	for (int a=0;a<numAngles;++a) {
 		ctx->SetViewport(RHI::Viewport{static_cast<float>(a * billboardSize * sizeMod), 0.0f, static_cast<float>(billboardSize * sizeMod), static_cast<float>(billboardSize * sizeMod)});
-		glMatrixMode(GL_MODELVIEW);
-			glLoadIdentity();
-			glRotatef(a*90.f/(numAngles-1),1,0,0);
-			//glTranslatef(0,-0.5f,0);
-		glMatrixMode(GL_PROJECTION);
-			glLoadIdentity();
-			glOrtho(-partTurfSize, partTurfSize, partTurfSize, -partTurfSize, -turfSize, turfSize);
+		mvStack.LoadIdentity()
+		       .RotateX(a * 90.0f / (numAngles - 1) * math::DEG_TO_RAD);
+		projStack.LoadMatrix(CMatrix44f::OrthoProj(-partTurfSize, partTurfSize, partTurfSize, -partTurfSize, -turfSize, turfSize));
+		FlushMatrices();
 
 		// has to be applied after the matrix transformations,
 		// cause it uses those an `compiles` them into the clip plane
@@ -939,10 +940,9 @@ void CGrassDrawer::CreateFarTex()
 	{
 		const int mipLevels = std::ceil(std::log((float)(std::max(texSizeX, texSizeY) + 1)));
 
-		glMatrixMode(GL_MODELVIEW);
-			glLoadIdentity();
-		glMatrixMode(GL_PROJECTION);
-			glLoadIdentity();
+		mvStack.LoadIdentity();
+		projStack.LoadIdentity();
+		FlushMatrices();
 
 		// RHI dynamic state for blending
 		ctx->SetBlendEnabled(true);
@@ -979,10 +979,9 @@ void CGrassDrawer::CreateFarTex()
 	}
 
 	globalRendering->LoadViewport();
-	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
+	projStack.Pop();
+	mvStack.Pop();
+	FlushMatrices();
 
 	FBO::Unbind();
 	//glSaveTexture(farTex, "grassfar.png");
