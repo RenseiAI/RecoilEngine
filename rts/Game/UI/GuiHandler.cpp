@@ -1,7 +1,10 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 // RHI Migration Status: GL state + FFP immediate-mode drawing migrated to RHI/RenderBuffer
-// Remaining: matrix stack (glPushMatrix etc.), display list (GetConeList), stencil (glLogicOp),
+// Migrated: matrix transforms in DrawWeaponCone, DrawMapStuff build preview, DrawMiniMapMarker
+//   -> CMatrix44f computed on CPU, flushed via single glMultMatrixf/glLoadMatrixf
+// Remaining: glPushMatrix/glPopMatrix (save/restore external GL state), display list (GetConeList),
+//   stencil (glLogicOp), FullScreenDraw (glRectf), DrawOptionLEDs (glLoadIdentity),
 //   glAlphaFunc, glBindTexture (texture manager), glColor4f (font), DrawBoxShape/DrawCylinderShape/DrawMinMaxBox (glDrawVolume)
 
 #include "GuiHandler.h"
@@ -3601,10 +3604,13 @@ static void DrawWeaponCone(const float3& pos, float len, float hrads, float head
 	const float xlen = len * std::cos(hrads);
 	const float yzlen = len * std::sin(hrads);
 
-	glTranslatef(pos.x, pos.y, pos.z);
-	glRotatef(heading * math::RAD_TO_DEG, 0.0f, 1.0f, 0.0f);
-	glRotatef(pitch   * math::RAD_TO_DEG, 0.0f, 0.0f, 1.0f);
-	glScalef(xlen, yzlen, yzlen);
+	// Compute transform on CPU, flush once via glMultMatrixf
+	CMatrix44f coneTransform;
+	coneTransform.Translate(pos);
+	coneTransform.RotateY(heading);
+	coneTransform.RotateZ(pitch);
+	coneTransform.Scale(xlen, yzlen, yzlen);
+	glMultMatrixf(coneTransform);
 
 	ctx->SetCullFaceEnabled(true);
 
@@ -3988,10 +3994,13 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap)
 					if (!onMiniMap) {
 						ScopedModelDrawerImpl<CUnitDrawer> legacy(true, false);
 
+						// Compute build placement transform on CPU
+						CMatrix44f buildTransform;
+						buildTransform.Translate(buildPos);
+						buildTransform.RotateY(bi.buildFacing * 90.0f * math::DEG_TO_RAD);
+
 						glPushMatrix();
-						glLoadIdentity();
-						glTranslatef3(buildPos);
-						glRotatef(bi.buildFacing * 90.0f, 0.0f, 1.0f, 0.0f);
+						glLoadMatrixf(buildTransform);
 
 						unitDrawer->DrawIndividualDefAlpha(bi.def, gu->myTeam, false);
 
@@ -4077,9 +4086,13 @@ void CGuiHandler::DrawMiniMapMarker(const float3& cameraPos)
 	static float spinTime = 0.0f;
 	spinTime = math::fmod(spinTime + globalRendering->lastFrameTime * 0.001f, 60.0f);
 
+	// Compute marker transform on CPU, flush once via glMultMatrixf
+	CMatrix44f markerTransform;
+	markerTransform.Translate(cameraPos.x, groundLevel, cameraPos.z);
+	markerTransform.RotateY(360.0f * (spinTime / 2.0f) * math::DEG_TO_RAD);
+
 	glPushMatrix();
-	glTranslatef(cameraPos.x, groundLevel, cameraPos.z);
-	glRotatef(360.0f * (spinTime / 2.0f), 0.0f, 1.0f, 0.0f);
+	glMultMatrixf(markerTransform);
 
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::One);
