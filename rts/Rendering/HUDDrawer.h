@@ -3,6 +3,8 @@
 #ifndef HUD_DRAWER_HDR
 #define HUD_DRAWER_HDR
 
+#include "Rendering/RHI/MatrixStack.h"
+
 class CUnit;
 struct HUDDrawer {
 public:
@@ -15,8 +17,7 @@ public:
 	static HUDDrawer* GetInstance();
 
 private:
-	void PushMatrices();
-	void PopMatrices();
+	void FlushMatrices() const;
 
 	void DrawModel(const CUnit*);
 	void DrawUnitDirectionArrow(const CUnit*);
@@ -25,6 +26,9 @@ private:
 	void DrawTargetReticle(const CUnit*);
 
 	bool draw;
+
+	RHI::MatrixStack projStack;
+	RHI::MatrixStack mvStack;
 };
 
 #define hudDrawer (HUDDrawer::GetInstance())
