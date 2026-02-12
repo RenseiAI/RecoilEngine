@@ -1,154 +1,228 @@
 # Tier 4.1: Remaining RHI Migration Work
 
-This document captures the state of the ARM64+Metal port after Tier 3 completion.
-Use this to resume migration work in a new session.
+This document captures the state of the ARM64+Metal port after Tier 3 completion and
+ongoing batch migration work.
 
-**Last audited:** 2026-02-05
+**Last audited:** 2026-02-12
 
-## Current State (Post Tier 3 + BumpWater Migration)
+## Current State (Post Tier 3 + Batches 3-9)
 
-### Completed Infrastructure (Verified 2026-02-05)
+### Completed Infrastructure (Verified 2026-02-12)
 
 | Component | Status | Files | Notes |
 |-----------|--------|-------|-------|
-| RHI Interfaces | 8/8 Complete | 8 headers in `rts/Rendering/RHI/` | IRHIDevice, IRHIContext, IRHIBuffer, IRHITexture, IRHIShader, IRHIFramebuffer, IRHIPipeline, RHIScopedState |
-| OpenGL Backend | Complete | 14 files (7 .h/.cpp pairs) in `rts/Rendering/RHI/OpenGL/` | Real GL implementations, not stubs |
-| Metal Backend | Complete | 15 files in `rts/Rendering/RHI/Metal/` | Real Metal API calls, not stubs |
+| RHI Interfaces | 8/8 Complete | 8 headers, 169 virtual methods | IRHIDevice, IRHIContext, IRHIBuffer, IRHITexture, IRHIShader, IRHIFramebuffer, IRHIPipeline, RHIScopedState |
+| OpenGL Backend | Complete | 14 files, 160 methods | Real GL implementations |
+| Metal Backend | Complete | 15 files, 138 methods | Real Metal API calls |
 | Shader Pipeline | Complete | ShaderCompiler.h/.cpp + ShaderReflection.h | GLSL -> SPIR-V -> MSL via glslang + SPIRV-Cross |
-| Shader Translations | 41/41 | 41 .metal files in `cont/base/springcontent/shaders/Metal/` | Verified real MSL code |
+| Shader Translations | 41/41 | 41 .metal files | Verified real MSL code |
 | RHI Factory | Complete | RHIFactory.h/.cpp | Selects Metal on macOS ARM64, OpenGL elsewhere |
+| Headless Stubs | Complete | gladstub.cpp | 421 GL function stubs |
+
+### Completed Migration Work (Batches 3-9, ~219 GL calls removed)
+
+| Batch | Description | GL calls removed |
+|-------|-------------|-----------------|
+| 3 | glRectf -> TypedRenderBuffer in 4 files | ~12 |
+| 4 | WorldDrawer, CommandDrawer -> TypedRenderBuffer | ~23 |
+| 5 | Remove FFP GL_TEXTURE_2D, GL_LIGHTING enables | ~17 |
+| 6 | LineDrawer -> TypedRenderBuffer, remove line stipple | ~16 |
+| 7 | ModelDrawerHelpers FFP texture enables | ~14 |
+| 8 | DebugDrawerAI/MiniMap/InMapDrawView textures -> IRHITexture | ~47 |
+| 9 | Remove FFP GL_TEXTURE_CUBE_MAP, GL_FOG, GL_LIGHTING, GL_ALPHA_TEST | ~90 |
+
+Post-Batch 9 commits:
+- `ee97f76` Remove redundant glActiveTexture resets and migrate shadow compare mode to RHI
+- `cf4661f` Remove redundant glBindTexture(0) unbinds and fix GrassDrawer RHI device creation bug
+- `c96e3ae` Remove no-op FFP calls, stale glGetError, and commented-out GL code from 8 files
+- `79b1949` Remove glPushAttrib/glPopAttrib, FFP texture enables, and dead DrawShadow code
+- `a590a55` Remove no-op glColor calls from HUDDrawer/LuaObjectDrawer/GrassDrawer
+
+### Phase 1 Gap-Filling — COMPLETE
+- Fence sync support added to IRHIDevice/IRHIContext
+- Buffer mapping (Map/Unmap) added to IRHIBuffer
+- Debug output callback support added
+- GlobalRendering redirect to RHI device
+- Clip distance enable/disable added to IRHIContext
+
+### Legacy Water — DEPRECATED
+- DynWater, AdvWater, RefractWater commented out of CMakeLists
+- ~522 GL calls excluded from active build
+- BumpWater is the sole Metal-compatible water renderer (~11 GL calls remain at external boundaries)
 
 ### Remaining Work
 
-**~1,111 direct GL calls** remain across ~86 files (audited 2026-02-05).
+**~2,857 effective GL calls** remain across 117 compiled files (3,379 raw - 522 deprecated water).
+**~2,671 calls need migration** (excluding 186 in GL backend files that stay as-is).
 
-Previous estimate of ~2,487 was inflated. Actual count excludes:
-- RHI OpenGL backend (`rts/Rendering/RHI/OpenGL/`) - legitimate GL code
-- GLAD library files and headless stubs
-- Comments and documentation blocks
+## Priority Files (2026-02-12 Audit)
 
-The Tier 3 agents added comprehensive migration documentation to files but did NOT perform the actual code migration (confirmed by audit).
+### Top 25 Files by GL Call Count
 
-## Priority Files (Corrected Counts)
+| # | File | Calls | Status | Notes |
+|---|------|-------|--------|-------|
+| 1 | `rts/Lua/LuaOpenGL.cpp` | 464 | DOCUMENTED_ONLY | Lua GL scripting API — needs careful RHI wrapper |
+| 2 | `rts/Rml/Backends/RmlUi_Renderer_GL3_Recoil.cpp` | 194 | UNTOUCHED | External UI lib — needs RHI backend |
+| 3 | `rts/Game/UI/GuiHandler.cpp` | 130 | PARTIAL | Game UI — heavy FFP matrix stack |
+| 4 | `rts/Rendering/Shaders/Shader.cpp` | 107 | **GL BACKEND** | IS the GL shader backend — keep as-is |
+| 5 | `rts/Rendering/GL/myGL.cpp` | 92 | PARTIAL | GL utility layer |
+| 6 | `rts/Rendering/Units/UnitDrawer.cpp` | 86 | PARTIAL | Unit rendering — partial migration |
+| 7 | `rts/Rendering/GL/VertexArray.cpp` | 85 | DEPRECATED | Legacy vertex array (use RenderBuffers) |
+| 8 | `rts/Rendering/GL/FBO.cpp` | 84 | WRAPPER | FBO wrapper — has RHI equivalent |
+| 9 | `rts/Rendering/Env/GrassDrawer.cpp` | 80 | PARTIAL | Grass rendering — textures migrated |
+| 10 | `rts/Game/UI/MiniMap.cpp` | 80 | PARTIAL | Minimap — textures migrated, matrix stack remains |
+| 11 | `rts/Lua/LuaShaders.cpp` | 78 | DOCUMENTED_ONLY | Lua shader interface |
+| 12 | `rts/Rendering/HUDDrawer.cpp` | 56 | UNTOUCHED | HUD rendering — FFP matrix stack |
+| 13 | `rts/Lua/LuaFBOs.cpp` | 53 | DOCUMENTED_ONLY | Lua FBO interface |
+| 14 | `rts/Map/SMF/SMFReadMap.cpp` | 51 | UNTOUCHED | Terrain map loading |
+| 15 | `rts/Rendering/GlobalRendering.cpp` | 50 | ~95% DONE | SDL boundary + extension queries remain |
+| 16 | `rts/Rendering/Env/Particles/ProjectileDrawer.cpp` | 49 | DOCUMENTED_ONLY | Particle effects |
+| 17 | `rts/Lua/LuaTextures.cpp` | 48 | DOCUMENTED_ONLY | Lua texture interface |
+| 18 | `rts/Rendering/Env/SkyBox.cpp` | 43 | UNTOUCHED | Sky rendering |
+| 19 | `rts/Rendering/Textures/nv_dds.cpp` | 42 | UNTOUCHED | DDS texture loading |
+| 20 | `rts/Rendering/Shaders/GLSLCopyState.cpp` | 42 | **GL BACKEND** | GL-specific shader introspection — keep as-is |
+| 21 | `rts/Rendering/Env/Decals/GroundDecalHandler.cpp` | 38 | UNTOUCHED | Ground decals |
+| 22 | `rts/Rendering/Textures/Texture.cpp` | 37 | **GL BACKEND** | IS the GL texture backend — keep as-is |
+| 23 | `rts/Rendering/Models/3DModelVAO.cpp` | 37 | UNTOUCHED | Model vertex arrays |
+| 24 | `rts/Map/SMF/SMFRenderState.cpp` | 35 | UNTOUCHED | Terrain render state |
+| 25 | `rts/Rendering/Common/ModelDrawerHelpers.cpp` | 26 | PARTIAL | Model rendering helpers |
 
-### HIGH Priority (Core Functionality)
+### By Domain
 
-| File | Actual GL Calls | Previous Estimate | Status | Migration Notes |
-|------|----------------|-------------------|--------|-----------------|
-| `rts/Lua/LuaOpenGL.cpp` | **513** | 221 | DOCUMENTED_ONLY | Lua scripting API - must maintain compatibility |
-| `rts/Game/UI/MiniMap.cpp` | **98** | (not listed) | UNTOUCHED | Heavy FFP matrix stack, texture state |
-| `rts/Game/UI/GuiHandler.cpp` | **91** | (not listed) | UNTOUCHED | FFP matrix stack, blend, texture state |
-| `rts/Rendering/Units/UnitDrawer.cpp` | **82** | (not listed) | PARTIAL | Has RHI device/context setup, still uses GL calls |
-| `rts/Rendering/GlobalRendering.cpp` | **73** | "Many" | DOCUMENTED_ONLY | Should own IRHIDevice instead of SDL_GLContext |
-| `rts/Rendering/Env/GrassDrawer.cpp` | **65** | (not listed) | UNTOUCHED | Grass rendering |
-| `rts/Rendering/WorldDrawer.cpp` | **52** | ~26 | DOCUMENTED_ONLY | Top-level render coordinator |
+| Domain | Calls | % | Key Files |
+|--------|-------|---|-----------|
+| Lua GL scripting | ~643 | 22% | LuaOpenGL, LuaShaders, LuaFBOs, LuaTextures |
+| Rendering core | ~534 | 19% | Shader.cpp, myGL.cpp, VertexArray.cpp, FBO.cpp, GlobalRendering |
+| Environment | ~290 | 10% | GrassDrawer, SkyBox, ProjectileDrawer, Decals |
+| Game UI | ~266 | 9% | GuiHandler, MiniMap, HUDDrawer |
+| Unit/Model rendering | ~149 | 5% | UnitDrawer, 3DModelVAO, ModelDrawerHelpers |
+| Map/Terrain | ~86 | 3% | SMFReadMap, SMFRenderState |
+| RmlUi | 194 | 7% | RmlUi_Renderer_GL3_Recoil.cpp |
+| Texture management | ~127 | 4% | nv_dds, Texture.cpp, GLSLCopyState |
+| Other (~70 files) | ~568 | 20% | Scattered across remaining files |
 
-### MEDIUM Priority
+### GL Backend Files (Do NOT Migrate)
 
-| File | Actual GL Calls | Previous Estimate | Status | Migration Notes |
-|------|----------------|-------------------|--------|-----------------|
-| `rts/Rendering/RmlUi_Renderer_GL3_Recoil.cpp` | **194** | 176 | UNTOUCHED | UI renderer - may need RHI-native RmlUi backend |
-| `rts/Rendering/GL/VertexArray.cpp` | **85** | ~56 | DOCUMENTED_ONLY | Legacy FFP - preserved for Lua widget compatibility |
-| `rts/Rendering/Env/Particles/ProjectileDrawer.cpp` | **82** | 44+ | DOCUMENTED_ONLY | Perlin textures, FBO operations |
-| `rts/Rendering/Common/ModelDrawerHelpers.cpp` | **60** | (not listed) | PARTIAL | Model rendering helpers |
-| `rts/Rendering/HUDDrawer.cpp` | **43** | (not listed) | UNTOUCHED | HUD rendering, FFP matrix stack |
-| `rts/Rendering/Env/SkyBox.cpp` | **25** | (not listed) | UNTOUCHED | Sky rendering |
-| `rts/Rendering/HAPFSPathDrawer.cpp` | **22** | (not listed) | UNTOUCHED | Path visualization |
-| `rts/Rendering/QTPFSPathDrawer.cpp` | **20** | (not listed) | UNTOUCHED | Path visualization |
-| `rts/Rendering/Fonts/glFontRenderer.cpp` | **18** | (not listed) | UNTOUCHED | Font rendering |
-| `rts/Rendering/DebugDrawerAI.cpp` | **18** | (not listed) | UNTOUCHED | Debug visualization |
-| `rts/Rendering/SmoothHeightMeshDrawer.cpp` | **17** | (not listed) | UNTOUCHED | Terrain debug |
-| `rts/Rendering/Env/Decals/GroundDecalHandler.cpp` | **16** | (not listed) | UNTOUCHED | Ground decals |
+These files are GL backend implementations and should remain as-is:
 
-### SUBSTANTIALLY MIGRATED
+| File | Calls | Reason |
+|------|-------|--------|
+| `rts/Rendering/Shaders/Shader.cpp` | 107 | IS the GL shader backend (GLSLProgramObject/GLSLShaderObject) |
+| `rts/Rendering/Shaders/GLSLCopyState.cpp` | 42 | GL-specific shader introspection for hot-reload |
+| `rts/Rendering/Textures/Texture.cpp` | 37 | IS the GL texture backend (GL::Texture2D/Texture2DArray) |
+| **Total** | **186** | Stays in codebase permanently |
 
-| File | Remaining GL Calls | Status | Notes |
-|------|-------------------|--------|-------|
-| `rts/Rendering/Env/BumpWater.cpp` | **16** (from 121) | ~85-90% MIGRATED | Core pipeline uses RHI. Remaining calls are intentional: external texture boundaries (CTextureAtlas, readMap, shadowHandler) |
-| `rts/Rendering/Env/ISky.cpp` | **~2** | MOSTLY COMPLETE | |
+## Prerequisites — Create Before Migration Phases
 
-### LOW Priority (Deprecation Candidates)
+### P1. MatrixStack utility class (NEW)
+- **Location:** `rts/Rendering/RHI/MatrixStack.h`
+- **Purpose:** Replace all FFP `glPushMatrix/glPopMatrix/glTranslatef/glRotatef/glScalef` patterns
+- **Design:** `class MatrixStack { std::stack<CMatrix44f>; Push(); Pop(); Top(); Translate(); Rotate(); Scale(); LoadIdentity(); Ortho(); }`
+- **Unblocks:** UnitDrawer (30), GrassDrawer (24), MiniMap (48), GuiHandler (14), HUDDrawer (30), ProjectileDrawer (12), SkyBox (16) = **~174 calls total**
+- **Effort:** Small
 
-| File | Actual GL Calls | Recommendation |
-|------|----------------|----------------|
-| `rts/Rendering/Env/DynWater.cpp` | **65** | **DEPRECATE** - 12 ARB programs, immediate mode. BumpWater is the Metal-compatible replacement |
-| `rts/Rendering/Env/AdvWater.cpp` | **22** | **DEPRECATE** - ARB fragment programs, GL_EYE_LINEAR texgen |
-| `rts/Rendering/Env/RefractWater.cpp` | **12** | **DEPRECATE** - Inherits AdvWater issues |
+### P2. MapTexture refactor (ARCHITECTURAL)
+- **What:** `MapTexture` currently stores raw `GLuint` ID. Needs `unique_ptr<IRHITexture>` alongside or instead.
+- **Location:** `rts/Map/MapTexture.h`
+- **Unblocks:** SMFReadMap (51), SMFRenderState (35), SkyBox (skyTex), GroundDecalHandler
+- **Effort:** Medium — ripples to many consumers
 
-## GL Calls by Subsystem
+### P3. glExtra.cpp migration
+- **What:** `glSurfaceCircle()` and `glBallisticCircle()` use `CVertexArray` internally
+- **Location:** `rts/Rendering/GL/glExtra.cpp`
+- **Replace:** `CVertexArray` -> `TypedRenderBuffer`
+- **Unblocks:** GuiHandler, MiniMap
+- **Effort:** Small
 
-| Subsystem | Est. GL Calls | Status |
-|-----------|--------------|--------|
-| Lua/LuaOpenGL | ~513 | DOCUMENTED_ONLY - largest single file |
-| Game/UI | ~170+ | UNTOUCHED - MiniMap (98), GuiHandler (91) |
-| Rendering/Env | ~200+ | MIXED - BumpWater migrated, others not |
-| Rendering/Units+Models | ~140+ | PARTIAL - some RHI setup exists |
-| Rendering/Common | ~70+ | PARTIAL |
-| Rendering/GL (non-backend) | ~50+ | LEGACY - LightHandler needs UBO redesign |
-| Rendering/Fonts | ~18 | UNTOUCHED |
-| Rendering/Map | ~20+ | UNTOUCHED |
-| Rendering/RmlUi | ~194 | UNTOUCHED |
+### P4. RHI interface extensions (for later phases)
+- `IRHIContext::SetStencilFunc()`, `SetStencilOp()`, `SetStencilMask()` — needed for RmlUi
+- `IRHIContext::SetBlendEquation()` — needed for RmlUi
+- `IRHITexture::SetMinLOD()`/`SetMaxLOD()` — needed for GrassDrawer
+- **Effort:** Medium
 
-## Remaining GL Call Categories
+## Migration Roadmap
 
-### 1. Fixed-Function Pipeline (FFP) - ~300+ calls
-No direct RHI equivalent. Require shader-based alternatives:
-- `glMatrixMode`/`glPushMatrix`/`glPopMatrix` (MiniMap, GuiHandler, HUDDrawer, WorldDrawer)
-- `glEnable(GL_TEXTURE_2D)`/`glDisable(GL_TEXTURE_2D)` (~80 calls, FFP texture unit activation)
-- `glColor4f`/`glDisable(GL_LIGHTING)` (per-vertex FFP lighting)
-- `glPushAttrib`/`glPopAttrib` (legacy state save/restore)
-- `glLight*`/`glLightf`/`glLightfv` (LightHandler.cpp - needs UBO redesign)
+### Phase A: Infrastructure & Immediate Wins
 
-### 2. Texture Operations - ~80+ calls
-Can be migrated to RHI:
-- `glBindTexture`/`glActiveTexture`
-- `glTexImage2D`/`glTexParameter*`
-- `glGenTextures`/`glDeleteTextures`
+| Step | Task | Calls Removed | Dependency |
+|------|------|--------------|------------|
+| A1 | Create MatrixStack utility (P1) | 0 (enabler) | None |
+| A2 | Migrate VertexArray.cpp callers -> TypedRenderBuffer | ~85 | None |
+| A3 | myGL.cpp ARB removal + ClearScreen FFP cleanup | ~40 | None |
+| A4 | FBO.cpp parallel wrapper (background) | ~84 | None |
 
-### 3. State Management - ~300+ calls
-Direct RHI equivalents exist:
-- `glEnable/glDisable(GL_DEPTH_TEST)` -> `RHI::DepthStencilState`
-- `glEnable/glDisable(GL_BLEND)` -> `RHI::BlendState`
-- `glBlendFunc` -> pipeline state
-- `glViewport` -> `IRHIContext::SetViewport()`
-- `glClear`/`glClearColor` -> `IRHIContext::Clear()`
+### Phase B: Texture Pipeline (~300 calls)
 
-### 4. Framebuffer Operations - ~50+ calls
-- `glGenFramebuffers`/`glBindFramebuffer`
-- `glFramebufferTexture2D`/`glFramebufferRenderbuffer`
+| Step | Task | Calls Removed | Dependency |
+|------|------|--------------|------------|
+| B1 | TextureAtlas -> IRHITexture | ~15 | None |
+| B2 | MapTexture refactor (P2) | 0 (enabler) | None |
+| B3 | SMFReadMap textures | ~51 | B2 |
+| B4 | SMFRenderState texture binding | ~35 | B3 |
+| B5 | Bitmap callers -> CreateTextureRHI() | ~25 | None |
 
-### 5. Immediate Mode / Vertex Array - ~40+ calls
-- `glBegin`/`glEnd` (DynWater)
-- Legacy client state: `glEnableClientState`, `glVertexPointer`, `glDrawArrays`
+### Phase C: Core Subsystem Migration
 
-## RHI Gaps Discovered
+| Step | Task | Calls Removed | Dependency |
+|------|------|--------------|------------|
+| C1 | GlobalRendering finish | ~10 | None |
+| C2 | UnitDrawer phased | ~60 | P1, B1 |
+| C3 | GrassDrawer phased | ~60 | P1, B1, B2 |
+| C4 | SkyBox + ProjectileDrawer + Decals | ~100 | B1, B2, P1 |
 
-These gaps were identified during Tier 3 and need RHI interface additions:
+### Phase D: UI Layer
 
-### IRHIShader Gaps
-- No runtime source compilation (needed for generated GLSL in RenderBuffers)
-- No hot-reload support
+| Step | Task | Calls Removed | Dependency |
+|------|------|--------------|------------|
+| D1 | HUDDrawer matrix stack | ~45 | P1 |
+| D2 | MiniMap matrix + clip | ~60 | P1 |
+| D3 | GuiHandler (includes glLogicOp redesign) | ~100 | P1, P3 |
+| D4 | RmlUi Renderer (LAST) | ~194 | P4 |
 
-### IRHIContext Gaps
-- Missing `DrawArrays` with baseVertex offset
-- Missing `SetClipDistanceEnabled()` for clip planes
-- Missing `glVertexAttribDivisor` equivalent (instancing)
+### Phase E: Lua GL API
 
-### IRHITexture Gaps
-- No MSAA texture support (`glTexImage2DMultisample`)
-- No border color support (`GL_TEXTURE_BORDER_COLOR`)
-- No swizzle support (`GL_TEXTURE_SWIZZLE_RGBA`)
-- No `GL_DEPTH_TEXTURE_MODE` equivalent
+| Step | Task | Calls Removed | Dependency |
+|------|------|--------------|------------|
+| E1 | LuaOpenGL render state (easiest Lua win) | ~30 | None |
+| E2 | LuaOpenGL FFP deprecation | ~40 | P1 |
+| E3 | LuaOpenGL immediate mode | ~20 | None |
+| E4 | LuaOpenGL display lists (deprecate) | ~5 | None |
+| E5 | LuaOpenGL textures + support files | ~179 | B1 |
+| E6 | LuaOpenGL queries + sync | ~15 | None |
 
-### IRHIBuffer Gaps
-- No persistent mapping support
-- No fence sync support (for StreamBuffer)
+### Phase F: Polish & Verification
+1. Build and test `engine-legacy` — Full Metal rendering path
+2. CI pipeline (GitHub Actions) — Automated headless build
+3. macOS app bundle — Packaging for distribution
+4. Final audit pass — Verify no GL calls remain outside backends
 
-### IRHIFramebuffer Gaps
-- Needs `SetDrawBuffers()` for MRT (multiple render targets)
+## Cross-Cutting Patterns
 
-### IRHIPipeline Gaps
-- No polygon mode (wireframe) in Metal (debug only)
+### Shared across many files:
+1. **FFP Matrix Stack -> MatrixStack + uniforms** — ~174 calls across 7+ files
+2. **Display Lists -> VBOs** — GrassDrawer, GuiHandler, UnitDrawer, LuaOpenGL
+3. **Texture System GLuint -> IRHITexture*** — IconHandler, ReadMap, ShadowHandler, InfoTextureHandler, TextureAtlas
+4. **glClipPlane -> shader gl_ClipDistance** — UnitDrawer, GrassDrawer, MiniMap, LuaOpenGL
+5. **CVertexArray -> TypedRenderBuffer** — GrassDrawer, glExtra.cpp, ROAM/Patch
+6. **glActiveTexture+glBindTexture -> ctx->BindTexture** — SMFRenderState, GroundDecalHandler, ProjectileDrawer
+
+### RHI APIs still needed:
+- `IRHITexture::SetMinLOD(float)` / `SetMaxLOD(float)` (GrassDrawer)
+- `IRHIContext::SetStencilFunc/Op/Mask()` (RmlUi)
+- `IRHIContext::SetBlendEquation()` (RmlUi)
+- MSAA renderbuffer support in `IRHIFramebuffer` (RmlUi)
+- `IRHITexture::Readback()` (debug utilities)
+
+## Known Blockers
+
+| Blocker | Impact | Status |
+|---------|--------|--------|
+| MatrixStack utility not yet created | Blocks ~174 FFP matrix calls | P1 prerequisite |
+| MapTexture stores raw GLuint | Blocks SMF/Sky/Decal texture binding | P2 prerequisite |
+| `glLogicOp(GL_INVERT)` has no Metal equivalent | Blocks GuiHandler selection XOR | Needs redesign (stencil or shader) |
+| Lua API compatibility | 643 calls in Lua interface | Must maintain mod compatibility |
+| RmlUi needs RHI stencil/blend extensions | 194 calls | P4 prerequisite |
+| Texture managers return raw GLuint | Blocks many downstream bindings | TextureAtlas + others need IRHITexture |
 
 ## Migration Patterns
 
@@ -207,191 +281,49 @@ ctx->BindPipeline(pipeline);
 
 ### Pattern 4: Fixed-Function Pipeline (No Direct Equivalent)
 
-These require shader-based alternatives:
-
 | FFP Feature | Migration Path |
 |-------------|----------------|
-| `glMatrixMode`/`glPushMatrix`/`glPopMatrix` | Use `CMatrix44f` and upload via uniform buffer |
-| `glBegin`/`glEnd` immediate mode | Use `IRHIBuffer` with vertex data |
-| `glColor3f`/`glColor4f` | Vertex attribute or uniform |
+| `glMatrixMode`/`glPushMatrix`/`glPopMatrix` | MatrixStack utility + shader uniforms |
+| `glBegin`/`glEnd` immediate mode | `TypedRenderBuffer` with vertex data |
+| `glColor3f`/`glColor4f` | Vertex attribute or shader uniform |
 | `glFog*` | Shader-based fog calculation |
 | `glLight*`/`glMaterial*` | UBO with light data |
 | `glClipPlane` | Shader `gl_ClipDistance[]` output |
 | `glTexGen*` | Shader-based texture coordinate generation |
 | Display lists | VBO/IBO with recorded geometry |
 
-## Architectural Changes Needed
-
-### 1. GlobalRendering Refactor (BLOCKING)
-`GlobalRendering` should own `IRHIDevice*` instead of `SDL_GLContext`. This is the most significant architectural change and blocks most other migrations.
-
-```cpp
-// Current
-class CGlobalRendering {
-    SDL_GLContext glContext;
-};
-
-// Target
-class CGlobalRendering {
-    std::unique_ptr<RHI::IRHIDevice> rhiDevice;
-};
-```
-
-### 2. Texture Manager Refactor
-Replace raw `GLuint`/`uint32_t` texture IDs with `std::unique_ptr<IRHITexture>` throughout:
-- `TextureCollection`
-- `S3OTextureHandler`
-- `3DOTextureHandler`
-- `NamedTextures`
-- `CTextureAtlas` (blocks BumpWater's remaining 16 GL calls)
-
-### 3. Light System Redesign
-Replace FFP lighting with UBO-based system:
-```cpp
-struct LightData {
-    float4 position[MAX_LIGHTS];
-    float4 color[MAX_LIGHTS];
-    float4 attenuation[MAX_LIGHTS];
-    int numLights;
-};
-// Upload via IRHIBuffer as uniform buffer
-```
-
-### 4. Water Renderer Consolidation
-Deprecate DynWater, AdvWater, RefractWater. Focus on BumpWater as the single Metal-compatible water renderer. BumpWater is already ~85-90% migrated.
-
-### 5. Game/UI Subsystem
-MiniMap (98 calls) and GuiHandler (91 calls) are heavy FFP users. Migration requires:
-- Replace `glMatrixMode`/`glPushMatrix`/`glPopMatrix` with `CMatrix44f` stack
-- Replace `glEnable(GL_TEXTURE_2D)` with shader-based texture activation
-- Replace `glPushAttrib`/`glPopAttrib` with `RHI::ScopedPipeline`
-
 ## Files with Migration Documentation
 
-Every file touched by Tier 3 agents has inline documentation with one of these markers:
+33 files have migration status headers from Tier 3 agents. Markers used:
 - `RHI Migration Notes` - Block comment with migration status
 - `RHI_MIGRATION_DOCS` - Macro-style documentation
 - `RHI_TODO` - Inline markers for specific calls
 - `RHI GAP` - Calls with no RHI equivalent
-
-33 files have migration status headers. The following files were NOT documented by Tier 3:
-- `rts/Game/UI/MiniMap.cpp` (98 GL calls)
-- `rts/Game/UI/GuiHandler.cpp` (91 GL calls)
-- `rts/Rendering/RmlUi_Renderer_GL3_Recoil.cpp` (194 GL calls)
-- Most `rts/Game/` files
-
-## Suggested Tier 4.1 Agent Structure
-
-### Phase 1: Foundation (Blocking)
-
-#### Agent: migrate-globalrendering
-- Refactor GlobalRendering to own IRHIDevice
-- Update initialization/shutdown paths
-- Critical foundation for other migrations
-
-#### Agent: rhi-gap-filler
-- Add missing RHI interface methods
-- Implement MSAA, border color, swizzle, clip distances
-- Update both GL and Metal backends
-
-### Phase 2: Core Systems (After Phase 1)
-
-#### Agent: migrate-textures-impl
-- Convert texture managers from GLuint to IRHITexture
-- Update TextureCollection, S3OTextureHandler, 3DOTextureHandler, CTextureAtlas
-- Requires RHI texture creation throughout
-- Unblocks BumpWater's remaining 16 GL calls
-
-#### Agent: migrate-lua-opengl
-- Add RHI path to LuaOpenGL (513 GL calls - largest single file)
-- Maintain backward compatibility with existing Lua scripts
-- May need dual GL/RHI paths initially
-
-#### Agent: migrate-game-ui
-- Migrate MiniMap.cpp (98 calls) and GuiHandler.cpp (91 calls)
-- Replace FFP matrix stack with CMatrix44f
-- Replace glPushAttrib/glPopAttrib with RHI pipeline state
-
-### Phase 3: Subsystems
-
-#### Agent: migrate-rendering-env
-- GrassDrawer (65), SkyBox (25), ProjectileDrawer (82)
-- GroundDecalHandler (16), DebugCubeMapTexture (14)
-
-#### Agent: migrate-rendering-models
-- UnitDrawer (82), ModelDrawerHelpers (60), ModelDrawer (11)
-
-#### Agent: migrate-rendering-misc
-- HUDDrawer (43), PathDrawers (42), DebugDrawerAI (18)
-- FontRenderer (18), SmoothHeightMeshDrawer (17)
-- CommandDrawer (10), LineDrawer (10)
-
-#### Agent: deprecate-legacy-water
-- Remove or disable DynWater, AdvWater, RefractWater
-- Update water selection logic to prefer BumpWater
-
-#### Agent: migrate-light-system
-- Redesign LightHandler from FFP to UBO
-- Critical for removing GL_LIGHT* calls
-
-### Phase 4: Polish
-
-#### Agent: migrate-rmlui
-- RmlUi_Renderer_GL3_Recoil.cpp (194 calls)
-- May need RHI-native RmlUi backend
-- Consider separate RHI-based renderer class
-
-## Estimated Effort (Revised)
-
-| Task | Estimate |
-|------|----------|
-| GlobalRendering refactor | 1-2 weeks |
-| RHI gap filling | 1-2 weeks |
-| Texture manager refactor | 2-3 weeks |
-| LuaOpenGL RHI path | 3-4 weeks |
-| Game/UI migration | 2-3 weeks |
-| Rendering subsystems | 3-4 weeks |
-| Model/unit rendering | 2-3 weeks |
-| Light system redesign | 1-2 weeks |
-| RmlUi migration | 2-3 weeks |
-| Legacy water deprecation | 1 week |
-| BumpWater completion | <1 week (16 calls, pending texture manager) |
-| **Total** | **18-27 weeks** |
-
-Note: Previous estimate of 8-12 weeks was based on understated GL call counts. Actual scope is significantly larger.
-
-## How to Resume
-
-1. Review this document and `doc/AUDIT_REPORT.md`
-2. Run auditor agent to get current GL call counts
-3. Start with Phase 1 (GlobalRendering + RHI gaps) - these block everything
-4. After each agent completes, merge and re-audit
 
 ## Branch Status
 
 Current branch: `arm64-metal-port`
 
 Merged Tier 3 branches:
-- agent/migrate-core
-- agent/migrate-water
-- agent/migrate-sky
-- agent/migrate-terrain
-- agent/migrate-models
-- agent/migrate-effects
-- agent/migrate-textures
-- agent/migrate-fonts
-- agent/migrate-shaders
+- agent/migrate-core, agent/migrate-water, agent/migrate-sky
+- agent/migrate-terrain, agent/migrate-models, agent/migrate-effects
+- agent/migrate-textures, agent/migrate-fonts, agent/migrate-shaders
 - agent/migrate-toplevel
 
 Post-Tier 3 work completed:
-- BumpWater RHI migration (~85-90% complete, 16 GL calls remain)
-- RHI infrastructure fixes (GLDevice, GLShader, Metal backend compilation)
-- GLAD stubs for RHI-introduced GL symbols
+- BumpWater RHI migration (~85-90% complete)
+- Batches 3-9: ~219 GL call sites removed
+- Post-Batch 9: redundant GL call cleanup, shadow compare RHI migration
+- Phase 1 gap-filling (fence sync, buffer mapping, debug output, clip distances)
+- Legacy water deprecation (DynWater, AdvWater, RefractWater)
 
-Tier 5 prompts created (not yet executed):
-- tools/agents/prompts/ci-pipeline.md
-- tools/agents/prompts/app-bundle.md
-- tools/agents/prompts/auditor.md (executed twice)
+## How to Resume
+
+1. Review this document and `HANDOFF_NEXT_BATCH.md`
+2. Start with Prerequisites (P1-P4) — these unblock everything
+3. Follow the phased roadmap (A -> B -> C/D/E in parallel -> F)
+4. After each batch: rebuild headless, verify GL call count decreased
+5. See `tools/agents/prompts/` for individual agent prompts (24 agents)
 
 ## Quick Reference Commands
 
@@ -409,12 +341,6 @@ grep -rEc "gl[A-Z][a-zA-Z]+\(" rts/ --include="*.cpp" \
 # Find RHI migration markers
 grep -r "RHI_TODO\|RHI GAP\|RHI Migration" rts/Rendering/
 
-# Check RHI interface completeness
-ls -la rts/Rendering/RHI/*.h
-ls -la rts/Rendering/RHI/OpenGL/
-ls -la rts/Rendering/RHI/Metal/
-
-# Verify shader translations
-ls cont/base/springcontent/shaders/GLSL/*.glsl | wc -l
-ls cont/base/springcontent/shaders/Metal/*.metal | wc -l
+# Build headless (verification)
+cmake --build build-arm64/ --target engine-headless -j$(sysctl -n hw.ncpu)
 ```

@@ -86,25 +86,32 @@ When the GL RHI backend introduces new GLAD symbols, you must also add them to `
 - DevIL `IL_INCLUDE_DIR` points to `/include/IL` but code uses `#include <IL/il.h>`
 - Fix: Add parent directories to include paths
 
-## Migration Status (Audited 2026-02-05)
+## Migration Status (Audited 2026-02-12)
 
 ### Completed (Tiers 1-3 + Infrastructure)
 - ARM64 headless build works
-- RHI interface layer: 8 headers, all substantive (verified)
-- OpenGL backend: 14 files (7 class pairs), real GL implementations (verified)
-- Metal backend: 15 files, real Metal API calls (verified, not stubs)
+- RHI interface layer: 8 headers, 169 virtual methods (verified)
+- OpenGL backend: 14 files, 160 methods — 100% complete (verified)
+- Metal backend: 15 files, 138 methods — 100% complete (verified)
 - Shader pipeline: GLSL -> SPIR-V -> MSL via glslang + SPIRV-Cross (verified)
 - Shader translations: 41/41 GLSL shaders have MSL equivalents (verified)
 - RHI Factory: backend selection working (verified)
-- Tier 3 subsystem agents added migration DOCUMENTATION only (no actual code migration)
-- BumpWater: ~85-90% migrated to RHI (16 intentional GL calls remain at external boundaries)
+- Phase 1 gap-filling COMPLETE: fence sync, buffer mapping, debug output, clip distances
+- Legacy water DEPRECATED: DynWater/AdvWater/RefractWater removed from build (~522 GL calls excluded)
+- Batches 3-9: ~219 GL call sites removed (FFP no-ops, immediate mode, texture migrations)
+- BumpWater: ~85-90% migrated to RHI (~11 GL calls remain at external boundaries)
 
 ### In Progress (Tier 4.1 - Actual Code Migration)
-- ~1,111 direct GL calls remain across ~86 files (corrected from previous ~2,487 estimate)
-- Top files: LuaOpenGL (513), RmlUi (194), MiniMap (98), GuiHandler (91), UnitDrawer (82)
-- GlobalRendering refactor needed (architectural blocker - 73 GL calls)
-- Game/UI subsystem untouched (170+ calls)
+- **~2,857 effective GL calls remain** across 117 compiled files (3,379 raw - 522 deprecated water)
+- ~2,671 calls need migration (excluding GL backend files that stay as-is)
+- Top files: LuaOpenGL (464), RmlUi (194), GuiHandler (130), Shader.cpp (107, GL backend), myGL.cpp (92), UnitDrawer (86), VertexArray.cpp (85), FBO.cpp (84), GrassDrawer (80), MiniMap (80)
+- GlobalRendering: 50 GL calls remain (mostly SDL boundary + fallback paths)
 - See `tools/agents/TIER_4_1_REMAINING_MIGRATION.md` for detailed breakdown
+
+### GL Backend Files (Do NOT Migrate)
+- `Shader.cpp` (107 calls) — IS the GL shader backend
+- `GLSLCopyState.cpp` (42 calls) — GL-specific shader introspection
+- `Texture.cpp` (37 calls) — IS the GL texture backend
 
 ### Not Started (Tier 5)
 - CI pipeline (GitHub Actions)
