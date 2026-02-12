@@ -1328,8 +1328,6 @@ void CMiniMap::DrawForReal(bool useNormalizedCoors, bool updateTex, bool luaCall
 	if (minimized)
 		return;
 
-	glActiveTexture(GL_TEXTURE0);
-
 	if (!updateTex) {
 		RenderCachedTexture(useNormalizedCoors);
 		return;

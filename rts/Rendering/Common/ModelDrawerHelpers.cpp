@@ -90,8 +90,6 @@ void CModelDrawerHelper::EnableTexturesCommon()
 
 	glActiveTexture(GL_TEXTURE5);
 	glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapHandler.GetSpecularTextureID());
-
-	glActiveTexture(GL_TEXTURE0);
 }
 
 void CModelDrawerHelper::DisableTexturesCommon()
@@ -99,8 +97,6 @@ void CModelDrawerHelper::DisableTexturesCommon()
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (shadowHandler.ShadowsLoaded())
 		shadowHandler.ResetShadowTexSampler(GL_TEXTURE2, true);
-
-	glActiveTexture(GL_TEXTURE0);
 }
 
 void CModelDrawerHelper::PushTransform(const CCamera* cam)
@@ -273,9 +269,7 @@ void CModelDrawerHelper3DO::UnbindOpaqueTex() const
 void CModelDrawerHelper3DO::BindShadowTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glActiveTexture(GL_TEXTURE0);
-
-	// Use RHI texture binding for 3DO atlas texture
+	// RHI Bind(unit) handles glActiveTexture internally
 	if (auto* tex2 = textureHandler3DO.GetAtlasTex2()) {
 		tex2->Bind(0);
 	}
@@ -310,9 +304,7 @@ void CModelDrawerHelperS3O::UnbindOpaqueTex() const
 void CModelDrawerHelperS3O::BindShadowTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glActiveTexture(GL_TEXTURE0);
-
-	// Use RHI texture binding for S3O texture
+	// RHI Bind(unit) handles glActiveTexture internally
 	if (textureMat->tex2RHI) {
 		textureMat->tex2RHI->Bind(0);
 	}
@@ -347,9 +339,7 @@ void CModelDrawerHelperASS::UnbindOpaqueTex() const
 void CModelDrawerHelperASS::BindShadowTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glActiveTexture(GL_TEXTURE0);
-
-	// Use RHI texture binding for ASS (Assimp) texture
+	// RHI Bind(unit) handles glActiveTexture internally
 	if (textureMat->tex2RHI) {
 		textureMat->tex2RHI->Bind(0);
 	}

@@ -1016,10 +1016,8 @@ void CBumpWater::Draw()
 
 	waterShader->Disable();
 
-	if (shadowHandler.ShadowsLoaded()) {
-		glActiveTexture(GL_TEXTURE9); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE_ARB, GL_NONE);
-		glActiveTexture(GL_TEXTURE0);
-	}
+	if (shadowHandler.ShadowsLoaded())
+		shadowHandler.ResetShadowTexSamplerRaw();
 }
 
 void CBumpWater::DrawRefraction(const CGame* game)

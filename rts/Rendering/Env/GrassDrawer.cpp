@@ -660,8 +660,6 @@ void CGrassDrawer::SetupGlStateNear()
 		glPushMatrix();
 		glLoadIdentity();
 
-	glActiveTextureARB(GL_TEXTURE0_ARB);
-
 	// RHI dynamic state
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetBlendEnabled(false);
@@ -679,11 +677,8 @@ void CGrassDrawer::ResetGlStateNear()
 
 	grassShader->Disable();
 
-	if (shadowHandler.ShadowsLoaded()) {
-		glActiveTextureARB(GL_TEXTURE1_ARB);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE_ARB, GL_NONE);
-		glActiveTextureARB(GL_TEXTURE0_ARB);
-	}
+	if (shadowHandler.ShadowsLoaded())
+		shadowHandler.ResetShadowTexSamplerRaw();
 
 	glMatrixMode(GL_PROJECTION);
 	glPopMatrix();
@@ -730,8 +725,6 @@ void CGrassDrawer::SetupGlStateFar()
 		shadowHandler.SetupShadowTexSampler(GL_TEXTURE4);
 		glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D, shadowHandler.GetColorTextureID());
 	}
-
-	glActiveTextureARB(GL_TEXTURE0_ARB);
 }
 
 
@@ -745,16 +738,12 @@ void CGrassDrawer::ResetGlStateFar()
 	glMatrixMode(GL_MODELVIEW);
 	glPopMatrix();
 
-	if (shadowHandler.ShadowsLoaded()) {
-		glActiveTextureARB(GL_TEXTURE1_ARB);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE_ARB, GL_NONE);
-		glActiveTextureARB(GL_TEXTURE0_ARB);
-	}
+	if (shadowHandler.ShadowsLoaded())
+		shadowHandler.ResetShadowTexSamplerRaw();
 
 	// RHI dynamic state
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetDepthWriteEnabled(true);
-
 }
 
 
