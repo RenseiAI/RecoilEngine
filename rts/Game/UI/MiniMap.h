@@ -9,6 +9,7 @@
 #include "InputReceiver.h"
 #include "Rendering/GL/FBO.h"
 #include "Rendering/GL/RenderBuffersFwd.h"
+#include "Rendering/RHI/MatrixStack.h"
 #include "System/Matrix44f.h"
 #include "System/Color.h"
 #include "System/float3.h"
@@ -99,6 +100,7 @@ protected:
 	void SetAspectRatioGeometry(const float& viewSizeX, const float& viewSizeY,
                               const float& viewPosX = 0, const float& viewPosY = 0,
                               const MINIMAP_POSITION position = MINIMAP_POSITION_CENTER);
+	void FlushMatrices() const;
 	void LoadDualViewport() const;
 
 	void ConfigUpdate();
@@ -216,6 +218,9 @@ protected:
 	Shader::IProgramObject* bgShader = nullptr;
 
 	CUnit* lastClicked = nullptr;
+
+	mutable RHI::MatrixStack projStack;
+	mutable RHI::MatrixStack mvStack;
 };
 
 

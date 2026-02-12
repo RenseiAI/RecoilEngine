@@ -4,7 +4,10 @@
  * - Migrated: glViewport, glScissor, glClearColor, glClear, GL_SCISSOR_TEST
  * - Migrated: Removed glPushAttrib/glPopAttrib, replaced with explicit state save/restore
  * - Migrated: buttonsTextureID and minimapTex textures to IRHITexture (23 GL calls removed)
- * - Not migrated: GL_TEXTURE_2D (FFP), FFP matrix operations, other texture bindings
+ * - Migrated: Matrix stack (glPushMatrix/glPopMatrix, glTranslatef, glScalef, glRotatef,
+ *   glMultMatrixf, glLoadIdentity, glOrtho, gluOrtho2D) -> RHI::MatrixStack + ScopedMatrixPush
+ *   Remaining GL: glLoadMatrixf flush calls (RenderBuffer shader reads gl_ModelViewProjectionMatrix)
+ * - Not migrated: GL_TEXTURE_2D (FFP), ApplyConstraintsMatrix (public API), other texture bindings
  */
 
 #include <array>
@@ -58,6 +61,7 @@
 #include "System/StringHash.h"
 #include "System/StringUtil.h"
 #include "System/TimeProfiler.h"
+#include "System/MathConstants.h"
 #include "System/Input/KeyInput.h"
 #include "System/FileSystem/SimpleParser.h"
 #include "System/Sound/ISoundChannels.h"
@@ -1063,6 +1067,14 @@ void CMiniMap::DrawCircle(TypedRenderBuffer<VA_TYPE_C>& rb, const float3& pos, S
 	}
 }
 
+void CMiniMap::FlushMatrices() const
+{
+	glMatrixMode(GL_PROJECTION);
+	glLoadMatrixf(projStack.Top());
+	glMatrixMode(GL_MODELVIEW);
+	glLoadMatrixf(mvStack.Top());
+}
+
 void CMiniMap::ApplyConstraintsMatrix() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -1179,13 +1191,9 @@ void CMiniMap::UpdateTextureCache()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	// draws minimap into FBO
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadIdentity();
-	gluOrtho2D(0,1,0,1);
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	glLoadIdentity();
+	projStack.Push().LoadMatrix(CMatrix44f::OrthoProj(0.0f, 1.0f, 0.0f, 1.0f, -1.0f, 1.0f));
+	mvStack.Push().LoadIdentity();
+	FlushMatrices();
 
 	{
 		curPos = {0, 0};
@@ -1200,10 +1208,8 @@ void CMiniMap::UpdateTextureCache()
 		curPos = tmpPos;
 	}
 
-	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
+	projStack.Pop();
+	mvStack.Pop();
 
 	// resolve multisampled FBO if there is one
 	if (multisampledFBO) {
@@ -1231,8 +1237,6 @@ void CMiniMap::Draw()
 			DepthTest(GL_FALSE),
 			DepthFunc(GL_LEQUAL),
 			DepthMask(GL_FALSE));
-
-		glMatrixMode(GL_MODELVIEW);
 
 		if (minimized) {
 			DrawMinimizedButtonQuad();
@@ -1340,18 +1344,17 @@ void CMiniMap::DrawForReal(bool useNormalizedCoors, bool updateTex, bool luaCall
 	ctx->SetDepthTestEnabled(false);
 	ctx->SetDepthFunc(RHI::CompareFunc::LessEqual);
 	ctx->SetDepthWriteEnabled(false);
-	glMatrixMode(GL_MODELVIEW);
-
 	if (useNormalizedCoors) {
-		glPushMatrix();
+		mvStack.Push();
 
 		// switch to normalized minimap coords
 		if (globalRendering->dualScreenMode) {
 			LoadDualViewport();
 		} else {
-			glTranslatef(curPos.x * globalRendering->pixelX, curPos.y * globalRendering->pixelY, 0.0f);
-			glScalef(curDim.x * globalRendering->pixelX, curDim.y * globalRendering->pixelY, 1.0f);
+			mvStack.Translate(curPos.x * globalRendering->pixelX, curPos.y * globalRendering->pixelY, 0.0f)
+			       .Scale(curDim.x * globalRendering->pixelX, curDim.y * globalRendering->pixelY, 1.0f);
 		}
+		FlushMatrices();
 	}
 
 	cursorIcons.Enable(false);
@@ -1365,7 +1368,7 @@ void CMiniMap::DrawForReal(bool useNormalizedCoors, bool updateTex, bool luaCall
 	DrawWorldStuff();
 
 	if (useNormalizedCoors)
-		glPopMatrix();
+		mvStack.Pop();
 
 	// Restore state after minimap drawing
 	ctx->SetDepthTestEnabled(true);
@@ -1377,15 +1380,16 @@ void CMiniMap::DrawForReal(bool useNormalizedCoors, bool updateTex, bool luaCall
 	eventHandler.DrawInMiniMap();
 
 	if (!updateTex) {
-		glPushMatrix();
-			if (globalRendering->dualScreenMode) {
-				glTranslatef(curPos.x, curPos.y, 0.0f);
-			} else {
-				glTranslatef(curPos.x * globalRendering->pixelX, curPos.y * globalRendering->pixelY, 0.0f);
-				glScalef(curDim.x * globalRendering->pixelX, curDim.y * globalRendering->pixelY, 1.0f);
-			}
-			DrawCameraFrustumAndMouseSelection();
-		glPopMatrix();
+		mvStack.Push();
+		if (globalRendering->dualScreenMode) {
+			mvStack.Translate(static_cast<float>(curPos.x), static_cast<float>(curPos.y), 0.0f);
+		} else {
+			mvStack.Translate(curPos.x * globalRendering->pixelX, curPos.y * globalRendering->pixelY, 0.0f)
+			       .Scale(curDim.x * globalRendering->pixelX, curDim.y * globalRendering->pixelY, 1.0f);
+		}
+		FlushMatrices();
+		DrawCameraFrustumAndMouseSelection();
+		mvStack.Pop();
 	}
 
 	// Finish
@@ -1409,29 +1413,30 @@ void CMiniMap::DrawCameraFrustumAndMouseSelection()
 	ctx->SetScissor({curPos.x, curPos.y, static_cast<uint32_t>(curDim.x), static_cast<uint32_t>(curDim.y)});
 
 	// switch to top-down map/world coords (z is twisted with y compared to the real map/world coords)
-	glPushMatrix();
+	mvStack.Push();
 
-	switch (rotation) 
+	switch (rotation)
 	{
 		case ROTATION_0:
-			glTranslatef(0.0f, +1.0f, 0.0f);
-			glScalef(+1.0f / (mapDims.mapx * SQUARE_SIZE), -1.0f / (mapDims.mapy * SQUARE_SIZE), +1.0f);
+			mvStack.Translate(0.0f, +1.0f, 0.0f)
+			       .Scale(+1.0f / (mapDims.mapx * SQUARE_SIZE), -1.0f / (mapDims.mapy * SQUARE_SIZE), +1.0f);
 			break;
 		case ROTATION_90:
-			glScalef(-1.0f / (mapDims.mapy * SQUARE_SIZE), +1.0f / (mapDims.mapx * SQUARE_SIZE), +1.0f);
-			glRotatef(90.0f, 0.0f, 0.0f, 1.0f);
+			mvStack.Scale(-1.0f / (mapDims.mapy * SQUARE_SIZE), +1.0f / (mapDims.mapx * SQUARE_SIZE), +1.0f)
+			       .RotateZ(90.0f * math::DEG_TO_RAD);
 			break;
 		case ROTATION_180:
-			glTranslatef(+1.0f, 0.0f, 0.0f);
-			glScalef(+1.0f / (mapDims.mapx * SQUARE_SIZE), +1.0f / (mapDims.mapy * SQUARE_SIZE), +1.0f);
-			glRotatef(180.0f, 0.0f, 1.0f, 0.0f);
+			mvStack.Translate(+1.0f, 0.0f, 0.0f)
+			       .Scale(+1.0f / (mapDims.mapx * SQUARE_SIZE), +1.0f / (mapDims.mapy * SQUARE_SIZE), +1.0f)
+			       .RotateY(180.0f * math::DEG_TO_RAD);
 			break;
 		case ROTATION_270:
-			glTranslatef(+1.0f, +1.0f, 0.0f);
-			glScalef(-1.0f / (mapDims.mapy * SQUARE_SIZE), +1.0f / (mapDims.mapx * SQUARE_SIZE), +1.0f);
-			glRotatef(-90.0f, 0.0f, 0.0f, 1.0f);
+			mvStack.Translate(+1.0f, +1.0f, 0.0f)
+			       .Scale(-1.0f / (mapDims.mapy * SQUARE_SIZE), +1.0f / (mapDims.mapx * SQUARE_SIZE), +1.0f)
+			       .RotateZ(-90.0f * math::DEG_TO_RAD);
 			break;
 	}
+	FlushMatrices();
 
 	static auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2D0>();
 	rb.AssertSubmission();
@@ -1539,7 +1544,7 @@ void CMiniMap::DrawCameraFrustumAndMouseSelection()
 
 	DrawNotes();
 
-	glPopMatrix();
+	mvStack.Pop();
 
 	ctx->SetScissorTestEnabled(false);
 }
@@ -1770,14 +1775,15 @@ bool CMiniMap::RenderCachedTexture(bool useNormalizedCoors)
 	ctx->SetBlendEnabled(false);
 
 	if (useNormalizedCoors) {
-		glPushMatrix();
+		mvStack.Push();
 
 		if (globalRendering->dualScreenMode) {
 			LoadDualViewport();
 		} else {
-			glTranslatef(curPos.x * globalRendering->pixelX, curPos.y * globalRendering->pixelY, 0.0f);
-			glScalef(curDim.x * globalRendering->pixelX, curDim.y * globalRendering->pixelY, 1.0f);
+			mvStack.Translate(curPos.x * globalRendering->pixelX, curPos.y * globalRendering->pixelY, 0.0f)
+			       .Scale(curDim.x * globalRendering->pixelX, curDim.y * globalRendering->pixelY, 1.0f);
 		}
+		FlushMatrices();
 	}
 
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2DT>();
@@ -1805,7 +1811,7 @@ bool CMiniMap::RenderCachedTexture(bool useNormalizedCoors)
 		if (globalRendering->dualScreenMode)
 			globalRendering->LoadViewport();
 
-		glPopMatrix();
+		mvStack.Pop();
 	}
 
 	// Restore blend state to disabled (expected at entry)
@@ -1854,13 +1860,9 @@ void CMiniMap::DrawBackground() const
 			break;		
 	}
 
-	//glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	glLoadIdentity();
-
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadMatrixf(projMats[0]);
+	mvStack.Push().LoadIdentity();
+	projStack.Push().LoadMatrix(projMats[0]);
+	FlushMatrices();
 
 	// draw the map
 	auto state = GL::SubState(
@@ -1878,11 +1880,8 @@ void CMiniMap::DrawBackground() const
 	rb.DrawElements(GL_TRIANGLES);
 	bgShader->Disable();
 
-	//glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
+	projStack.Pop();
+	mvStack.Pop();
 }
 
 void CMiniMap::DrawUnitIcons() const
@@ -1895,13 +1894,14 @@ void CMiniMap::DrawUnitIcons() const
 	ctx->SetScissor({curPos.x, curPos.y, static_cast<uint32_t>(curDim.x), static_cast<uint32_t>(curDim.y)});
 
 	// switch to top-down map/world coords (z is twisted with y compared to the real map/world coords)
-	glPushMatrix();
-	glTranslatef(0.0f, +1.0f, 0.0f);
-	glScalef(+1.0f / (mapDims.mapx * SQUARE_SIZE), -1.0f / (mapDims.mapy * SQUARE_SIZE), 1.0f);
+	mvStack.Push();
+	mvStack.Translate(0.0f, +1.0f, 0.0f)
+	       .Scale(+1.0f / (mapDims.mapx * SQUARE_SIZE), -1.0f / (mapDims.mapy * SQUARE_SIZE), 1.0f);
+	FlushMatrices();
 
 	unitDrawer->DrawUnitMiniMapIcons();
 
-	glPopMatrix();
+	mvStack.Pop();
 
 	ctx->SetScissorTestEnabled(false);
 }
@@ -1951,32 +1951,33 @@ void CMiniMap::DrawUnitRanges() const
 void CMiniMap::DrawWorldStuff() const
 {
 	ZoneScoped;
-	glPushMatrix();
+	mvStack.Push();
 
 	// normalize coords
-	glRotatef(90.0f, +1.0f, 0.0f, 0.0f); // real 'world' coordinates
-	
+	mvStack.RotateX(90.0f * math::DEG_TO_RAD); // real 'world' coordinates
+
 	switch (rotation) // skip the y-coord (Lua's DrawScreen is perspective and so any z-coord in it influence the x&y, too)
 	{
 		case ROTATION_0:
-			glTranslatef(0.0f, 0.0f, -1.0f);
-			glScalef(+1.0f / (mapDims.mapx * SQUARE_SIZE), 0.0f, +1.0f / (mapDims.mapy * SQUARE_SIZE));
+			mvStack.Translate(0.0f, 0.0f, -1.0f)
+			       .Scale(+1.0f / (mapDims.mapx * SQUARE_SIZE), 0.0f, +1.0f / (mapDims.mapy * SQUARE_SIZE));
 			break;
 		case ROTATION_90:
-			glScalef(+1.0f / (mapDims.mapy * SQUARE_SIZE), 0.0f, +1.0f / (mapDims.mapx * SQUARE_SIZE));
-			glRotatef(90.0f, 0.0f, 1.0f, 0.0f);
+			mvStack.Scale(+1.0f / (mapDims.mapy * SQUARE_SIZE), 0.0f, +1.0f / (mapDims.mapx * SQUARE_SIZE))
+			       .RotateY(90.0f * math::DEG_TO_RAD);
 			break;
 		case ROTATION_180:
-			glTranslatef(+1.0f, 0.0f, 0.0f);
-			glScalef(+1.0f / (mapDims.mapx * SQUARE_SIZE), 0.0f, +1.0f / (mapDims.mapy * SQUARE_SIZE));
-			glRotatef(180.0f, 0.0f, 1.0f, 0.0f);
+			mvStack.Translate(+1.0f, 0.0f, 0.0f)
+			       .Scale(+1.0f / (mapDims.mapx * SQUARE_SIZE), 0.0f, +1.0f / (mapDims.mapy * SQUARE_SIZE))
+			       .RotateY(180.0f * math::DEG_TO_RAD);
 			break;
 		case ROTATION_270:
-			glTranslatef(+1.0f, 0.0f, -1.0f);
-			glScalef(+1.0f / (mapDims.mapy * SQUARE_SIZE), 0.0f, +1.0f / (mapDims.mapx * SQUARE_SIZE));
-			glRotatef(-90.0f, 0.0f, 1.0f, 0.0f);
+			mvStack.Translate(+1.0f, 0.0f, -1.0f)
+			       .Scale(+1.0f / (mapDims.mapy * SQUARE_SIZE), 0.0f, +1.0f / (mapDims.mapx * SQUARE_SIZE))
+			       .RotateY(-90.0f * math::DEG_TO_RAD);
 			break;
 	}
+	FlushMatrices();
 
 	// draw the projectiles
 	if (drawProjectiles) {
@@ -2009,7 +2010,7 @@ void CMiniMap::DrawWorldStuff() const
 
 	DrawUnitRanges();
 
-	glPopMatrix();
+	mvStack.Pop();
 }
 
 
@@ -2025,9 +2026,10 @@ void CMiniMap::SetClipPlanes(const bool lua) const
 		// -> we have to use the same modelview matrix when calling glClipPlane and later draw calls
 
 		// set the modelview matrix to the same as used in Lua's DrawInMinimap
-		glPushMatrix();
-		glLoadIdentity();
-		glScalef(1.0f / curDim.x, 1.0f / curDim.y, 1.0f);
+		mvStack.Push();
+		mvStack.LoadIdentity()
+		       .Scale(1.0f / curDim.x, 1.0f / curDim.y, 1.0f);
+		FlushMatrices(); // glClipPlane reads the inverse of the current GL modelview matrix
 
 		const double plane0[4] = { 0, -1, 0, double(curDim.y)};
 		const double plane1[4] = { 0,  1, 0,                0};
@@ -2039,7 +2041,7 @@ void CMiniMap::SetClipPlanes(const bool lua) const
 		glClipPlane(GL_CLIP_PLANE2, plane2); // clip right
 		glClipPlane(GL_CLIP_PLANE3, plane3); // clip left
 
-		glPopMatrix();
+		mvStack.Pop();
 	} else {
 		// clip everything outside of the minimap box
 		const double plane0[4] = { 0,-1, 0, 1};
