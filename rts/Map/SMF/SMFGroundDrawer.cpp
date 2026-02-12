@@ -377,15 +377,6 @@ void CSMFGroundDrawer::DrawBorder(const DrawPass::e drawPass)
 	if (wireframe)
 		ctx->SetPolygonMode(RHI::PolygonMode::Fill);
 
-	glActiveTexture(GL_TEXTURE2);
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, 0);
-
 	ctx->SetCullFaceEnabled(false);
 	ctx->SetBlendEnabled(false);
 
@@ -417,7 +408,6 @@ void CSMFGroundDrawer::DrawShadowPass()
 		// also render the border geometry to prevent light-visible backfaces
 		meshDrawer->DrawBorderMesh(DrawPass::Shadow);
 	shadowShader->Disable();
-	glBindTexture(GL_TEXTURE_2D, 0);
 	glActiveTexture(GL_TEXTURE0);
 
 	ctx->SetPolygonOffset(false);

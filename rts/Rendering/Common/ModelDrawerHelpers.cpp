@@ -267,13 +267,7 @@ void CModelDrawerHelper3DO::BindOpaqueTex(const CS3OTextureHandler::S3OTexMat* t
 void CModelDrawerHelper3DO::UnbindOpaqueTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: Unbinding textures (glBindTexture(target, 0)) is not currently
-	// supported by IRHITexture interface. This is typically unnecessary in modern
-	// GL as subsequent Bind() calls will override, but keeping GL fallback for now.
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, 0);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, 0);
+	// Texture unbinding unnecessary — next Bind() call overrides
 }
 
 void CModelDrawerHelper3DO::BindShadowTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
@@ -290,11 +284,7 @@ void CModelDrawerHelper3DO::BindShadowTex(const CS3OTextureHandler::S3OTexMat* t
 void CModelDrawerHelper3DO::UnbindShadowTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: Unbinding textures (glBindTexture(target, 0)) is not currently
-	// supported by IRHITexture interface. This is typically unnecessary in modern
-	// GL as subsequent Bind() calls will override, but keeping GL fallback for now.
-	glBindTexture(GL_TEXTURE_2D, 0);
-	glActiveTexture(GL_TEXTURE0);
+	// Texture unbinding unnecessary — next Bind() call overrides
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -314,13 +304,7 @@ void CModelDrawerHelperS3O::BindOpaqueTex(const CS3OTextureHandler::S3OTexMat* t
 void CModelDrawerHelperS3O::UnbindOpaqueTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: Unbinding textures (glBindTexture(target, 0)) is not currently
-	// supported by IRHITexture interface. This is typically unnecessary in modern
-	// GL as subsequent Bind() calls will override, but keeping GL fallback for now.
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, 0);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, 0);
+	// Texture unbinding unnecessary — next Bind() call overrides
 }
 
 void CModelDrawerHelperS3O::BindShadowTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
@@ -337,11 +321,7 @@ void CModelDrawerHelperS3O::BindShadowTex(const CS3OTextureHandler::S3OTexMat* t
 void CModelDrawerHelperS3O::UnbindShadowTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: Unbinding textures (glBindTexture(target, 0)) is not currently
-	// supported by IRHITexture interface. This is typically unnecessary in modern
-	// GL as subsequent Bind() calls will override, but keeping GL fallback for now.
-	glBindTexture(GL_TEXTURE_2D, 0);
-	glActiveTexture(GL_TEXTURE0);
+	// Texture unbinding unnecessary — next Bind() call overrides
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -361,13 +341,7 @@ void CModelDrawerHelperASS::BindOpaqueTex(const CS3OTextureHandler::S3OTexMat* t
 void CModelDrawerHelperASS::UnbindOpaqueTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: Unbinding textures (glBindTexture(target, 0)) is not currently
-	// supported by IRHITexture interface. This is typically unnecessary in modern
-	// GL as subsequent Bind() calls will override, but keeping GL fallback for now.
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, 0);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, 0);
+	// Texture unbinding unnecessary — next Bind() call overrides
 }
 
 void CModelDrawerHelperASS::BindShadowTex(const CS3OTextureHandler::S3OTexMat* textureMat) const
@@ -384,9 +358,5 @@ void CModelDrawerHelperASS::BindShadowTex(const CS3OTextureHandler::S3OTexMat* t
 void CModelDrawerHelperASS::UnbindShadowTex() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: Unbinding textures (glBindTexture(target, 0)) is not currently
-	// supported by IRHITexture interface. This is typically unnecessary in modern
-	// GL as subsequent Bind() calls will override, but keeping GL fallback for now.
-	glBindTexture(GL_TEXTURE_2D, 0);
-	glActiveTexture(GL_TEXTURE0);
+	// Texture unbinding unnecessary — next Bind() call overrides
 }

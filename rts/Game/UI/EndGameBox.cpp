@@ -379,7 +379,6 @@ void CEndGameBox::Draw()
 		shaderT.Enable();
 		rbT.Submit(GL_TRIANGLES);
 		shaderT.Disable();
-		glBindTexture(GL_TEXTURE_2D, 0);
 
 		const float bxmin = box.x1 + 0.01f ;
 		const float bxmax = box.x1 + 0.12f ;

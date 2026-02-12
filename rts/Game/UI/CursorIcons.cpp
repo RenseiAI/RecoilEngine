@@ -141,8 +141,6 @@ void CCursorIcons::DrawCursors() const
 	sh.SetUniform("alphaCtrl", 0.0f, 0.0f, 0.0f, 1.0f); // no test
 	sh.Disable();
 
-	glBindTexture(GL_TEXTURE_2D, 0);
-
 	glPopMatrix();
 	glMatrixMode(GL_MODELVIEW);
 	glPopMatrix();

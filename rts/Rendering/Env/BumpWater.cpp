@@ -841,8 +841,6 @@ void CBumpWater::UpdateCoastmap(const bool initialize)
 	coastTexture->GenerateMipmaps();
 
 	// Delete UpdateAtlas texture
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, 0);
 	glDeleteTextures(1, &coastUpdateTexture);
 	coastUpdateTexture = 0;
 	coastmapAtlasRects.clear();

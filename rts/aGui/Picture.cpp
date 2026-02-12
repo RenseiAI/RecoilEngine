@@ -60,7 +60,6 @@ namespace agui
 			sh.Enable();
 			rb.DrawElements(GL_TRIANGLES);
 			sh.Disable();
-			glBindTexture(GL_TEXTURE_2D, 0);
 		}
 	}
 #endif

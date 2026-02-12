@@ -904,8 +904,6 @@ void CGrassDrawer::CreateFarTex()
 	ctx->SetDepthWriteEnabled(true);
 
 	{
-		auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
-		auto* ctx = device->GetContext();
 		ctx->SetViewport(RHI::Viewport{0.0f, 0.0f, static_cast<float>(texSizeX * sizeMod), static_cast<float>(texSizeY * sizeMod)});
 		ctx->ClearColor(mapInfo->grass.color.r, mapInfo->grass.color.g, mapInfo->grass.color.b, 0.f);
 		ctx->ClearDepth(1.0f);
@@ -915,12 +913,9 @@ void CGrassDrawer::CreateFarTex()
 
 	static const GLdouble eq[4] = {0.f, 1.f, 0.f, 0.f};
 
-	auto rhiDevice = RHI::CreateDevice(RHI::GetDefaultBackend());
-	auto* rhiCtx = rhiDevice->GetContext();
-
 	// render turf from different vertical angles
 	for (int a=0;a<numAngles;++a) {
-		rhiCtx->SetViewport(RHI::Viewport{static_cast<float>(a * billboardSize * sizeMod), 0.0f, static_cast<float>(billboardSize * sizeMod), static_cast<float>(billboardSize * sizeMod)});
+		ctx->SetViewport(RHI::Viewport{static_cast<float>(a * billboardSize * sizeMod), 0.0f, static_cast<float>(billboardSize * sizeMod), static_cast<float>(billboardSize * sizeMod)});
 		glMatrixMode(GL_MODELVIEW);
 			glLoadIdentity();
 			glRotatef(a*90.f/(numAngles-1),1,0,0);
@@ -961,8 +956,8 @@ void CGrassDrawer::CreateFarTex()
 			glLoadIdentity();
 
 		// RHI dynamic state for blending
-		rhiCtx->SetBlendEnabled(true);
-		rhiCtx->SetBlendFuncSeparate(RHI::BlendFactor::OneMinusDstAlpha, RHI::BlendFactor::DstAlpha, RHI::BlendFactor::Zero, RHI::BlendFactor::DstAlpha);
+		ctx->SetBlendEnabled(true);
+		ctx->SetBlendFuncSeparate(RHI::BlendFactor::OneMinusDstAlpha, RHI::BlendFactor::DstAlpha, RHI::BlendFactor::Zero, RHI::BlendFactor::DstAlpha);
 
 		// copy each mipmap to its predecessor background
 		// -> fill background with blurred color data
@@ -973,7 +968,7 @@ void CGrassDrawer::CreateFarTex()
 			}
 			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_LOD, mipLevel + 1.f);
 			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_LOD, mipLevel + 1.f);
-			rhiCtx->SetViewport(RHI::Viewport{0.0f, 0.0f, static_cast<float>(texSizeX >> mipLevel), static_cast<float>(texSizeY >> mipLevel)});
+			ctx->SetViewport(RHI::Viewport{0.0f, 0.0f, static_cast<float>(texSizeX >> mipLevel), static_cast<float>(texSizeY >> mipLevel)});
 
 			CVertexArray* va = GetVertexArray();
 			va->Initialize();
@@ -984,7 +979,7 @@ void CGrassDrawer::CreateFarTex()
 			va->DrawArrayT(GL_QUADS);
 		}
 
-		rhiCtx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
 		// recreate mipmaps from now blurred base level
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_LOD, -1000.f);
