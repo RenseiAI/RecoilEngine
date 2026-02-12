@@ -538,7 +538,6 @@ int LuaFonts::BindTexture(lua_State* L)
 	auto f = tofont(L, 1);
 
 	glBindTexture(GL_TEXTURE_2D, f->GetTexture());
-	glEnable(GL_TEXTURE_2D);
 
 	return 0;
 }

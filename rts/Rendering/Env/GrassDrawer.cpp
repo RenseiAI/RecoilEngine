@@ -620,52 +620,7 @@ void CGrassDrawer::Draw()
 void CGrassDrawer::DrawShadow()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// Grass self-shadowing doesn't look that good atm
-/*	if (grassOff || !readMap->GetGrassShadingTexture())
-		return;
-
-	// looks ad with low density grass
-	//TODO either enable it on high density only, or wait for alpha transparent shadows and use those then
-	EnableShader(GRASS_PROGRAM_SHADOW_GEN);
-
-	glActiveTexture(GL_TEXTURE0);
-	//glBindTexture(GL_TEXTURE_2D, activeFarTex);
-	glDisable(GL_TEXTURE_2D);
-	glDisable(GL_ALPHA_TEST);
-	// RHI dynamic state
-	auto* ctx = RHI::GetDevice()->GetContext();
-	ctx->SetCullFaceEnabled(false);
-	ctx->SetPolygonOffset(true, 5.0f, 15.0f);
-	// we pass it as uniform and want to have pos & rot
-	// of the turfs to be saved alone in the modelview matrix
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	glLoadIdentity();
-
-	CCamera* cam = CCameraHandler::GetCamera(CCamera::CAMTYPE_PLAYER);
-
-	static CGrassBlockDrawer blockDrawer;
-	blockDrawer.ResetState();
-	blockDrawer.cx = int(cam->GetPos().x / BMSSQ);
-	blockDrawer.cy = int(cam->GetPos().z / BMSSQ);
-	blockDrawer.gd = this;
-
-	readMap->GridVisibility(nullptr, &drawer, maxGrassDist, blockMapSize);
-	DrawNear(blockDrawer.inviewGrass);
-
-	//FIXME needs own shader!
-	//DrawNearBillboards(blockDrawer.inviewNearGrass);
-
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
-
-	// RHI dynamic state
-	ctx->SetCullFaceEnabled(true);
-	ctx->SetPolygonOffset(false);
-	glDisable(GL_TEXTURE_2D);
-	glDisable(GL_ALPHA_TEST);
-
-	grassShader->Disable();*/
+	// Grass self-shadowing disabled — doesn't look good at low density
 }
 
 

@@ -1776,9 +1776,6 @@ static void HandleDDSMipmap(GLenum target, int32_t numEmbeddedLevels, uint32_t m
 uint32_t CBitmap::CreateDDSTexture(const GL::TextureCreationParams& tcp) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// glPushAttrib/glPopAttrib: GL-specific state save/restore, no RHI equivalent
-	glPushAttrib(GL_TEXTURE_BIT);
-
 	auto texID = tcp.texID;
 
 	// Use RHI to generate texture if no existing ID provided
@@ -1851,7 +1848,6 @@ uint32_t CBitmap::CreateDDSTexture(const GL::TextureCreationParams& tcp) const
 			break;
 	}
 
-	glPopAttrib();
 	return texID;
 }
 #else  // !HEADLESS

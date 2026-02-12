@@ -798,31 +798,6 @@ void LuaMatTexture::Bind() const
 
 	if (texID != 0) {
 		glBindTexture(texType, texID);
-
-		// do not enable cubemap samplers here (not
-		// needed for shaders, not wanted otherwise)
-		// Q: I really wonder why 3D and cube samplers _shouldnt_ be enabled here?
-		// A: FFP doesn't generally know how to deal with TEXTURE_3D and TEXTURE_CUBE_MAP (prehistoric methods don't count)
-		//    and shaders don't care about Enable/Disable
-		if (enable) {
-			switch (texType) {
-				case GL_TEXTURE_2D:           {   glEnable(texType);   } break;
-				case GL_TEXTURE_2D_ARRAY:     { /*glEnable(texType);*/ } break;
-				case GL_TEXTURE_3D:           { /*glEnable(texType);*/ } break;
-				case GL_TEXTURE_CUBE_MAP:     { /*glEnable(texType);*/ } break;
-				default:                      {                        } break;
-			}
-		}
-	}
-
-	else if (!enable) {
-		switch (texType) {
-			case GL_TEXTURE_2D:           {   glDisable(texType);   } break;
-			case GL_TEXTURE_2D_ARRAY:     { /*glDisable(texType);*/ } break;
-			case GL_TEXTURE_3D:           { /*glDisable(texType);*/ } break;
-			case GL_TEXTURE_CUBE_MAP:     { /*glDisable(texType);*/ } break;
-			default:                      {                         } break;
-		}
 	}
 
 	if (type == LUATEX_SHADOWMAP)
@@ -838,17 +813,6 @@ void LuaMatTexture::Unbind() const
 
 	if (type == LUATEX_SHADOWMAP)
 		shadowHandler.ResetShadowTexSamplerRaw();
-
-	if (!enable)
-		return;
-
-	switch (GetTextureTarget()) {
-		case GL_TEXTURE_2D:           {   glDisable(GL_TEXTURE_2D);             } break;
-		case GL_TEXTURE_2D_ARRAY:     {   glDisable(GL_TEXTURE_2D_ARRAY);       } break;
-		case GL_TEXTURE_3D:           {   glDisable(GL_TEXTURE_3D);             } break;
-		case GL_TEXTURE_CUBE_MAP:     {   glDisable(GL_TEXTURE_CUBE_MAP);       } break;
-		default:                      {                                         } break;
-	}
 }
 
 
