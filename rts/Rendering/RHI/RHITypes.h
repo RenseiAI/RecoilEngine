@@ -44,13 +44,7 @@
  *   currentMatrix = savedMatrix;
  *   shader->SetUniformMatrix4fv("modelMatrix", false, currentMatrix);
  *
- * For common transform patterns, consider a helper class:
- *   class MatrixStack {
- *       std::stack<CMatrix44f> stack;
- *       void Push() { stack.push(stack.top()); }
- *       void Pop() { stack.pop(); }
- *       CMatrix44f& Top() { return stack.top(); }
- *   };
+ * For common transform patterns, use RHI::MatrixStack (see MatrixStack.h)
  */
 
 #include <cstdint>
