@@ -610,7 +610,6 @@ void CShadowHandler::SetupShadowTexSamplerRaw() const
 {
 	if (shadowDepthTexture)
 		shadowDepthTexture->SetCompareMode(true, RHI::CompareFunc::LessEqual);
-	// RHI_TODO: GL_DEPTH_TEXTURE_MODE (GL_LUMINANCE) is legacy FFP, no RHI equivalent.
 }
 
 void CShadowHandler::ResetShadowTexSampler(unsigned int texUnit, bool disable) const

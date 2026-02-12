@@ -1522,8 +1522,6 @@ void CMiniMap::DrawCameraFrustumAndMouseSelection()
 
 		auto* ctx = RHI::GetDevice()->GetContext();
 
-		//glBlendFunc((GLenum)cmdColors.MouseBoxBlendSrc(),
-		//            (GLenum)cmdColors.MouseBoxBlendDst());
 		ctx->SetLineWidth(cmdColors.MouseBoxLineWidth());
 
 		rb.AddVertices({
@@ -1539,7 +1537,6 @@ void CMiniMap::DrawCameraFrustumAndMouseSelection()
 		sh.SetUniform("ucolor", 1.0f, 1.0f, 1.0f, 1.0f);
 		sh.Disable();
 		ctx->SetLineWidth(1.0f);
-		//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	}
 
 	DrawNotes();
@@ -1656,7 +1653,6 @@ void CMiniMap::DrawButtons()
 	}
 
 	// highlight
-	//glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 	SColor boxColor = SColor(1.0f, 1.0f, 1.0f, 0.4f);
 	if (mouseResize || (!mouseMove && resizeBox.Inside(x, y))) {
 		if (!buttonsTexture) { boxColor = SColor(0.3f, 0.4f, 1.0f, 0.9f); }
@@ -1678,8 +1674,6 @@ void CMiniMap::DrawButtons()
 
 	shBox.Enable();
 	rbBox.DrawElements(GL_TRIANGLES);
-
-	//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	// outline the button box
 	{

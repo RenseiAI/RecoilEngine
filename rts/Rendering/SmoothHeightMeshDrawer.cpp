@@ -104,7 +104,6 @@ void SmoothHeightMeshDrawer::Draw(float yoffset) {
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetPolygonMode(RHI::PolygonMode::Line);
 	ctx->SetLineWidth(1.0f);
-	glActiveTexture(GL_TEXTURE0);
 	ctx->SetCullFaceEnabled(false);
 
 	const float quadSize = 4.0f * smoothGround.GetResolution();

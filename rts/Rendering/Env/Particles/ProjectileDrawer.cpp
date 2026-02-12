@@ -937,12 +937,6 @@ void CProjectileDrawer::DrawShadowTransparent()
 	//glEnable(GL_DEPTH_TEST);
 	//glDepthMask(GL_FALSE);
 
-	// 5) Apply multiplicative blend state eg:
-	// SrcBlend = BLEND_ZERO
-	//	DestBlend = BLEND_SRC_COLOR
-	//	BlendOp = BLEND_OP_ADD
-	//glBlendFunc(GL_ZERO, GL_SRC_COLOR);
-	//glEnable(GL_BLEND);
 	using namespace GL::State;
 	auto state = GL::SubState(
 		DepthTest(GL_TRUE),
@@ -1094,9 +1088,7 @@ void CProjectileDrawer::DrawGroundFlashes()
 
 	groundFXAtlas->UnbindTexture();
 
-//	glFogfv(GL_FOG_COLOR, sky->fogColor);
 	ctx->SetPolygonOffset(false);
-//	glDisable(GL_ALPHA_TEST);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 	ctx->SetBlendEnabled(false);
 	ctx->SetDepthTestEnabled(true);

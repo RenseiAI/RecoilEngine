@@ -1439,8 +1439,6 @@ bool CUnitDrawerGLSL::ShowUnitBuildSquare(const BuildInfo& buildInfo, const std:
 		auto pipeline = device->CreatePipeline(desc);
 		ctx->BindPipeline(pipeline.get());
 	}
-	//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
 	CFeature* feature = nullptr;
 
 	std::vector<float3> buildableSquares; // buildable squares

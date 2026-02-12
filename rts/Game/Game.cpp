@@ -1534,7 +1534,6 @@ bool CGame::Draw() {
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetDepthTestEnabled(true);
-	glLoadIdentity();
 
 	if (videoCapturing->AllowRecord()) {
 		videoCapturing->SetLastFrameTime(globalRendering->lastFrameTime = 1000.0f / GAME_SPEED);
@@ -2063,50 +2062,7 @@ void CGame::EndSkip() {
 
 void CGame::DrawSkip(bool blackscreen) {
 	RECOIL_DETAILED_TRACY_ZONE;
-	#if 0
-	const int framesLeft = (skipEndFrame - gs->frameNum);
-	if (blackscreen) {
-		auto* ctx = RHI::GetDevice()->GetContext();
-		ctx->ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-		ctx->Clear(true, false, false);
-	}
-	glColor3f(0.5f, 1.0f, 0.5f);
-	font->glFormat(0.5f, 0.55f, 2.5f, FONT_CENTER | FONT_SCALE | FONT_NORM, "Skipping %.1f game seconds", skipSeconds);
-	glColor3f(1.0f, 1.0f, 1.0f);
-	font->glFormat(0.5f, 0.45f, 2.0f, FONT_CENTER | FONT_SCALE | FONT_NORM, "(%i frames left)", framesLeft);
-
-	const float ff = (float)framesLeft / (float)skipTotalFrames;
-	const float b = 0.004f; // border
-	const float yn = 0.35f;
-	const float yp = 0.38f;
-
-	{
-		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
-		auto& sh = rb.GetShader();
-		sh.Enable();
-
-		// Border (blue)
-		const SColor borderColor(0.2f, 0.2f, 1.0f, 1.0f);
-		rb.AddQuadTriangles(
-			{ {0.25f - b, yn - b, 0.0f}, borderColor },
-			{ {0.75f + b, yn - b, 0.0f}, borderColor },
-			{ {0.75f + b, yp + b, 0.0f}, borderColor },
-			{ {0.25f - b, yp + b, 0.0f}, borderColor }
-		);
-
-		// Progress bar (gradient color based on progress)
-		const SColor progressColor(0.25f + (0.75f * ff), 1.0f - (0.75f * ff), 0.0f, 1.0f);
-		rb.AddQuadTriangles(
-			{ {0.5f - (0.25f * ff), yn, 0.0f}, progressColor },
-			{ {0.5f + (0.25f * ff), yn, 0.0f}, progressColor },
-			{ {0.5f + (0.25f * ff), yp, 0.0f}, progressColor },
-			{ {0.5f - (0.25f * ff), yp, 0.0f}, progressColor }
-		);
-
-		rb.DrawElements(GL_TRIANGLES);
-		sh.Disable();
-	}
-	#endif
+	// Skip visualization disabled — feature unused in practice
 }
 
 

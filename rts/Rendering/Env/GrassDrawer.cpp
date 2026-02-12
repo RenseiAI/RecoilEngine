@@ -896,7 +896,6 @@ void CGrassDrawer::CreateFarTex()
 		grassBladeTex->Bind(0);
 	}
 	glEnable(GL_CLIP_PLANE0);
-	glColor4f(1,1,1,1);
 
 	// RHI dynamic state
 	auto* ctx = RHI::GetDevice()->GetContext();

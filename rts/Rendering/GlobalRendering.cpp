@@ -675,9 +675,6 @@ void CGlobalRendering::KillSDL() const {
 }
 
 void CGlobalRendering::PostInit() {
-	// glewInit sets GL_INVALID_ENUM, get rid of it
-	glGetError();
-
 	char sdlVersionStr[64] = "";
 	char glVidMemStr[64] = "unknown";
 
