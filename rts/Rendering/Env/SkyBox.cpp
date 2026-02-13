@@ -8,15 +8,18 @@
  *   - Viewport: ctx->SetViewport() (with explicit save/restore)
  *   - Draw calls: ctx->Draw()
  *
- * Retained GL calls (no RHI equivalent or external dependencies):
- *   - glMatrixMode, glPushMatrix, glPopMatrix, glLoadMatrixf, glLoadIdentity: FFP matrix stack
- *   - glGetIntegerv(GL_VIEWPORT): FFP viewport query for state save/restore
- *   - glDrawBuffer: Framebuffer draw buffer selection (no RHI equivalent)
- *   - glGenTextures, glBindTexture, glTexParameteri, glTexImage2D, glDeleteTextures,
- *     glGenerateMipmapEXT:
- *     Raw GL texture operations for cubemap creation/conversion and for binding
- *     skyTex (MapTexture stores raw GL IDs, not RHI texture objects).
- *     Migration blocked on MapTexture refactor.
+ * Retained GL calls (39 total, no RHI equivalent or external dependencies):
+ *   - FFP matrix stack (18 calls): glMatrixMode(6), glPushMatrix(4), glPopMatrix(4),
+ *     glLoadMatrixf(3), glLoadIdentity(1). Retained because RenderBuffer shaders read
+ *     gl_ModelViewProjectionMatrix from FFP state. Matrix operations could be CPU-side
+ *     via RHI::MatrixStack, but minimal benefit (no translate/scale/rotate chains, just
+ *     push/pop for state save/restore and direct matrix loads).
+ *   - FFP viewport query (1 call): glGetIntegerv(GL_VIEWPORT) for state save/restore
+ *   - Framebuffer draw buffer (1 call): glDrawBuffer (no RHI equivalent)
+ *   - Cubemap texture operations (19 calls): glGenTextures(1), glBindTexture(6),
+ *     glTexParameteri(6), glTexImage2D(1), glDeleteTextures(2), glGenerateMipmapEXT(1).
+ *     Raw GL calls for cubemap creation/conversion and skyTex binding. MapTexture stores
+ *     raw GL IDs, not RHI texture objects. Migration blocked on MapTexture refactor.
  */
 
 #include <vector>

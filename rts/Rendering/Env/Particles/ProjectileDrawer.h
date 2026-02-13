@@ -12,6 +12,7 @@
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/Models/ModelRenderContainer.h"
 #include "Rendering/RHI/MatrixStack.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "Rendering/DepthBufferCopy.h"
 #include "System/EventClient.h"
 #include "System/UnorderedSet.hpp"
@@ -137,7 +138,7 @@ private:
 	void DrawProjectileModel(const CProjectile* projectile);
 
 	void UpdatePerlin();
-	static void GenerateNoiseTex(unsigned int tex);
+	static void GenerateNoiseTex(RHI::IRHITexture* tex);
 
 private:
 	static constexpr int perlinBlendTexSize = 16;
@@ -151,7 +152,7 @@ private:
 	/// CPU-side modelview stack replacing FFP glPushMatrix/glPopMatrix
 	RHI::MatrixStack mvStack;
 
-	GLuint perlinBlendTex[8];
+	std::unique_ptr<RHI::IRHITexture> perlinBlendTex[8];
 	float perlinBlend[4];
 
 	int perlinTexObjects = 0;

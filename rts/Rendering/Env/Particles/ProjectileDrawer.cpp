@@ -45,28 +45,28 @@
 //   Remaining GL: glLoadMatrixf flush calls before draws (model shaders
 //   read gl_ModelViewProjectionMatrix from FFP state)
 // - Legacy FFP fog: REMOVED (glDisable(GL_FOG) was no-op with shader-based fog)
+// - Perlin blend textures (8x 16x16 RGBA8):
+//   [x] Init: glGenTextures + glBindTexture + glTexParameteri + glTexImage2D -> IRHIDevice::CreateTexture() + SetMin/MagFilter()
+//   [x] Kill: glDeleteTextures -> unique_ptr reset
+//   [x] UpdatePerlin: glBindTexture -> IRHITexture::Bind()
+//   [x] GenerateNoiseTex: glBindTexture + glTexSubImage2D -> IRHITexture::Upload()
+//   Changed perlinBlendTex from GLuint[8] to unique_ptr<IRHITexture>[8]
 //
 // REMAINING (to be migrated):
-// 1. Texture lifecycle in Init()/Kill():
-//   glGenTextures(8, perlinBlendTex) -> 8x IRHIDevice::CreateTexture()
-//   glBindTexture + glTexParameteri + glTexImage2D -> IRHITexture setup
-//   glDeleteTextures(8, perlinBlendTex) -> IRHITexture destructors
-//   Requires: changing uint32_t perlinBlendTex[8] to unique_ptr<IRHITexture>[8]
-//
-// 2. Texture binding/update in various draw methods:
-//   glActiveTexture(GL_TEXTUREn) + glBindTexture -> IRHIContext::BindTexture(tex, n)
-//   glTexSubImage2D -> IRHITexture::Upload (sub-region)
-//
-// 3. Framebuffer:
+// 1. Framebuffer:
 //   perlinFB (FBO) -> IRHIFramebuffer
 //   perlinFB.Bind/Unbind -> IRHIContext::BeginRenderPass/EndRenderPass
 //   perlinFB.AttachTexture -> IRHIFramebuffer::AttachColor
 //
-// 4. Viewport:
-//   glViewport -> IRHIContext::SetViewport()
+// 2. Viewport:
+//   glViewport -> IRHIContext::SetViewport() [DONE in UpdatePerlin]
 //
-// 5. Minimap state (no RHI equivalent yet):
+// 3. Minimap state (no RHI equivalent yet):
 //   glIsEnabled(GL_PROGRAM_POINT_SIZE), glDisable/glEnable(GL_PROGRAM_POINT_SIZE)
+//
+// 4. External texture bindings (blocked by external systems):
+//   textureAtlas, groundFXAtlas (CTextureAtlas returns raw GLuint)
+//   depthBufferCopy->GetDepthBufferTexture() (returns raw GLuint)
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/LosHandler.h"
 #include "Sim/Misc/TeamHandler.h"
@@ -298,12 +298,14 @@ void CProjectileDrawer::Init() {
 	}
 
 	{
-		glGenTextures(8, perlinBlendTex);
+		auto* device = RHI::GetDevice();
 		for (int a = 0; a < 8; ++a) {
-			glBindTexture(GL_TEXTURE_2D, perlinBlendTex[a]);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, perlinBlendTexSize, perlinBlendTexSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+			perlinBlendTex[a] = device->CreateTexture(
+				RHI::TextureType::Texture2D,
+				RHI::TextureFormat::RGBA8,
+				perlinBlendTexSize, perlinBlendTexSize);
+			perlinBlendTex[a]->SetMagFilter(RHI::TextureFilter::Linear);
+			perlinBlendTex[a]->SetMinFilter(RHI::TextureFilter::Linear);
 		}
 	}
 
@@ -381,7 +383,8 @@ void CProjectileDrawer::Kill() {
 	eventHandler.RemoveClient(this);
 	autoLinkedEvents.clear();
 
-	glDeleteTextures(8, perlinBlendTex);
+	for (auto& tex : perlinBlendTex)
+		tex.reset();
 	spring::SafeDelete(textureAtlas);
 	spring::SafeDelete(groundFXAtlas);
 
@@ -1148,11 +1151,9 @@ void CProjectileDrawer::UpdatePerlin() {
 	for (int a = 0; a < 4; ++a) {
 		perlinBlend[a] += time * speed;
 		if (perlinBlend[a] > 1) {
-			uint32_t temp = perlinBlendTex[a * 2];
-			perlinBlendTex[a * 2    ] = perlinBlendTex[a * 2 + 1];
-			perlinBlendTex[a * 2 + 1] = temp;
+			std::swap(perlinBlendTex[a * 2], perlinBlendTex[a * 2 + 1]);
 
-			GenerateNoiseTex(perlinBlendTex[a * 2 + 1]);
+			GenerateNoiseTex(perlinBlendTex[a * 2 + 1].get());
 			perlinBlend[a] -= 1;
 		}
 
@@ -1164,7 +1165,7 @@ void CProjectileDrawer::UpdatePerlin() {
 		for (int b = 0; b < 4; ++b)
 			col[b] = int((1.0f - perlinBlend[a]) * 16 * size);
 
-		glBindTexture(GL_TEXTURE_2D, perlinBlendTex[a * 2]);
+		perlinBlendTex[a * 2]->Bind(0);
 
 		rb.AddQuadTriangles(
 			{ ZeroVector, 0,         0, col },
@@ -1182,7 +1183,7 @@ void CProjectileDrawer::UpdatePerlin() {
 		for (int b = 0; b < 4; ++b)
 			col[b] = int(perlinBlend[a] * 16 * size);
 
-		glBindTexture(GL_TEXTURE_2D, perlinBlendTex[a * 2 + 1]);
+		perlinBlendTex[a * 2 + 1]->Bind(0);
 
 		rb.AddQuadTriangles(
 			{ ZeroVector,     0,     0, col },
@@ -1213,7 +1214,7 @@ void CProjectileDrawer::UpdatePerlin() {
 	glMatrixMode(GL_MODELVIEW);
 }
 
-void CProjectileDrawer::GenerateNoiseTex(uint32_t tex)
+void CProjectileDrawer::GenerateNoiseTex(RHI::IRHITexture* tex)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	std::array<unsigned char, 4 * perlinBlendTexSize * perlinBlendTexSize> mem;
@@ -1227,8 +1228,7 @@ void CProjectileDrawer::GenerateNoiseTex(uint32_t tex)
 		mem[a * 4 + 3] = rnd;
 	}
 
-	glBindTexture(GL_TEXTURE_2D, tex);
-	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, perlinBlendTexSize, perlinBlendTexSize, GL_RGBA, GL_UNSIGNED_BYTE, &mem[0]);
+	tex->Upload(0, 0, 0, perlinBlendTexSize, perlinBlendTexSize, mem.data());
 }
 
 
