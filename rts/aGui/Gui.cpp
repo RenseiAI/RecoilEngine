@@ -11,6 +11,7 @@
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "System/Log/ILog.h"
+#include "System/Matrix44f.h"
 
 
 namespace agui
@@ -32,10 +33,9 @@ void Gui::Draw()
 
 	ctx->SetBlendEnabled(true);
 	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-	gluOrtho2D(0, 1, 0, 1);
+	glLoadMatrixf(CMatrix44f::ClipOrthoProj01());
 	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
+	glLoadMatrixf(CMatrix44f::Identity());
 	for (ElList::reverse_iterator it = elements.rbegin(); it != elements.rend(); ++it) {
 		(*it).element->Draw();
 	}
