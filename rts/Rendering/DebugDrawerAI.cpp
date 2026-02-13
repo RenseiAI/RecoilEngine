@@ -13,6 +13,7 @@
 #include "Rendering/RHI/RHITexture.h"
 #include "Rendering/RHI/RHITypes.h"
 #include "Sim/Misc/TeamHandler.h"
+#include "System/Matrix44f.h"
 
 #include <algorithm>
 
@@ -28,9 +29,9 @@
 //   glTexSubImage2D -> IRHITexture::Upload (sub-region)
 //   glBindTexture(GL_TEXTURE_2D, id) -> texture->Bind(unit)
 //   TexSet::Texture: raw GLuint -> std::unique_ptr<RHI::IRHITexture>
-// NON-MIGRATABLE (FFP - no RHI equivalent):
-//   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity (matrix stack)
-//   glPushAttrib/glPopAttrib (state stack)
+// PARTIALLY MIGRATED (matrix stack):
+//   glPushMatrix/glPopMatrix/glLoadIdentity -> save/restore via glGetFloatv + glLoadMatrixf
+//   glMatrixMode still used for GL flush (RenderBuffer shaders read gl_ModelViewProjectionMatrix)
 
 static constexpr float3 GRAPH_MIN_SCALE( 1e9,  1e9, 0.0f);
 static constexpr float3 GRAPH_MAX_SCALE(-1e9, -1e9, 0.0f);
@@ -67,12 +68,15 @@ void DebugDrawerAI::Draw() {
 	if (skirmishAIHandler.GetSkirmishAIsInTeam(gu->myTeam).empty())
 		return;
 
+	// Save current matrices, set identity for 2D overlay drawing
+	CMatrix44f savedProj, savedMV;
+	glGetFloatv(GL_PROJECTION_MATRIX, &savedProj.md[0][0]);
+	glGetFloatv(GL_MODELVIEW_MATRIX, &savedMV.md[0][0]);
+
 	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadIdentity();
+	glLoadMatrixf(CMatrix44f::Identity());
 	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	glLoadIdentity();
+	glLoadMatrixf(CMatrix44f::Identity());
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 
@@ -85,10 +89,11 @@ void DebugDrawerAI::Draw() {
 	// Restore state explicitly
 	ctx->SetDepthTestEnabled(true);
 
+	// Restore previous matrices
 	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
+	glLoadMatrixf(savedProj);
 	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
+	glLoadMatrixf(savedMV);
 }
 
 
