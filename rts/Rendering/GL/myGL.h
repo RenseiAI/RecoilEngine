@@ -4,9 +4,7 @@
 //   - glVertexf3/glColorf3/glTranslatef3: FFP helpers, no RHI equivalent (dead code path)
 //   - glOrtho/gluOrtho2D/glFrustum wrappers: use CMatrix44f projection matrices instead
 //   - TextureParameters/RecoilGetTexParams: use IRHITexture properties
-//   - RecoilTexStorage2D/3D: use IRHIDevice::CreateTexture()
 //   - RecoilBuildMipmaps: use IRHITexture::GenerateMipmaps()
-//   - glSpringBlitImages: use IRHIContext::BlitFramebuffer()
 //   - ClearScreen: use IRHIContext::ClearColor() + ClearDepth()
 //   - LoadVertex/FragmentProgram: legacy ARB programs, use IRHIShader
 //   - SDrawElementsIndirectCommand/SInstanceData: keep as-is (data structs, not GL calls)
@@ -108,14 +106,7 @@ void glSaveTextureArray(const GLuint textureID, const char* filename, int level 
 void glSaveTexture(const GLuint textureID, const char* filename, int level = 0);
 
 void RecoilGetTexParams(GLenum target, GLuint textureID, GLint level, TextureParameters& textureParameters);
-void RecoilTexStorage2D(GLenum target, GLint levels, GLint internalFormat, GLsizei width, GLsizei height);
-void RecoilTexStorage3D(GLenum target, GLint levels, GLint internalFormat, GLsizei width, GLsizei height, GLsizei depth);
 void RecoilBuildMipmaps(const GLenum target, GLint internalFormat, const GLsizei width, const GLsizei height, const GLenum format, const GLenum type, const void* data, int32_t numLevels = 0);
-bool glSpringBlitImages(
-	GLuint srcName, GLenum srcTarget, GLint srcLevel, GLint srcX, GLint srcY, GLint srcZ,
-	GLuint dstName, GLenum dstTarget, GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ,
-	GLsizei srcWidth, GLsizei srcHeight, GLsizei srcDepth
-);
 
 void ClearScreen();
 

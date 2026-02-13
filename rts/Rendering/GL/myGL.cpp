@@ -18,6 +18,8 @@
  * Removed (dead code):
  *   - LoadVertex/FragmentProgram, ProgramStringIsNative, glSafeDeleteProgram:
  *     Legacy ARB program support, only used by deprecated water renderers
+ *   - RecoilTexStorage2D/3D: zero external callers (use IRHIDevice::CreateTexture())
+ *   - glSpringBlitImages: zero external callers (use IRHIContext::BlitFramebuffer())
  */
 
 #include <array>
@@ -377,45 +379,6 @@ void glSaveTextureArray(const GLuint textureID, const char* filename, int level,
 	}
 }
 
-void RecoilTexStorage2D(GLenum target, GLint levels, GLint internalFormat, GLsizei width, GLsizei height)
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	if (levels <= 0)
-		levels = std::bit_width(static_cast<uint32_t>(std::max({ width , height })));
-
-	if (GLAD_GL_ARB_texture_storage) {
-		glTexStorage2D(target, levels, internalFormat, width, height);
-	} else {
-		auto format = GL::GetDataFormatFromInternalFormat(internalFormat);
-		auto type   = GL::GetDataTypeFromInternalFormat(internalFormat);
-
-		for (int level = 0; level < levels; ++level)
-			glTexImage2D(target, level, internalFormat, std::max(width >> level, 1), std::max(height >> level, 1), 0, format, type, nullptr);
-	}
-	glTexParameteri(target, GL_TEXTURE_BASE_LEVEL,          0);
-	glTexParameteri(target, GL_TEXTURE_MAX_LEVEL , levels - 1);
-}
-
-void RecoilTexStorage3D(GLenum target, GLint levels, GLint internalFormat, GLsizei width, GLsizei height, GLsizei depth)
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	if (levels <= 0)
-		levels = std::bit_width(static_cast<uint32_t>(std::max({ width , height, depth })));
-
-	if (GLAD_GL_ARB_texture_storage) {
-		glTexStorage3D(target, levels, internalFormat, width, height, depth);
-	} else {
-		auto format = GL::GetDataFormatFromInternalFormat(internalFormat);
-		auto type   = GL::GetDataTypeFromInternalFormat(internalFormat);
-
-		for (int level = 0; level < levels; ++level)
-			glTexImage3D(target, level, internalFormat, std::max(width >> level, 1), std::max(height >> level, 1), std::max(depth >> level, 1), 0, format, type, nullptr);
-	}
-	glTexParameteri(target, GL_TEXTURE_BASE_LEVEL,          0);
-	glTexParameteri(target, GL_TEXTURE_MAX_LEVEL , levels - 1);
-}
-
-
 void RecoilBuildMipmaps(const GLenum target, GLint internalFormat, const GLsizei width, const GLsizei height, const GLenum format, const GLenum type, const void* data, int32_t levels)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -442,124 +405,6 @@ void RecoilBuildMipmaps(const GLenum target, GLint internalFormat, const GLsizei
 	} else {
 		glGenerateMipmap(target);
 	}
-}
-
-bool glSpringBlitImages(
-	GLuint srcName, GLenum srcTarget, GLint srcLevel, GLint srcX, GLint srcY, GLint srcZ,
-	GLuint dstName, GLenum dstTarget, GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ,
-	GLsizei srcWidth, GLsizei srcHeight, GLsizei srcDepth)
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	TextureParameters srcTexParams;
-	TextureParameters dstTexParams;
-	RecoilGetTexParams(srcTarget, srcName, srcLevel, srcTexParams);
-	RecoilGetTexParams(dstTarget, dstName, dstLevel, dstTexParams);
-	const bool sameIntFormat = (srcTexParams.intFmt == dstTexParams.intFmt);
-	const bool fineDims = (srcWidth <= dstTexParams.sizeX && srcHeight <= dstTexParams.sizeY);
-
-	if (GLAD_GL_ARB_copy_image && fineDims && sameIntFormat) {
-		glCopyImageSubData(
-			srcName, srcTarget, srcLevel, srcX, srcY, srcZ,
-			dstName, dstTarget, dstLevel, dstX, dstY, dstZ,
-			srcWidth, srcHeight, srcDepth
-		);
-		return true;
-	}
-
-	if (dstTexParams.isCompressed) //can't be rendered into
-		return false;
-
-	if (!GLAD_GL_EXT_framebuffer_blit || !GLAD_GL_EXT_texture_array)
-		return false;
-
-	bool result = true;
-
-	GLint currDrawFBO;
-	GLint currReadFBO;
-
-	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING_EXT, &currDrawFBO);
-	glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING_EXT, &currReadFBO);
-
-	GLuint newDrawFBO;
-	GLuint newReadFBO;
-	glGenFramebuffersEXT(1, &newDrawFBO);
-	glGenFramebuffersEXT(1, &newReadFBO);
-
-	glBindFramebufferEXT(GL_DRAW_FRAMEBUFFER_EXT, newDrawFBO);
-	glBindFramebufferEXT(GL_READ_FRAMEBUFFER_EXT, newReadFBO);
-
-	const GLenum blitfilter = (srcWidth == dstTexParams.sizeX && srcHeight == dstTexParams.sizeY) ? GL_NEAREST : GL_LINEAR;
-	for (int z = 0; result && z < srcDepth; z++) {
-		// GL_READ_FRAMEBUFFER
-		{
-			switch (srcTarget)
-			{
-			case GL_TEXTURE_1D:
-				glFramebufferTexture1DEXT(GL_READ_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0, srcTarget, srcName, srcLevel);
-				break;
-			case GL_TEXTURE_2D:
-				glFramebufferTexture2DEXT(GL_READ_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0, srcTarget, srcName, srcLevel);
-				break;
-			case GL_TEXTURE_3D:
-				glFramebufferTexture3DEXT(GL_READ_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0, srcTarget, srcName, srcLevel, srcZ + z);
-				break;
-			case GL_TEXTURE_1D_ARRAY: [[fallthrough]];
-			case GL_TEXTURE_2D_ARRAY:
-				glFramebufferTextureLayerEXT(GL_READ_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0, srcName, srcLevel, srcZ + z);
-				break;
-			default:
-				result = false;
-				assert(false);
-				break;
-			}
-			glReadBuffer(GL_COLOR_ATTACHMENT0);
-			const auto fbStatus = glCheckFramebufferStatus(GL_READ_FRAMEBUFFER_EXT);
-			result &= (fbStatus == GL_FRAMEBUFFER_COMPLETE_EXT);
-		}
-
-		// GL_DRAW_FRAMEBUFFER
-		if (result)
-		{
-			switch (dstTarget)
-			{
-			case GL_TEXTURE_1D:
-				glFramebufferTexture1DEXT(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, dstTarget, dstName, dstLevel);
-				break;
-			case GL_TEXTURE_2D:
-				glFramebufferTexture2DEXT(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, dstTarget, dstName, dstLevel);
-				break;
-			case GL_TEXTURE_3D:
-				glFramebufferTexture3DEXT(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, dstTarget, dstName, dstLevel, dstZ + z);
-				break;
-			case GL_TEXTURE_1D_ARRAY: [[fallthrough]];
-			case GL_TEXTURE_2D_ARRAY:
-				glFramebufferTextureLayerEXT(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, dstName, dstLevel, dstZ + z);
-				break;
-
-			default:
-				result = false;
-				assert(false);
-				break;
-			}
-			glDrawBuffer(GL_COLOR_ATTACHMENT0);
-			const auto fbStatus = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
-			result &= (fbStatus == GL_FRAMEBUFFER_COMPLETE_EXT);
-		}
-
-		if (result) {
-			glBlitFramebufferEXT(srcX, srcY, srcX + srcWidth, srcY + srcHeight, dstX, dstY, dstX + srcWidth, dstY + srcHeight, GL_COLOR_BUFFER_BIT, blitfilter);
-		}
-	}
-
-	if (currDrawFBO)
-		glBindFramebufferEXT(GL_DRAW_FRAMEBUFFER_EXT, currDrawFBO);
-	if (currReadFBO)
-		glBindFramebufferEXT(GL_READ_FRAMEBUFFER_EXT, currReadFBO);
-
-	glDeleteFramebuffersEXT(1, &newDrawFBO);
-	glDeleteFramebuffersEXT(1, &newReadFBO);
-
-	return result;
 }
 
 /******************************************************************************/
