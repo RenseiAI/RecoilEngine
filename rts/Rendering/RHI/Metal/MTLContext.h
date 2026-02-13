@@ -107,6 +107,8 @@ public:
 	void SetStencilMask(uint32_t mask) override {}
 	void SetDepthClampEnabled(bool enabled) override {}
 	void SetScissorTestEnabled(bool enabled) override { scissorEnabled = enabled; }
+	void SetLogicOpEnabled(bool enabled) override {}  // Metal: no logic ops, use shader blend
+	void SetLogicOp(LogicOp op) override {}            // Metal: no logic ops
 
 	// --- Clear ---
 	void ClearColor(float r, float g, float b, float a) override;

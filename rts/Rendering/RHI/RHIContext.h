@@ -100,6 +100,8 @@ public:
 	virtual void SetStencilMask(uint32_t mask) = 0;
 	virtual void SetDepthClampEnabled(bool enabled) = 0;
 	virtual void SetScissorTestEnabled(bool enabled) = 0;
+	virtual void SetLogicOpEnabled(bool enabled) = 0;
+	virtual void SetLogicOp(LogicOp op) = 0;
 
 	// --- Clear ---
 	virtual void ClearColor(float r, float g, float b, float a) = 0;

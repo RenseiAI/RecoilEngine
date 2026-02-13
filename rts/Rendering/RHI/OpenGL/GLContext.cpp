@@ -428,6 +428,23 @@ void GLContext::SetScissorTestEnabled(bool enabled) {
 		glDisable(GL_SCISSOR_TEST);
 }
 
+void GLContext::SetLogicOpEnabled(bool enabled) {
+	if (enabled)
+		glEnable(GL_COLOR_LOGIC_OP);
+	else
+		glDisable(GL_COLOR_LOGIC_OP);
+}
+
+void GLContext::SetLogicOp(LogicOp op) {
+	static constexpr GLenum glOps[] = {
+		GL_CLEAR, GL_AND, GL_AND_REVERSE, GL_COPY,
+		GL_AND_INVERTED, GL_NOOP, GL_XOR, GL_OR,
+		GL_NOR, GL_EQUIV, GL_INVERT, GL_OR_REVERSE,
+		GL_COPY_INVERTED, GL_OR_INVERTED, GL_NAND, GL_SET
+	};
+	glLogicOp(glOps[static_cast<uint8_t>(op)]);
+}
+
 // --- Sync ---
 
 void GLContext::Flush()  { glFlush(); }
