@@ -46,6 +46,7 @@
 #include "System/Config/ConfigHandler.h"
 #include "System/Platform/MessageBox.h"
 
+#include "System/Matrix44f.h"
 #include "System/Misc/TracyDefs.h"
 
 #define SDL_BPP(fmt) SDL_BITSPERPIXEL((fmt))
@@ -418,15 +419,12 @@ void ClearScreen()
 	ctx->Clear(true, true, false);
 
 	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-	gluOrtho2D(0, 1, 0, 1);
+	glLoadMatrixf(CMatrix44f::ClipOrthoProj01());
 	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
+	glLoadMatrixf(CMatrix44f::Identity());
 
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
-	// glEnable(GL_TEXTURE_2D) removed — no-op in core profile, shaders handle texturing
-	glColor3f(1, 1, 1); // FFP default vertex color — retained for legacy compat paths
 }
 
 
