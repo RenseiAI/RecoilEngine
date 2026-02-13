@@ -4,11 +4,12 @@
 
 #include "Game/UI/MiniMap.h"
 #include "Map/ReadMap.h"
-#include "Rendering/GL/myGL.h"  // transitional: GL types still needed for fixed-function
+#include "Rendering/GL/myGL.h"  // transitional: glMatrixMode/glLoadMatrixf flush
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "System/Matrix44f.h"
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/SmoothHeightMesh.h"
 #include "System/EventHandler.h"
@@ -47,20 +48,23 @@ void SmoothHeightMeshDrawer::DrawInMiniMap()
 	if (!drawEnabled)
 		return;
 
-	// TODO [RHI cross-cutting]: entire DrawInMiniMap uses fixed-function GL pipeline
-	// (matrix stack, glRectf, glColor4f, glEnable/glDisable GL_TEXTURE_2D).
-	// Requires RHI uniform buffer / push constants for matrix ops,
-	// and vertex buffer for rect geometry.
+	// Save current matrices
+	CMatrix44f savedProj, savedMV;
+	glGetFloatv(GL_PROJECTION_MATRIX, &savedProj.md[0][0]);
+	glGetFloatv(GL_MODELVIEW_MATRIX, &savedMV.md[0][0]);
+
+	// Projection: ortho(0,1,0,1,0,-1) with clip-space-control
 	glMatrixMode(GL_PROJECTION);
-		glPushMatrix();
-		glLoadIdentity();
-		glOrtho(0.0f, 1.0f, 0.0f, 1.0f, 0.0, -1.0);
-		minimap->ApplyConstraintsMatrix();
+	glLoadMatrixf(CMatrix44f::ClipOrthoProj(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, -1.0f,
+		globalRendering->supportClipSpaceControl));
+	minimap->ApplyConstraintsMatrix();  // cross-cutting: modifies GL matrix directly
+
+	// Modelview: translate(0,1,0) then scale(1/mapx, -1/mapy, 1)
+	CMatrix44f mv;
+	mv.Translate(UpVector);
+	mv.Scale(1.0f / mapDims.mapx, -1.0f / mapDims.mapy, 1.0f);
 	glMatrixMode(GL_MODELVIEW);
-		glPushMatrix();
-		glLoadIdentity();
-		glTranslatef3(UpVector);
-		glScalef(1.0f / mapDims.mapx, -1.0f / mapDims.mapy, 1.0f);
+	glLoadMatrixf(mv);
 
 	{
 		const SColor color(1.0f, 1.0f, 0.0f, 0.7f);
@@ -90,10 +94,11 @@ void SmoothHeightMeshDrawer::DrawInMiniMap()
 		sh.Disable();
 	}
 
+	// Restore previous matrices
 	glMatrixMode(GL_PROJECTION);
-		glPopMatrix();
+	glLoadMatrixf(savedProj);
 	glMatrixMode(GL_MODELVIEW);
-		glPopMatrix();
+	glLoadMatrixf(savedMV);
 }
 
 void SmoothHeightMeshDrawer::Draw(float yoffset) {
