@@ -31,14 +31,20 @@
 
 // RHI Migration Status (ProjectileDrawer):
 //
-// MIGRATED (this commit):
+// MIGRATED:
 // - glLineWidth -> ctx->SetLineWidth()
 // - glDepthMask -> ctx->SetDepthWriteEnabled()
 // - glEnable/glDisable(GL_BLEND) -> ctx->SetBlendEnabled()
 // - glBlendFunc -> ctx->SetBlendFunc()
 // - glPolygonOffset + glEnable(GL_POLYGON_OFFSET_FILL) -> ctx->SetPolygonOffset()
 // - glEnable/glDisable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled()
-// Total: ~16 dynamic state calls migrated to RHI context methods
+// - Matrix stack: glPushMatrix/glPopMatrix, glMultMatrixf, glTranslatef3, glRotatef,
+//   glMatrixMode, glLoadIdentity -> RHI::MatrixStack + RHI::ScopedMatrixPush
+//   [x] DrawProjectileModel: all transform computation on CPU via mvStack member
+//   [x] UpdatePerlin: projection/modelview computed on CPU via local stacks
+//   Remaining GL: glLoadMatrixf flush calls before draws (model shaders
+//   read gl_ModelViewProjectionMatrix from FFP state)
+// - Legacy FFP fog: REMOVED (glDisable(GL_FOG) was no-op with shader-based fog)
 //
 // REMAINING (to be migrated):
 // 1. Texture lifecycle in Init()/Kill():
@@ -61,16 +67,6 @@
 //
 // 5. Minimap state (no RHI equivalent yet):
 //   glIsEnabled(GL_PROGRAM_POINT_SIZE), glDisable/glEnable(GL_PROGRAM_POINT_SIZE)
-//
-// 6. Legacy FFP in DrawProjectileModel():
-//   glPushMatrix/glPopMatrix, glMultMatrixf, glTranslatef3, glRotatef
-//   (No RHI equivalent - requires uniform-based transform)
-//
-// 7. Legacy FFP in UpdatePerlin():
-//   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity, glLoadMatrixf
-//   (No RHI equivalent - requires uniform-based transform)
-//
-// 8. Legacy FFP fog: REMOVED (glDisable(GL_FOG) was no-op with shader-based fog)
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/LosHandler.h"
 #include "Sim/Misc/TeamHandler.h"
@@ -87,6 +83,7 @@
 #include "System/Log/ILog.h"
 #include "System/SafeUtil.h"
 #include "System/StringUtil.h"
+#include "System/MathConstants.h"
 #include "System/ScopedResource.h"
 
 #include "System/Misc/TracyDefs.h"
@@ -974,13 +971,14 @@ void CProjectileDrawer::DrawProjectileModel(const CProjectile* p)
 
 			CUnitDrawer::SetTeamColor(wp->GetTeamID());
 
-			glPushMatrix();
-				glMultMatrixf(wp->GetTransformMatrix(wp->GetProjectileType() == WEAPON_MISSILE_PROJECTILE));
+			{
+				RHI::ScopedMatrixPush mvGuard(mvStack);
+				mvStack.MultMatrix(wp->GetTransformMatrix(wp->GetProjectileType() == WEAPON_MISSILE_PROJECTILE));
+				glLoadMatrixf(mvStack.Top());
 
 				if (!p->luaDraw || !eventHandler.DrawProjectile(p))
 					wp->model->DrawStatic();
-
-			glPopMatrix();
+			}
 			return;
 		} break;
 
@@ -990,21 +988,24 @@ void CProjectileDrawer::DrawProjectileModel(const CProjectile* p)
 
 			CUnitDrawer::SetTeamColor(pp->GetTeamID());
 
-			auto scopedPushPop = spring::ScopedNullResource(glPushMatrix, glPopMatrix);
+			{
+				RHI::ScopedMatrixPush mvGuard(mvStack);
+				mvStack.Translate(pp->drawPos);
+				const auto [normAxis, len] = pp->spinVec.GetNormalized();
+				if (len > float3::nrm_eps())
+					mvStack.Rotate(pp->GetDrawAngle() * math::DEG_TO_RAD, normAxis);
+				glLoadMatrixf(mvStack.Top());
 
-			glTranslatef3(pp->drawPos);
-			glRotatef(pp->GetDrawAngle(), pp->spinVec.x, pp->spinVec.y, pp->spinVec.z);
+				if (p->luaDraw && eventHandler.DrawProjectile(p))
+					return;
 
-			if (p->luaDraw && eventHandler.DrawProjectile(p)) {
-				return;
-			}
-
-			if ((pp->explFlags & PF_Recursive) != 0) {
-				pp->omp->DrawStaticLegacyRec();
-			}
-			else {
-				// non-recursive, only draw one piece
-				pp->omp->DrawStaticLegacy(true, false);
+				if ((pp->explFlags & PF_Recursive) != 0) {
+					pp->omp->DrawStaticLegacyRec();
+				}
+				else {
+					// non-recursive, only draw one piece
+					pp->omp->DrawStaticLegacy(true, false);
+				}
 			}
 
 			return;
@@ -1115,13 +1116,16 @@ void CProjectileDrawer::UpdatePerlin() {
 		static_cast<float>(perlinTexSize)
 	});
 
+	// Save current GL matrices and load ortho projection + identity modelview
+	RHI::MatrixStack projStack(CMatrix44f::ClipOrthoProj01());
+	RHI::MatrixStack perlinMVStack; // identity
+
 	glMatrixMode(GL_PROJECTION);
 	glPushMatrix();
-	glLoadIdentity();
-	glLoadMatrixf(CMatrix44f::ClipOrthoProj01());
+	glLoadMatrixf(projStack.Top());
 	glMatrixMode(GL_MODELVIEW);
 	glPushMatrix();
-	glLoadIdentity();
+	glLoadMatrixf(perlinMVStack.Top());
 
 	ctx->SetDepthTestEnabled(false);
 	ctx->SetDepthWriteEnabled(false);
@@ -1201,10 +1205,11 @@ void CProjectileDrawer::UpdatePerlin() {
 	ctx->SetDepthTestEnabled(true);
 	ctx->SetDepthWriteEnabled(true);
 
+	// Restore previous GL matrices
+	glMatrixMode(GL_MODELVIEW);
 	glPopMatrix();
 	glMatrixMode(GL_PROJECTION);
 	glPopMatrix();
-
 	glMatrixMode(GL_MODELVIEW);
 }
 

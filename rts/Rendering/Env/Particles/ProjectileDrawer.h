@@ -11,6 +11,7 @@
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/Models/ModelRenderContainer.h"
+#include "Rendering/RHI/MatrixStack.h"
 #include "Rendering/DepthBufferCopy.h"
 #include "System/EventClient.h"
 #include "System/UnorderedSet.hpp"
@@ -133,7 +134,7 @@ private:
 	void DrawProjectilesShadow(int modelType);
 	void DrawFlyingPieces(int modelType) const;
 
-	static void DrawProjectileModel(const CProjectile* projectile);
+	void DrawProjectileModel(const CProjectile* projectile);
 
 	void UpdatePerlin();
 	static void GenerateNoiseTex(unsigned int tex);
@@ -146,6 +147,9 @@ private:
 	// fade out groundflashes to 0 as height difference reaches [1]
 	static constexpr float softenThreshold[2] = { 8.0f, 350.0f };
 	static constexpr float softenExponent[2]  = { 0.6f, 8.0f };
+
+	/// CPU-side modelview stack replacing FFP glPushMatrix/glPopMatrix
+	RHI::MatrixStack mvStack;
 
 	GLuint perlinBlendTex[8];
 	float perlinBlend[4];
