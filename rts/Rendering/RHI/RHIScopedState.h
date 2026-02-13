@@ -17,6 +17,7 @@
  */
 
 #include "RHIDevice.h"
+#include "RHIContext.h"
 #include "RHIPipeline.h"
 #include <memory>
 

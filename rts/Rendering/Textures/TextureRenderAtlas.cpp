@@ -3,19 +3,10 @@
  *
  * RHI Migration Status: PARTIAL
  * ============================
- * Uses direct GL calls for:
- *   - Destructor: glDeleteTextures for intermediate textures
- *   - CreateAtlasTexture: FBO setup, glViewport, glDrawBuffer, glReadBuffer
- *   - CreateAtlasTexture: glTexParameteri for filter/wrap settings
- *   - CreateAtlasTexture: glDeleteTextures for cleanup after atlas render
- *
- * TODO: RHI gap - Heavy GL dependencies in CreateAtlasTexture():
- *   - GL::TextureCreationParams -> RHI texture creation parameters
- *   - GL::Texture2D/Texture2DArray -> RHI::IRHITexture with type
- *   - FBO render-to-texture -> RHI::IRHIFramebuffer (future)
- *   - GL::SubState -> RHI pipeline state management
- *   - GL::TexBind -> RHI texture binding
- *   - RenderBuffer::GetTypedRenderBuffer -> RHI vertex buffer submission
+ * - Atlas storage uses RHI::IRHITexture (migrated)
+ * - FBO render-to-texture pipeline still uses GL
+ * - filenameToTexID intermediate textures still use raw GLuint
+ * - glDeleteTextures for intermediate cleanup still GL
  */
 
 #include "TextureRenderAtlas.h"
@@ -46,6 +37,16 @@
 #include "System/Misc/TracyDefs.h"
 
 namespace {
+
+static RHI::TextureFormat GLInternalToRHIFormat(uint32_t glFormat) {
+	switch (glFormat) {
+		case 0x8058: return RHI::TextureFormat::RGBA8;   // GL_RGBA8
+		case 0x8814: return RHI::TextureFormat::RGBA32F;  // GL_RGBA32F
+		case 0x881A: return RHI::TextureFormat::RGBA16F;  // GL_RGBA16F
+		default:     return RHI::TextureFormat::RGBA8;
+	}
+}
+
 static constexpr const char* vsTRA = R"(
 #version 130
 
@@ -291,7 +292,7 @@ uint32_t CTextureRenderAtlas::GetTexID() const
 	if (!atlasRendered)
 		return 0;
 
-	return atlasTex->GetId();
+	return atlasTex->GetNativeHandle();
 }
 
 int CTextureRenderAtlas::GetMinDim() const
@@ -328,7 +329,7 @@ uint32_t CTextureRenderAtlas::DisownTexture()
 	if (!atlasRendered)
 		return 0;
 
-	return atlasTex->DisOwn();
+	return atlasTex->DisownNativeHandle();
 }
 
 bool CTextureRenderAtlas::DumpTexture() const
@@ -345,13 +346,13 @@ bool CTextureRenderAtlas::DumpTexture() const
 	if (numPages > 1) {
 		for (uint32_t page = 0; page < numPages; ++page) {
 			for (uint32_t level = 0; level < numLevels; ++level) {
-				glSaveTextureArray(atlasTex->GetId(), fmt::format("{}_{}_{}.png", atlasName, page, level).c_str(), level, page);
+				glSaveTextureArray(atlasTex->GetNativeHandle(), fmt::format("{}_{}_{}.png", atlasName, page, level).c_str(), level, page);
 			}
 		}
 	}
 	else {
 		for (uint32_t level = 0; level < numLevels; ++level) {
-			glSaveTexture(atlasTex->GetId(), fmt::format("{}_{}.png", atlasName, level).c_str(), level);
+			glSaveTexture(atlasTex->GetNativeHandle(), fmt::format("{}_{}.png", atlasName, level).c_str(), level);
 		}
 	}
 
@@ -387,23 +388,23 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 	const auto atlasSize = atlasAllocator->GetAtlasSize();
 
 	{
-		GL::TextureCreationParams tcp{
-			//make function re-entrant
-			.texID = atlasTex ? atlasTex->GetId() : 0,
-			.reqNumLevels = numLevels,
-			.linearMipMapFilter = true,
-			.linearTextureFilter = true,
-			.wrapMirror = false
-		};
-
-		atlasTex = nullptr;
+		auto* device = RHI::GetDevice();
+		const auto rhiFormat = GLInternalToRHIFormat(glInternalType);
+		atlasTex.reset();  // Destroy previous texture if re-entrant
 
 		if (numPages > 1) {
-			atlasTex = std::make_unique<GL::Texture2DArray>(atlasSize, numPages, glInternalType, tcp, true);
+			atlasTex = device->CreateTexture(
+				RHI::TextureType::Texture2DArray, rhiFormat,
+				atlasSize.x, atlasSize.y, numPages, numLevels);
+		} else {
+			atlasTex = device->CreateTexture(
+				RHI::TextureType::Texture2D, rhiFormat,
+				atlasSize.x, atlasSize.y, 1, numLevels);
 		}
-		else {
-			atlasTex = std::make_unique<GL::Texture2D     >(atlasSize, glInternalType, tcp, true);
-		}
+		atlasTex->SetMinFilter(RHI::TextureFilter::LinearMipmapLinear);
+		atlasTex->SetMagFilter(RHI::TextureFilter::Linear);
+		atlasTex->SetWrapS(RHI::TextureWrap::ClampToEdge);
+		atlasTex->SetWrapT(RHI::TextureWrap::ClampToEdge);
 	}
 
 	{
@@ -418,12 +419,12 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 		fbo.Init(false);
 		fbo.Bind();
 		if (numPages > 1)
-			fbo.AttachTextureLayer(atlasTex->GetId(), GL_COLOR_ATTACHMENT0, 0, 0);
+			fbo.AttachTextureLayer(atlasTex->GetNativeHandle(), GL_COLOR_ATTACHMENT0, 0, 0);
 		else
-			fbo.AttachTexture(atlasTex->GetId(), GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0, 0);
+			fbo.AttachTexture(atlasTex->GetNativeHandle(), GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0, 0);
 		fbo.CheckStatus("TEXTURE-RENDER-ATLAS");
 
-		atlasRendered = (fbo.IsValid() && atlasTex->GetId() > 0);
+		atlasRendered = (fbo.IsValid() && atlasTex->GetNativeHandle() > 0);
 
 		if (atlasRendered) {
 			static const auto Norm2SNorm = [](float value) { return (value * 2.0f - 1.0f); };
@@ -440,9 +441,9 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 					});
 
 					if (numPages > 1)
-						fbo.AttachTextureLayer(atlasTex->GetId(), GL_COLOR_ATTACHMENT0, level, page);
+						fbo.AttachTextureLayer(atlasTex->GetNativeHandle(), GL_COLOR_ATTACHMENT0, level, page);
 					else
-						fbo.AttachTexture(atlasTex->GetId(), GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0, level);
+						fbo.AttachTexture(atlasTex->GetNativeHandle(), GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0, level);
 
 					glDrawBuffer(GL_COLOR_ATTACHMENT0);
 					glReadBuffer(GL_COLOR_ATTACHMENT0);

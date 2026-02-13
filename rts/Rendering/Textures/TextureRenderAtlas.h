@@ -3,22 +3,10 @@
  *
  * RHI Migration Status: PARTIAL
  * ============================
- * - Uses GL::TextureBase (GL backend) for atlas storage
- * - Uses GL FBO for render-to-texture atlas creation
- * - Uses glDeleteTextures for intermediate texture cleanup
- *
- * Migration Path:
- * 1. Replace std::unique_ptr<GL::TextureBase> atlasTex with
- *    std::unique_ptr<RHI::IRHITexture>
- * 2. Replace FBO-based rendering with RHI::IRHIFramebuffer
- * 3. Replace glTexParameteri calls with RHI texture SetFilter/SetWrap
- * 4. filenameToTexID intermediate textures should use RHI texture objects
- *
- * Pattern mappings:
- *   GL::Texture2D / GL::Texture2DArray  ->  RHI::IRHITexture (with TextureType)
- *   FBO + glFramebufferTexture          ->  RHI::IRHIFramebuffer (future)
- *   glDeleteTextures                    ->  unique_ptr destruction
- *   glTexParameteri(filter/wrap)        ->  texture->SetMinFilter/SetMagFilter/SetWrap
+ * - Atlas storage uses RHI::IRHITexture (migrated)
+ * - FBO render-to-texture pipeline still uses GL (out of scope)
+ * - filenameToTexID intermediate textures still use raw GLuint (out of scope)
+ * - glDeleteTextures for intermediate cleanup still GL (out of scope)
  */
 #pragma once
 
@@ -73,6 +61,7 @@ public:
 
 	uint32_t GetTexTarget() const;
 	uint32_t GetTexID() const;
+	RHI::IRHITexture* GetRHITexture() const { return atlasTex.get(); }
 	const int2& GetAtlasSize() const;
 	int GetMinDim() const;
 	int GetNumTexLevels() const;
@@ -102,7 +91,7 @@ private:
 	CTextureAtlas::AllocatorType allocType;
 	uint32_t glInternalType;
 
-	std::unique_ptr<GL::TextureBase> atlasTex;
+	std::unique_ptr<RHI::IRHITexture> atlasTex;
 	std::unique_ptr<IAtlasAllocator> atlasAllocator;
 
 	std::string atlasName;

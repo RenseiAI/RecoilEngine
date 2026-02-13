@@ -301,4 +301,10 @@ void GLTexture::GenerateMipmaps() {
 	glGenerateMipmap(glTarget);
 }
 
+uint32_t GLTexture::DisownNativeHandle() {
+	uint32_t handle = texId;
+	texId = 0;  // Prevent destructor from calling glDeleteTextures
+	return handle;
+}
+
 } // namespace RHI

@@ -224,50 +224,48 @@ bool CTextureAtlas::CreateTexture()
 		}
 	}
 
-	GL::TextureCreationParams tcp {
-		//make function re-entrant
-		.texID = atlasTex ? atlasTex->GetId() : 0,
-		.reqNumLevels = numLevels,
-		.linearMipMapFilter = true,
-		.linearTextureFilter = true,
-		.wrapMirror = false
-	};
+	auto* device = RHI::GetDevice();
+	atlasTex.reset();  // Destroy previous texture if re-entrant
 
 	if (numPages > 1) {
-		atlasTex = std::make_unique<GL::Texture2DArray>(atlasSize, numPages, GL_RGBA8, tcp, true);
-		auto binding = atlasTex->ScopedBind();
-		const auto* atlasTexTyped = static_cast<GL::Texture2DArray*>(atlasTex.get());
+		atlasTex = device->CreateTexture(
+			RHI::TextureType::Texture2DArray, RHI::TextureFormat::RGBA8,
+			atlasSize.x, atlasSize.y, numPages, numLevels);
 		for (uint32_t pageNum = 0; pageNum < numPages; ++pageNum) {
-			atlasTexTyped->UploadImage(atlasPages[pageNum].data(), pageNum);
+			atlasTex->Upload3D(0, 0, 0, pageNum,
+				atlasSize.x, atlasSize.y, 1, atlasPages[pageNum].data());
 		}
-		atlasTexTyped->ProduceMipmaps();
+	} else {
+		atlasTex = device->CreateTexture(
+			RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
+			atlasSize.x, atlasSize.y, 1, numLevels);
+		atlasTex->Upload(0, 0, 0, atlasSize.x, atlasSize.y,
+			atlasPages.front().data());
 	}
-	else {
-		atlasTex = std::make_unique<GL::Texture2D     >(atlasSize, GL_RGBA8, tcp, true);
-		auto binding = atlasTex->ScopedBind();
-		const auto* atlasTexTyped = static_cast<GL::Texture2D*     >(atlasTex.get());
-		atlasTexTyped->UploadImage(atlasPages.front().data());
-		atlasTexTyped->ProduceMipmaps();
-	}
+	atlasTex->SetMinFilter(RHI::TextureFilter::LinearMipmapLinear);
+	atlasTex->SetMagFilter(RHI::TextureFilter::Linear);
+	atlasTex->SetWrapS(RHI::TextureWrap::ClampToEdge);
+	atlasTex->SetWrapT(RHI::TextureWrap::ClampToEdge);
+	atlasTex->GenerateMipmaps();
 
-	return atlasTex && (atlasTex->GetId() > 0);
+	return (atlasTex && atlasTex->GetNativeHandle() > 0);
 }
 
 
 void CTextureAtlas::BindTexture()
 {
-	if (!initialized)
+	if (!initialized || !atlasTex)
 		return;
 
-	atlasTex->Bind();
+	atlasTex->Bind(0);
 }
 
 void CTextureAtlas::UnbindTexture()
 {
-	if (!initialized)
+	if (!initialized || !atlasTex)
 		return;
 
-	atlasTex->Unbind();
+	atlasTex->Unbind(0);
 }
 
 bool CTextureAtlas::TextureExists(const std::string& name)
@@ -342,12 +340,12 @@ void CTextureAtlas::DumpTexture(const char* newFileName) const
 
 	if (numPages > 1) {
 		for (uint32_t page = 0; page < numPages; ++page) {
-			glSaveTextureArray(atlasTex->GetId(), fmt::format("{}_{}.png", filename, page).c_str(), page);
+			glSaveTextureArray(atlasTex->GetNativeHandle(), fmt::format("{}_{}.png", filename, page).c_str(), page);
 		}
 	}
 	else {
 		filename += ".png";
-		glSaveTexture(atlasTex->GetId(), filename.c_str());
+		glSaveTexture(atlasTex->GetNativeHandle(), filename.c_str());
 	}
 }
 

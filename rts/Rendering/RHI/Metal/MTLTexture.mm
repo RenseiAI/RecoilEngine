@@ -460,4 +460,9 @@ id<MTLSamplerState> MTLTexture::GetSamplerState() {
 	return samplerState;
 }
 
+uint32_t MTLTexture::DisownNativeHandle() {
+	mtlTexture = nil;  // Release the Metal texture reference
+	return 0;          // Metal doesn't use integer handles
+}
+
 } // namespace RHI

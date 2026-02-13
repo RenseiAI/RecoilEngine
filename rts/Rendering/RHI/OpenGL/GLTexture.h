@@ -45,6 +45,7 @@ public:
 	TextureFormat GetFormat() const override { return texFormat; }
 	uint32_t GetNativeHandle() const override { return texId; }
 	uint32_t GetSampleCount() const override { return texSampleCount; }
+	uint32_t DisownNativeHandle() override;
 
 	static GLenum ToGLTarget(TextureType type);
 	static GLenum ToGLInternalFormat(TextureFormat format);

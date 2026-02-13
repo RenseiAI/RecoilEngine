@@ -95,6 +95,12 @@ public:
 	// --- Mipmap ---
 	virtual void GenerateMipmaps() = 0;
 
+	// --- Ownership transfer ---
+	/// Release ownership of the native texture handle.
+	/// Returns the handle (GLuint for OpenGL, 0 for Metal) and
+	/// prevents the destructor from destroying the resource.
+	virtual uint32_t DisownNativeHandle() = 0;
+
 	// --- Queries ---
 	virtual uint32_t GetWidth() const = 0;
 	virtual uint32_t GetHeight() const = 0;
