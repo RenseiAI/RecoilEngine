@@ -26,6 +26,7 @@
 #include "Sim/Path/HAPFS/PathFlowMap.hpp"
 
 #include "Rendering/Fonts/glFont.h"
+#include "Rendering/GlobalRendering.h"
 #include "Rendering/HAPFSPathDrawer.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/glExtra.h"
@@ -34,6 +35,7 @@
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
+#include "System/Matrix44f.h"
 #include "System/SpringMath.h"
 #include "System/StringUtil.h"
 
@@ -87,16 +89,23 @@ void HAPFSPathDrawer::DrawInMiniMap()
 	if (!IsEnabled() || (!gs->cheatEnabled && !gu->spectatingFullView))
 		return;
 
+	// Save current matrices
+	CMatrix44f savedProj, savedMV;
+	glGetFloatv(GL_PROJECTION_MATRIX, &savedProj.md[0][0]);
+	glGetFloatv(GL_MODELVIEW_MATRIX, &savedMV.md[0][0]);
+
+	// Projection: ortho(0,1,0,1,0,-1) with clip-space-control
 	glMatrixMode(GL_PROJECTION);
-		glPushMatrix();
-		glLoadIdentity();
-		glOrtho(0.0f, 1.0f, 0.0f, 1.0f, 0.0, -1.0);
-		minimap->ApplyConstraintsMatrix();
+	glLoadMatrixf(CMatrix44f::ClipOrthoProj(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, -1.0f,
+		globalRendering->supportClipSpaceControl));
+	minimap->ApplyConstraintsMatrix();  // cross-cutting: modifies GL matrix directly
+
+	// Modelview: translate(0,1,0) then scale(1/mapx, -1/mapy, 1)
+	CMatrix44f mv;
+	mv.Translate(UpVector);
+	mv.Scale(1.0f / mapDims.mapx, -1.0f / mapDims.mapy, 1.0f);
 	glMatrixMode(GL_MODELVIEW);
-		glPushMatrix();
-		glLoadIdentity();
-		glTranslatef3(UpVector);
-		glScalef(1.0f / mapDims.mapx, -1.0f / mapDims.mapy, 1.0f);
+	glLoadMatrixf(mv);
 
 	{
 		const SColor color(1.0f, 1.0f, 0.0f, 0.7f);
@@ -122,10 +131,11 @@ void HAPFSPathDrawer::DrawInMiniMap()
 		sh.Disable();
 	}
 
+	// Restore previous matrices
 	glMatrixMode(GL_PROJECTION);
-		glPopMatrix();
+	glLoadMatrixf(savedProj);
 	glMatrixMode(GL_MODELVIEW);
-		glPopMatrix();
+	glLoadMatrixf(savedMV);
 }
 
 
