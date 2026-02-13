@@ -38,6 +38,12 @@
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Textures/Bitmap.h"
+
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHITexture.h"
+#include "Rendering/RHI/RHIFramebuffer.h"
 #include "System/Log/ILog.h"
 #include "RmlUi/Core/Mesh.h"
 #include "RmlUi/Core/Colour.h"
@@ -476,12 +482,12 @@ struct CompiledGeometryData
 
 struct FramebufferData
 {
-	int width, height;
-	GLuint framebuffer;
-	GLuint color_tex_buffer;
-	GLuint color_render_buffer;
-	GLuint depth_stencil_buffer;
-	bool owns_depth_stencil_buffer;
+	int width = 0, height = 0;
+	std::unique_ptr<RHI::IRHIFramebuffer> fbo;
+	std::unique_ptr<RHI::IRHITexture> colorTex;        // color texture (readable for non-MSAA)
+	std::unique_ptr<RHI::IRHITexture> depthStencilTex; // owned depth-stencil (when not sharing)
+	bool ownsDepthStencil = false;
+	bool isMSAA = false;
 };
 
 enum class FramebufferAttachment
@@ -534,116 +540,86 @@ private:
 static bool CreateFramebuffer(
 	FramebufferData& out_fb, int width, int height,
 	int samples, FramebufferAttachment attachment,
-	GLuint shared_depth_stencil_buffer
+	RHI::IRHITexture* shared_depth_stencil
 )
 {
-	auto tok = Gfx::CheckGLError("CreateFramebuffer");
-
-#ifdef RMLUI_PLATFORM_EMSCRIPTEN
-	constexpr GLint wrap_mode = GL_CLAMP_TO_EDGE;
-#else
-	constexpr GLint wrap_mode = GL_CLAMP_TO_BORDER; // GL_REPEAT GL_MIRRORED_REPEAT GL_CLAMP_TO_EDGE
-#endif
-
-	constexpr GLenum color_format = GL_RGBA8;   // GL_RGBA8 GL_SRGB8_ALPHA8 GL_RGBA16F
-	constexpr GLint min_mag_filter = GL_NEAREST; // GL_NEAREST
-	const Rml::Colourf border_color(0.f, 0.f);
-
-	GLuint framebuffer = 0;
-	glGenFramebuffers(1, &framebuffer);
-	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-
-	GLuint color_tex_buffer = 0;
-	GLuint color_render_buffer = 0;
-	if (samples > 0) {
-		glGenRenderbuffers(1, &color_render_buffer);
-		glBindRenderbuffer(GL_RENDERBUFFER, color_render_buffer);
-		glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, color_format, width, height);
-		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, color_render_buffer);
-	} else {
-		glGenTextures(1, &color_tex_buffer);
-		glBindTexture(GL_TEXTURE_2D, color_tex_buffer);
-		glTexImage2D(GL_TEXTURE_2D, 0, color_format, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_mag_filter);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, min_mag_filter);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap_mode);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap_mode);
-#ifndef RMLUI_PLATFORM_EMSCRIPTEN
-		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, &border_color[0]);
-#endif
-
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color_tex_buffer, 0);
-	}
-
-	// Create depth/stencil buffer storage attachment.
-	GLuint depth_stencil_buffer = 0;
-	if (attachment != FramebufferAttachment::None) {
-		if (shared_depth_stencil_buffer) {
-			// Share depth/stencil buffer
-			depth_stencil_buffer = shared_depth_stencil_buffer;
-		} else {
-			// Create new depth/stencil buffer
-			glGenRenderbuffers(1, &depth_stencil_buffer);
-			glBindRenderbuffer(GL_RENDERBUFFER, depth_stencil_buffer);
-
-			const GLenum internal_format = (
-				attachment == FramebufferAttachment::DepthStencil ? GL_DEPTH24_STENCIL8 : GL_DEPTH_COMPONENT24
-			);
-			glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, internal_format, width, height);
-		}
-
-		const GLenum attachment_type = (
-			attachment == FramebufferAttachment::DepthStencil ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT
-		);
-		glFramebufferRenderbuffer(GL_FRAMEBUFFER, attachment_type, GL_RENDERBUFFER, depth_stencil_buffer);
-	}
-
-	const GLuint framebuffer_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-	if (framebuffer_status != GL_FRAMEBUFFER_COMPLETE) {
-		Rml::Log::Message(Rml::Log::LT_ERROR, "OpenGL framebuffer could not be generated. Error code %x.",
-						  framebuffer_status);
-		return false;
-	}
-
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	glBindTexture(GL_TEXTURE_2D, 0);
-	glBindRenderbuffer(GL_RENDERBUFFER, 0);
+	auto* device = RHI::GetDevice();
 
 	out_fb = {};
 	out_fb.width = width;
 	out_fb.height = height;
-	out_fb.framebuffer = framebuffer;
-	out_fb.color_tex_buffer = color_tex_buffer;
-	out_fb.color_render_buffer = color_render_buffer;
-	out_fb.depth_stencil_buffer = depth_stencil_buffer;
-	out_fb.owns_depth_stencil_buffer = !shared_depth_stencil_buffer;
+	out_fb.isMSAA = (samples > 0);
+
+	out_fb.fbo = device->CreateFramebuffer();
+
+	// Create color attachment: MSAA renderbuffer or regular texture.
+	if (samples > 0) {
+		auto msaaColorTex = device->CreateTexture(
+			RHI::TextureType::Texture2DMS, RHI::TextureFormat::RGBA8,
+			width, height, 1, 1, samples);
+		out_fb.fbo->AttachColor(msaaColorTex.get(), 0);
+		out_fb.colorTex = std::move(msaaColorTex);
+	} else {
+		auto colorTex = device->CreateTexture(
+			RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
+			width, height);
+		colorTex->SetMinFilter(RHI::TextureFilter::Nearest);
+		colorTex->SetMagFilter(RHI::TextureFilter::Nearest);
+#ifdef RMLUI_PLATFORM_EMSCRIPTEN
+		colorTex->SetWrapS(RHI::TextureWrap::ClampToEdge);
+		colorTex->SetWrapT(RHI::TextureWrap::ClampToEdge);
+#else
+		colorTex->SetWrapS(RHI::TextureWrap::ClampToBorder);
+		colorTex->SetWrapT(RHI::TextureWrap::ClampToBorder);
+		colorTex->SetBorderColor(0.f, 0.f, 0.f, 0.f);
+#endif
+		out_fb.fbo->AttachColor(colorTex.get(), 0);
+		out_fb.colorTex = std::move(colorTex);
+	}
+
+	// Create depth/stencil attachment.
+	if (attachment != FramebufferAttachment::None) {
+		if (shared_depth_stencil) {
+			// Share existing depth-stencil texture.
+			if (attachment == FramebufferAttachment::DepthStencil)
+				out_fb.fbo->AttachDepthStencil(shared_depth_stencil);
+			else
+				out_fb.fbo->AttachDepth(shared_depth_stencil);
+			out_fb.ownsDepthStencil = false;
+		} else {
+			// Create new depth-stencil texture.
+			const auto dsFormat = (attachment == FramebufferAttachment::DepthStencil)
+				? RHI::TextureFormat::Depth24Stencil8 : RHI::TextureFormat::Depth24;
+			auto dsTex = device->CreateTexture(
+				samples > 0 ? RHI::TextureType::Texture2DMS : RHI::TextureType::Texture2D,
+				dsFormat, width, height, 1, 1, samples > 0 ? samples : 1);
+			if (attachment == FramebufferAttachment::DepthStencil)
+				out_fb.fbo->AttachDepthStencil(dsTex.get());
+			else
+				out_fb.fbo->AttachDepth(dsTex.get());
+			out_fb.depthStencilTex = std::move(dsTex);
+			out_fb.ownsDepthStencil = true;
+		}
+	}
+
+	if (!out_fb.fbo->IsComplete()) {
+		Rml::Log::Message(Rml::Log::LT_ERROR, "RHI framebuffer could not be completed.");
+		return false;
+	}
 
 	return true;
 }
 
 static void DestroyFramebuffer(FramebufferData& fb)
 {
-	if (fb.framebuffer)
-		glDeleteFramebuffers(1, &fb.framebuffer);
-	if (fb.color_tex_buffer)
-		glDeleteTextures(1, &fb.color_tex_buffer);
-	if (fb.color_render_buffer)
-		glDeleteRenderbuffers(1, &fb.color_render_buffer);
-	if (fb.owns_depth_stencil_buffer && fb.depth_stencil_buffer)
-		glDeleteRenderbuffers(1, &fb.depth_stencil_buffer);
 	fb = {};
 }
 
 static void BindTexture(const FramebufferData& fb)
 {
-	if (!fb.color_tex_buffer) {
-		RMLUI_ERRORMSG(
-			"Only framebuffers with color textures can be bound as textures. This framebuffer probably uses multisampling which needs a "
-			"blit step first.")
-	}
-
-	glBindTexture(GL_TEXTURE_2D, fb.color_tex_buffer);
+	RMLUI_ASSERTMSG(!fb.isMSAA && fb.colorTex,
+		"Only non-MSAA framebuffers with color textures can be bound. MSAA needs a blit step first.")
+	fb.colorTex->Bind(0);
 }
 
 static bool CreateShaders(ProgramData& data)
@@ -757,37 +733,39 @@ void RenderInterface_GL3_Recoil::BeginFrame()
 	glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_FAIL, &glstate_backup.stencil_back.pass_depth_fail);
 	glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_PASS, &glstate_backup.stencil_back.pass_depth_pass);
 
-	// Setup expected GL state.
-	glViewport(0, 0, viewport_width, viewport_height);
+	// Setup expected GL state via RHI context.
+	auto* rhiCtx = RHI::GetDevice()->GetContext();
 
-	glClearStencil(0);
-	glClearColor(0, 0, 0, 0);
+	rhiCtx->SetViewport({0, 0, static_cast<float>(viewport_width), static_cast<float>(viewport_height), 0.f, 1.f});
 
-	glActiveTexture(GL_TEXTURE0);
+	rhiCtx->ClearStencil(0);
+	rhiCtx->ClearColor(0, 0, 0, 0);
 
-	glDisable(GL_SCISSOR_TEST);
-	glDisable(GL_CULL_FACE);
+	glActiveTexture(GL_TEXTURE0); // GL: no RHI global active-texture concept
+
+	rhiCtx->SetScissorTestEnabled(false);
+	rhiCtx->SetCullFaceEnabled(false);
 
 	// Set blending function for premultiplied alpha.
-	glEnable(GL_BLEND);
-	glBlendEquation(GL_FUNC_ADD);
-	glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+	rhiCtx->SetBlendEnabled(true);
+	rhiCtx->SetBlendEquation(RHI::BlendOp::Add);
+	rhiCtx->SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::OneMinusSrcAlpha);
 
 	// We do blending in nonlinear sRGB space because that is the common practice and gives results that we are used to.
-	glDisable(GL_FRAMEBUFFER_SRGB);
+	glDisable(GL_FRAMEBUFFER_SRGB); // GL: no RHI sRGB framebuffer toggle
 
-	glEnable(GL_STENCIL_TEST);
-	glStencilFunc(GL_ALWAYS, 1, GLuint(-1));
-	glStencilMask(GLuint(-1));
-	glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+	rhiCtx->SetStencilTestEnabled(true);
+	rhiCtx->SetStencilFunc(RHI::CompareFunc::Always, 1, 0xFFFFFFFF);
+	rhiCtx->SetStencilMask(0xFFFFFFFF);
+	rhiCtx->SetStencilOp(RHI::StencilOp::Keep, RHI::StencilOp::Keep, RHI::StencilOp::Keep);
 
-	glDisable(GL_DEPTH_TEST);
+	rhiCtx->SetDepthTestEnabled(false);
 
 	SetTransform(nullptr);
 
 	render_layers.BeginFrame(viewport_width, viewport_height);
-	glBindFramebuffer(GL_FRAMEBUFFER, render_layers.GetTopLayer().framebuffer);
-	glClear(GL_COLOR_BUFFER_BIT);
+	render_layers.GetTopLayer().fbo->Bind();
+	rhiCtx->Clear(true, false, false);
 
 	UseProgram(ProgramId::None);
 	program_transform_dirty.set();
@@ -798,22 +776,23 @@ void RenderInterface_GL3_Recoil::EndFrame()
 {
 	auto tok = Gfx::CheckGLError("EndFrame");
 
+	auto* rhiCtx = RHI::GetDevice()->GetContext();
+
 	const Gfx::FramebufferData& fb_active = render_layers.GetTopLayer();
 	const Gfx::FramebufferData& fb_postprocess = render_layers.GetPostprocessPrimary();
 
 	// Resolve MSAA to postprocess framebuffer.
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, fb_active.framebuffer);
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fb_postprocess.framebuffer);
-
-	glBlitFramebuffer(0, 0, fb_active.width, fb_active.height, 0, 0, fb_postprocess.width, fb_postprocess.height,
-					  GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	rhiCtx->BlitFramebuffer(
+		fb_active.fbo.get(), fb_postprocess.fbo.get(),
+		0, 0, fb_active.width, fb_active.height,
+		0, 0, fb_postprocess.width, fb_postprocess.height,
+		true, false, false);
 
 	// Draw to backbuffer
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0); // GL: bind default framebuffer (no RHI equivalent)
 
 	// Assuming we have an opaque background, we can just write to it with the premultiplied alpha blend mode and we'll get the correct result.
 	// Instead, if we had a transparent destination that didn't use premultiplied alpha, we would need to perform a manual un-premultiplication step.
-	glActiveTexture(GL_TEXTURE0);
 	Gfx::BindTexture(fb_postprocess);
 	UseProgram(ProgramId::Passthrough);
 	DrawFullscreenQuad();
@@ -881,8 +860,9 @@ void RenderInterface_GL3_Recoil::EndFrame()
 
 void RenderInterface_GL3_Recoil::Clear()
 {
-	glClearColor(0, 0, 0, 1);
-	glClear(GL_COLOR_BUFFER_BIT);
+	auto* rhiCtx = RHI::GetDevice()->GetContext();
+	rhiCtx->ClearColor(0, 0, 0, 1);
+	rhiCtx->Clear(true, false, false);
 }
 
 Rml::CompiledGeometryHandle
@@ -930,20 +910,20 @@ void RenderInterface_GL3_Recoil::RenderGeometry(Rml::CompiledGeometryHandle hand
 		UseProgram(ProgramId::Texture);
 		SubmitTransformUniform(translation);
 		if (texture != TextureEnableWithoutBinding)
-			glBindTexture(GL_TEXTURE_2D, (GLuint) texture);
+			reinterpret_cast<RHI::IRHITexture*>(texture)->Bind(0);
 	} else {
 		UseProgram(ProgramId::Color);
-		glBindTexture(GL_TEXTURE_2D, 0);
+		glBindTexture(GL_TEXTURE_2D, 0); // GL: unbind texture for color-only draw
 		SubmitTransformUniform(translation);
 	}
 
 	geometry->vao->Bind();
 	glDrawElements(GL_TRIANGLES, geometry->num_indices, GL_UNSIGNED_INT, nullptr);
 	geometry->vao->Unbind();
-	
+
 	if (texture != TexturePostprocess) {
 		UseProgram(ProgramId::None);
-		glBindTexture(GL_TEXTURE_2D, 0);
+		glBindTexture(GL_TEXTURE_2D, 0); // GL: unbind texture after draw
 	}
 }
 
@@ -972,13 +952,10 @@ static Rml::Rectanglei VerticallyFlipped(Rml::Rectanglei rect, int viewport_heig
 
 void RenderInterface_GL3_Recoil::SetScissor(Rml::Rectanglei region, bool vertically_flip)
 {
-	auto tok = Gfx::CheckGLError("SetScissorRegion");
+	auto* rhiCtx = RHI::GetDevice()->GetContext();
 
 	if (region.Valid() != scissor_state.Valid()) {
-		if (region.Valid())
-			glEnable(GL_SCISSOR_TEST);
-		else
-			glDisable(GL_SCISSOR_TEST);
+		rhiCtx->SetScissorTestEnabled(region.Valid());
 	}
 
 	if (region.Valid() && vertically_flip)
@@ -989,7 +966,7 @@ void RenderInterface_GL3_Recoil::SetScissor(Rml::Rectanglei region, bool vertica
 		const int x = Rml::Math::Clamp(region.Left(), 0, viewport_width);
 		const int y = Rml::Math::Clamp(viewport_height - region.Bottom(), 0, viewport_height);
 
-		glScissor(x, y, region.Width(), region.Height());
+		rhiCtx->SetScissor({x, y, static_cast<uint32_t>(region.Width()), static_cast<uint32_t>(region.Height())});
 	}
 
 	scissor_state = region;
@@ -1009,44 +986,40 @@ void RenderInterface_GL3_Recoil::SetScissorRegion(Rml::Rectanglei region)
 
 void RenderInterface_GL3_Recoil::EnableClipMask(bool enable)
 {
-	if (enable)
-		glEnable(GL_STENCIL_TEST);
-	else
-		glDisable(GL_STENCIL_TEST);
+	RHI::GetDevice()->GetContext()->SetStencilTestEnabled(enable);
 }
 
 void
 RenderInterface_GL3_Recoil::RenderToClipMask(Rml::ClipMaskOperation operation, Rml::CompiledGeometryHandle geometry,
 											 Rml::Vector2f translation)
 {
-	RMLUI_ASSERT(glIsEnabled(GL_STENCIL_TEST))
+	auto* rhiCtx = RHI::GetDevice()->GetContext();
 	using Rml::ClipMaskOperation;
+
+	// Track stencil ref locally instead of querying GL state.
+	static int32_t stencil_test_value = 0;
 
 	const bool clear_stencil = (operation == ClipMaskOperation::Set || operation == ClipMaskOperation::SetInverse);
 	if (clear_stencil) {
-		// @performance Increment the reference value instead of clearing each time.
-		glClear(GL_STENCIL_BUFFER_BIT);
+		rhiCtx->Clear(false, false, true);
 	}
 
-	GLint stencil_test_value = 0;
-	glGetIntegerv(GL_STENCIL_REF, &stencil_test_value);
-
-	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-	glStencilFunc(GL_ALWAYS, GLint(1), GLuint(-1));
+	rhiCtx->SetColorMask(false, false, false, false);
+	rhiCtx->SetStencilFunc(RHI::CompareFunc::Always, 1, 0xFFFFFFFF);
 
 	switch (operation) {
 		case ClipMaskOperation::Set: {
-			glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+			rhiCtx->SetStencilOp(RHI::StencilOp::Keep, RHI::StencilOp::Keep, RHI::StencilOp::Replace);
 			stencil_test_value = 1;
 		}
 			break;
 		case ClipMaskOperation::SetInverse: {
-			glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+			rhiCtx->SetStencilOp(RHI::StencilOp::Keep, RHI::StencilOp::Keep, RHI::StencilOp::Replace);
 			stencil_test_value = 0;
 		}
 			break;
 		case ClipMaskOperation::Intersect: {
-			glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
+			rhiCtx->SetStencilOp(RHI::StencilOp::Keep, RHI::StencilOp::Keep, RHI::StencilOp::IncrClamp);
 			stencil_test_value += 1;
 		}
 			break;
@@ -1055,10 +1028,9 @@ RenderInterface_GL3_Recoil::RenderToClipMask(Rml::ClipMaskOperation operation, R
 	RenderGeometry(geometry, translation, {});
 
 	// Restore state
-	// @performance Cache state so we don't toggle it unnecessarily.
-	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-	glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
-	glStencilFunc(GL_EQUAL, stencil_test_value, GLuint(-1));
+	rhiCtx->SetColorMask(true, true, true, true);
+	rhiCtx->SetStencilOp(RHI::StencilOp::Keep, RHI::StencilOp::Keep, RHI::StencilOp::Keep);
+	rhiCtx->SetStencilFunc(RHI::CompareFunc::Equal, stencil_test_value, 0xFFFFFFFF);
 }
 
 Rml::TextureHandle RenderInterface_GL3_Recoil::LoadTexture(Rml::Vector2i& texture_dimensions, const Rml::String& source)
@@ -1069,32 +1041,31 @@ Rml::TextureHandle RenderInterface_GL3_Recoil::LoadTexture(Rml::Vector2i& textur
 	}
 	texture_dimensions.x = bmp.xsize;
 	texture_dimensions.y = bmp.ysize;
-	return bmp.CreateTexture();
+	auto rhiTex = bmp.CreateTextureRHI();
+	if (!rhiTex)
+		return false;
+	return reinterpret_cast<Rml::TextureHandle>(rhiTex.release());
 }
 
 Rml::TextureHandle
 RenderInterface_GL3_Recoil::GenerateTexture(Rml::Span<const Rml::byte> source_data, Rml::Vector2i source_dimensions)
 {
-	GLuint texture_id = 0;
-	glGenTextures(1, &texture_id);
-	if (texture_id == 0) {
-		Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to generate texture.");
+	auto* device = RHI::GetDevice();
+	auto tex = device->CreateTexture(
+		RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
+		source_dimensions.x, source_dimensions.y);
+	if (!tex) {
+		Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to generate RHI texture.");
 		return false;
 	}
 
-	glBindTexture(GL_TEXTURE_2D, texture_id);
+	tex->Upload(0, 0, 0, source_dimensions.x, source_dimensions.y, source_data.data());
+	tex->SetMinFilter(RHI::TextureFilter::Nearest);
+	tex->SetMagFilter(RHI::TextureFilter::Nearest);
+	tex->SetWrapS(RHI::TextureWrap::Repeat);
+	tex->SetWrapT(RHI::TextureWrap::Repeat);
 
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, source_dimensions.x, source_dimensions.y, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-				 source_data.data());
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	return (Rml::TextureHandle) texture_id;
+	return reinterpret_cast<Rml::TextureHandle>(tex.release());
 }
 
 void RenderInterface_GL3_Recoil::DrawFullscreenQuad()
@@ -1189,8 +1160,10 @@ void RenderInterface_GL3_Recoil::RenderBlur(float sigma, const Gfx::FramebufferD
 	UseProgram(ProgramId::Passthrough);
 	SetScissor(scissor, true);
 
+	auto* rhiCtx = RHI::GetDevice()->GetContext();
+
 	// Downscale by iterative half-scaling with bilinear filtering, to reduce aliasing.
-	glViewport(0, 0, source_destination.width / 2, source_destination.height / 2);
+	rhiCtx->SetViewport({0, 0, static_cast<float>(source_destination.width / 2), static_cast<float>(source_destination.height / 2), 0.f, 1.f});
 
 	// Scale UVs if we have even dimensions, such that texture fetches align perfectly between texels, thereby producing a 50% blend of
 	// neighboring texels.
@@ -1203,19 +1176,19 @@ void RenderInterface_GL3_Recoil::RenderBlur(float sigma, const Gfx::FramebufferD
 		scissor.p1 = Rml::Math::Max(scissor.p1 / 2, scissor.p0);
 		const bool from_source = (i % 2 == 0);
 		Gfx::BindTexture(from_source ? source_destination : temp);
-		glBindFramebuffer(GL_FRAMEBUFFER, (from_source ? temp : source_destination).framebuffer);
+		(from_source ? temp : source_destination).fbo->Bind();
 		SetScissor(scissor, true);
 
 		DrawFullscreenQuad({}, uv_scaling);
 	}
 
-	glViewport(0, 0, source_destination.width, source_destination.height);
+	rhiCtx->SetViewport({0, 0, static_cast<float>(source_destination.width), static_cast<float>(source_destination.height), 0.f, 1.f});
 
 	// Ensure texture data end up in the temp buffer. Depending on the last downscaling, we might need to move it from the source_destination buffer.
 	const bool transfer_to_temp_buffer = (pass_level % 2 == 0);
 	if (transfer_to_temp_buffer) {
 		Gfx::BindTexture(source_destination);
-		glBindFramebuffer(GL_FRAMEBUFFER, temp.framebuffer);
+		temp.fbo->Bind();
 		DrawFullscreenQuad();
 	}
 
@@ -1231,14 +1204,14 @@ void RenderInterface_GL3_Recoil::RenderBlur(float sigma, const Gfx::FramebufferD
 
 	// Blur render pass - vertical.
 	Gfx::BindTexture(temp);
-	glBindFramebuffer(GL_FRAMEBUFFER, source_destination.framebuffer);
+	source_destination.fbo->Bind();
 
 	SetTexelOffset({0.f, 1.f}, temp.height);
 	DrawFullscreenQuad();
 
 	// Blur render pass - horizontal.
 	Gfx::BindTexture(source_destination);
-	glBindFramebuffer(GL_FRAMEBUFFER, temp.framebuffer);
+	temp.fbo->Bind();
 
 	// Add a 1px transparent border around the blur region by first clearing with a padded scissor. This helps prevent
 	// artifacts when upscaling the blur result in the later step. On Intel and AMD, we have observed that during
@@ -1246,7 +1219,7 @@ void RenderInterface_GL3_Recoil::RenderBlur(float sigma, const Gfx::FramebufferD
 	// hand, it looks like Nvidia clamps the pixels to the source edge, which is what we really want. Regardless, we
 	// work around the issue with this extra step.
 	SetScissor(scissor.Extend(1), true);
-	glClear(GL_COLOR_BUFFER_BIT);
+	rhiCtx->Clear(true, false, false);
 	SetScissor(scissor, true);
 
 	SetTexelOffset({1.f, 0.f}, source_destination.width);
@@ -1254,15 +1227,16 @@ void RenderInterface_GL3_Recoil::RenderBlur(float sigma, const Gfx::FramebufferD
 
 	// Blit the blurred image to the scissor region with upscaling.
 	SetScissor(window_flipped, true);
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, temp.framebuffer);
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, source_destination.framebuffer);
 
 	const Rml::Vector2i src_min = scissor.p0;
 	const Rml::Vector2i src_max = scissor.p1;
 	const Rml::Vector2i dst_min = window_flipped.p0;
 	const Rml::Vector2i dst_max = window_flipped.p1;
-	glBlitFramebuffer(src_min.x, src_min.y, src_max.x, src_max.y, dst_min.x, dst_min.y, dst_max.x, dst_max.y,
-					  GL_COLOR_BUFFER_BIT, GL_LINEAR);
+	rhiCtx->BlitFramebuffer(
+		temp.fbo.get(), source_destination.fbo.get(),
+		src_min.x, src_min.y, src_max.x, src_max.y,
+		dst_min.x, dst_min.y, dst_max.x, dst_max.y,
+		true, false, true); // filterLinear=true for upscaling
 
 	// The above upscale blit might be jittery at low resolutions (large pass levels). This is especially noticeable when moving an element with
 	// backdrop blur around or when trying to click/hover an element within a blurred region since it may be rendered at an offset. For more stable
@@ -1272,9 +1246,11 @@ void RenderInterface_GL3_Recoil::RenderBlur(float sigma, const Gfx::FramebufferD
 	const Rml::Vector2i target_min = src_min * (1 << pass_level);
 	const Rml::Vector2i target_max = src_max * (1 << pass_level);
 	if (target_min != dst_min || target_max != dst_max) {
-		glBlitFramebuffer(src_min.x, src_min.y, src_max.x, src_max.y, target_min.x, target_min.y, target_max.x,
-						  target_max.y, GL_COLOR_BUFFER_BIT,
-						  GL_LINEAR);
+		rhiCtx->BlitFramebuffer(
+			temp.fbo.get(), source_destination.fbo.get(),
+			src_min.x, src_min.y, src_max.x, src_max.y,
+			target_min.x, target_min.y, target_max.x, target_max.y,
+			true, false, true); // filterLinear=true for upscaling
 	}
 
 	// Restore render state.
@@ -1283,7 +1259,7 @@ void RenderInterface_GL3_Recoil::RenderBlur(float sigma, const Gfx::FramebufferD
 
 void RenderInterface_GL3_Recoil::ReleaseTexture(Rml::TextureHandle texture_handle)
 {
-	glDeleteTextures(1, (GLuint*) &texture_handle);
+	delete reinterpret_cast<RHI::IRHITexture*>(texture_handle);
 }
 
 void RenderInterface_GL3_Recoil::SetTransform(const Rml::Matrix4f* new_transform)
@@ -1551,19 +1527,22 @@ void RenderInterface_GL3_Recoil::ReleaseShader(Rml::CompiledShaderHandle shader_
 
 void RenderInterface_GL3_Recoil::BlitLayerToPostprocessPrimary(Rml::LayerHandle layer_handle)
 {
+	auto* rhiCtx = RHI::GetDevice()->GetContext();
 	const Gfx::FramebufferData& source = render_layers.GetLayer(layer_handle);
 	const Gfx::FramebufferData& destination = render_layers.GetPostprocessPrimary();
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, source.framebuffer);
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, destination.framebuffer);
 
 	// Blit and resolve MSAA. Any active scissor state will restrict the size of the blit region.
-	glBlitFramebuffer(0, 0, source.width, source.height, 0, 0, destination.width, destination.height,
-					  GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	rhiCtx->BlitFramebuffer(
+		source.fbo.get(), destination.fbo.get(),
+		0, 0, source.width, source.height,
+		0, 0, destination.width, destination.height,
+		true, false, false);
 }
 
 void RenderInterface_GL3_Recoil::RenderFilters(Rml::Span<const Rml::CompiledFilterHandle> filter_handles)
 {
 	auto tok = Gfx::CheckGLError("RenderFilter");
+	auto* rhiCtx = RHI::GetDevice()->GetContext();
 
 	for (const Rml::CompiledFilterHandle filter_handle: filter_handles) {
 		const CompiledFilter& filter = *reinterpret_cast<const CompiledFilter*>(filter_handle);
@@ -1572,22 +1551,22 @@ void RenderInterface_GL3_Recoil::RenderFilters(Rml::Span<const Rml::CompiledFilt
 		switch (type) {
 			case FilterType::Passthrough: {
 				UseProgram(ProgramId::Passthrough);
-				glBlendFunc(GL_CONSTANT_COLOR, GL_ZERO);
-				glBlendColor(0.0f, 0.0f, 0.0f, filter.blend_factor);
+				glBlendFunc(GL_CONSTANT_COLOR, GL_ZERO); // GL: no RHI dynamic constant color blend
+				glBlendColor(0.0f, 0.0f, 0.0f, filter.blend_factor); // GL: no RHI equivalent
 
 				const Gfx::FramebufferData& source = render_layers.GetPostprocessPrimary();
 				const Gfx::FramebufferData& destination = render_layers.GetPostprocessSecondary();
 				Gfx::BindTexture(source);
-				glBindFramebuffer(GL_FRAMEBUFFER, destination.framebuffer);
+				destination.fbo->Bind();
 
 				DrawFullscreenQuad();
 
 				render_layers.SwapPostprocessPrimarySecondary();
-				glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+				rhiCtx->SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::OneMinusSrcAlpha);
 			}
 				break;
 			case FilterType::Blur: {
-				glDisable(GL_BLEND);
+				rhiCtx->SetBlendEnabled(false);
 
 				const Gfx::FramebufferData& source_destination = render_layers.GetPostprocessPrimary();
 				const Gfx::FramebufferData& temp = render_layers.GetPostprocessSecondary();
@@ -1595,12 +1574,12 @@ void RenderInterface_GL3_Recoil::RenderFilters(Rml::Span<const Rml::CompiledFilt
 				const Rml::Rectanglei window_flipped = VerticallyFlipped(scissor_state, viewport_height);
 				RenderBlur(filter.sigma, source_destination, temp, window_flipped);
 
-				glEnable(GL_BLEND);
+				rhiCtx->SetBlendEnabled(true);
 			}
 				break;
 			case FilterType::DropShadow: {
 				auto drop_shadow_prog = UseProgram(ProgramId::DropShadow);
-				glDisable(GL_BLEND);
+				rhiCtx->SetBlendEnabled(false);
 
 				Rml::Colourf color = ConvertToColorf(filter.color);
 				drop_shadow_prog->SetUniform4v(Uniform::Color, &color[0]);
@@ -1608,7 +1587,7 @@ void RenderInterface_GL3_Recoil::RenderFilters(Rml::Span<const Rml::CompiledFilt
 				const Gfx::FramebufferData& primary = render_layers.GetPostprocessPrimary();
 				const Gfx::FramebufferData& secondary = render_layers.GetPostprocessSecondary();
 				Gfx::BindTexture(primary);
-				glBindFramebuffer(GL_FRAMEBUFFER, secondary.framebuffer);
+				secondary.fbo->Bind();
 
 				const Rml::Rectanglei window_flipped = VerticallyFlipped(scissor_state, viewport_height);
 				SetTexCoordLimits(drop_shadow_prog, window_flipped, {primary.width, primary.height});
@@ -1624,7 +1603,7 @@ void RenderInterface_GL3_Recoil::RenderFilters(Rml::Span<const Rml::CompiledFilt
 
 				UseProgram(ProgramId::Passthrough);
 				BindTexture(primary);
-				glEnable(GL_BLEND);
+				rhiCtx->SetBlendEnabled(true);
 				DrawFullscreenQuad();
 
 				render_layers.SwapPostprocessPrimarySecondary();
@@ -1632,7 +1611,7 @@ void RenderInterface_GL3_Recoil::RenderFilters(Rml::Span<const Rml::CompiledFilt
 				break;
 			case FilterType::ColorMatrix: {
 				auto color_matrix_prog = UseProgram(ProgramId::ColorMatrix);
-				glDisable(GL_BLEND);
+				rhiCtx->SetBlendEnabled(false);
 
 				constexpr bool transpose = std::is_same<decltype(filter.color_matrix), Rml::RowMajorMatrix4f>::value;
 				color_matrix_prog->SetUniformMatrix4x4(Uniform::ColorMatrix, transpose, filter.color_matrix.data());
@@ -1640,33 +1619,31 @@ void RenderInterface_GL3_Recoil::RenderFilters(Rml::Span<const Rml::CompiledFilt
 				const Gfx::FramebufferData& source = render_layers.GetPostprocessPrimary();
 				const Gfx::FramebufferData& destination = render_layers.GetPostprocessSecondary();
 				Gfx::BindTexture(source);
-				glBindFramebuffer(GL_FRAMEBUFFER, destination.framebuffer);
+				destination.fbo->Bind();
 
 				DrawFullscreenQuad();
 
 				render_layers.SwapPostprocessPrimarySecondary();
-				glEnable(GL_BLEND);
+				rhiCtx->SetBlendEnabled(true);
 			}
 				break;
 			case FilterType::MaskImage: {
 				UseProgram(ProgramId::BlendMask);
-				glDisable(GL_BLEND);
+				rhiCtx->SetBlendEnabled(false);
 
 				const Gfx::FramebufferData& source = render_layers.GetPostprocessPrimary();
 				const Gfx::FramebufferData& blend_mask = render_layers.GetBlendMask();
 				const Gfx::FramebufferData& destination = render_layers.GetPostprocessSecondary();
 
 				Gfx::BindTexture(source);
-				glActiveTexture(GL_TEXTURE1);
-				Gfx::BindTexture(blend_mask);
-				glActiveTexture(GL_TEXTURE0);
+				blend_mask.colorTex->Bind(1);
 
-				glBindFramebuffer(GL_FRAMEBUFFER, destination.framebuffer);
+				destination.fbo->Bind();
 
 				DrawFullscreenQuad();
 
 				render_layers.SwapPostprocessPrimarySecondary();
-				glEnable(GL_BLEND);
+				rhiCtx->SetBlendEnabled(true);
 			}
 				break;
 			case FilterType::Invalid: {
@@ -1681,8 +1658,9 @@ Rml::LayerHandle RenderInterface_GL3_Recoil::PushLayer()
 {
 	const Rml::LayerHandle layer_handle = render_layers.PushLayer();
 
-	glBindFramebuffer(GL_FRAMEBUFFER, render_layers.GetLayer(layer_handle).framebuffer);
-	glClear(GL_COLOR_BUFFER_BIT);
+	auto* rhiCtx = RHI::GetDevice()->GetContext();
+	render_layers.GetLayer(layer_handle).fbo->Bind();
+	rhiCtx->Clear(true, false, false);
 
 	return layer_handle;
 }
@@ -1704,27 +1682,28 @@ void RenderInterface_GL3_Recoil::CompositeLayers(Rml::LayerHandle source_handle,
 	RenderFilters(filters);
 
 	// Render to the destination layer.
-	glBindFramebuffer(GL_FRAMEBUFFER, render_layers.GetLayer(destination_handle).framebuffer);
+	auto* rhiCtx = RHI::GetDevice()->GetContext();
+	render_layers.GetLayer(destination_handle).fbo->Bind();
 	Gfx::BindTexture(render_layers.GetPostprocessPrimary());
 
 	UseProgram(ProgramId::Passthrough);
 
 	if (blend_mode == BlendMode::Replace)
-		glDisable(GL_BLEND);
+		rhiCtx->SetBlendEnabled(false);
 
 	DrawFullscreenQuad();
 
 	if (blend_mode == BlendMode::Replace)
-		glEnable(GL_BLEND);
+		rhiCtx->SetBlendEnabled(true);
 
 	if (destination_handle != render_layers.GetTopLayerHandle())
-		glBindFramebuffer(GL_FRAMEBUFFER, render_layers.GetTopLayer().framebuffer);
+		render_layers.GetTopLayer().fbo->Bind();
 }
 
 void RenderInterface_GL3_Recoil::PopLayer()
 {
 	render_layers.PopLayer();
-	glBindFramebuffer(GL_FRAMEBUFFER, render_layers.GetTopLayer().framebuffer);
+	render_layers.GetTopLayer().fbo->Bind();
 }
 
 Rml::TextureHandle RenderInterface_GL3_Recoil::SaveLayerAsTexture()
@@ -1738,32 +1717,32 @@ Rml::TextureHandle RenderInterface_GL3_Recoil::SaveLayerAsTexture()
 	if (!render_texture)
 		return {};
 
+	auto* rhiCtx = RHI::GetDevice()->GetContext();
+
 	BlitLayerToPostprocessPrimary(render_layers.GetTopLayerHandle());
 
 	EnableScissorRegion(false);
 
 	const Gfx::FramebufferData& source = render_layers.GetPostprocessPrimary();
 	const Gfx::FramebufferData& destination = render_layers.GetPostprocessSecondary();
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, source.framebuffer);
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, destination.framebuffer);
-	
+
 	// Flip the image vertically, as that convention is used for textures, and move to origin.
-	glBlitFramebuffer(                                  //
+	rhiCtx->BlitFramebuffer(
+		source.fbo.get(), destination.fbo.get(),
 		bounds.Left(), source.height - bounds.Bottom(), // src0
 		bounds.Right(), source.height - bounds.Top(),   // src1
 		0, bounds.Height(),                             // dst0
 		bounds.Width(), 0,                              // dst1
-		GL_COLOR_BUFFER_BIT, GL_NEAREST                 //
-	);
+		true, false, false);
 
-	glBindTexture(GL_TEXTURE_2D, (GLuint) render_texture);
+	reinterpret_cast<RHI::IRHITexture*>(render_texture)->Bind(0);
 
 	const Gfx::FramebufferData& texture_source = destination;
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, texture_source.framebuffer);
-	glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, bounds.Width(), bounds.Height());
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, texture_source.fbo->GetNativeHandle()); // GL: glCopyTexSubImage2D needs READ_FRAMEBUFFER bound
+	glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, bounds.Width(), bounds.Height()); // GL: no RHI equivalent
 
 	SetScissor(bounds);
-	glBindFramebuffer(GL_FRAMEBUFFER, render_layers.GetTopLayer().framebuffer);
+	render_layers.GetTopLayer().fbo->Bind();
 
 	return render_texture;
 }
@@ -1772,20 +1751,22 @@ Rml::CompiledFilterHandle RenderInterface_GL3_Recoil::SaveLayerAsMaskImage()
 {
 	auto tok = Gfx::CheckGLError("SaveLayerAsMaskImage");
 
+	auto* rhiCtx = RHI::GetDevice()->GetContext();
+
 	BlitLayerToPostprocessPrimary(render_layers.GetTopLayerHandle());
 
 	const Gfx::FramebufferData& source = render_layers.GetPostprocessPrimary();
 	const Gfx::FramebufferData& destination = render_layers.GetBlendMask();
 
-	glBindFramebuffer(GL_FRAMEBUFFER, destination.framebuffer);
+	destination.fbo->Bind();
 	BindTexture(source);
 	UseProgram(ProgramId::Passthrough);
-	glDisable(GL_BLEND);
+	rhiCtx->SetBlendEnabled(false);
 
 	DrawFullscreenQuad();
 
-	glEnable(GL_BLEND);
-	glBindFramebuffer(GL_FRAMEBUFFER, render_layers.GetTopLayer().framebuffer);
+	rhiCtx->SetBlendEnabled(true);
+	render_layers.GetTopLayer().fbo->Bind();
 
 	CompiledFilter filter = {};
 	filter.type = FilterType::MaskImage;
@@ -1852,12 +1833,18 @@ Rml::LayerHandle RenderInterface_GL3_Recoil::RenderLayerStack::PushLayer()
 	RMLUI_ASSERT(layers_size <= (int) fb_layers.size())
 
 	if (layers_size == (int) fb_layers.size()) {
-		// All framebuffers should share a single stencil buffer.
-		GLuint shared_depth_stencil = (fb_layers.empty() ? 0 : fb_layers.front().depth_stencil_buffer);
+		// All framebuffers should share a single depth-stencil texture.
+		RHI::IRHITexture* shared_ds = sharedDepthStencil.get();
 
 		fb_layers.push_back(Gfx::FramebufferData{});
 		Gfx::CreateFramebuffer(fb_layers.back(), width, height, NUM_MSAA_SAMPLES,
-							   Gfx::FramebufferAttachment::DepthStencil, shared_depth_stencil);
+							   Gfx::FramebufferAttachment::DepthStencil, shared_ds);
+
+		// First layer creates the depth-stencil; store it for sharing with subsequent layers.
+		if (!sharedDepthStencil && fb_layers.back().depthStencilTex) {
+			sharedDepthStencil = std::move(fb_layers.back().depthStencilTex);
+			fb_layers.back().ownsDepthStencil = false;
+		}
 	}
 
 	layers_size += 1;
@@ -1921,6 +1908,7 @@ void RenderInterface_GL3_Recoil::RenderLayerStack::DestroyFramebuffers()
 		Gfx::DestroyFramebuffer(fb);
 
 	fb_layers.clear();
+	sharedDepthStencil.reset();
 
 	for (Gfx::FramebufferData& fb: fb_postprocess)
 		Gfx::DestroyFramebuffer(fb);
@@ -1930,7 +1918,7 @@ const Gfx::FramebufferData& RenderInterface_GL3_Recoil::RenderLayerStack::Ensure
 {
 	RMLUI_ASSERT(index < (int) fb_postprocess.size())
 	Gfx::FramebufferData& fb = fb_postprocess[index];
-	if (!fb.framebuffer)
-		Gfx::CreateFramebuffer(fb, width, height, 0, Gfx::FramebufferAttachment::None, 0);
+	if (!fb.fbo)
+		Gfx::CreateFramebuffer(fb, width, height, 0, Gfx::FramebufferAttachment::None, nullptr);
 	return fb;
 }

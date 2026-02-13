@@ -51,6 +51,8 @@ namespace Shader
 	struct IProgramObject;
 }
 
+namespace RHI { class IRHITexture; }
+
 class RenderInterface_GL3_Recoil : public Rml::RenderInterface
 {
 public:
@@ -186,6 +188,8 @@ private:
 
 		Rml::Vector<Gfx::FramebufferData> fb_layers;
 		Rml::Vector<Gfx::FramebufferData> fb_postprocess;
+
+		std::unique_ptr<RHI::IRHITexture> sharedDepthStencil;
 	};
 
 	RenderLayerStack render_layers;
