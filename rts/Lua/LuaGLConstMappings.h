@@ -386,6 +386,30 @@ inline GLenum RHIShaderStageToGL(RHI::ShaderStage stage) {
 	}
 }
 
+// --- Logic Op Mappings ---
+
+inline RHI::LogicOp GLLogicOpToRHI(GLenum glOp) {
+	switch (glOp) {
+		case GL_CLEAR:         return RHI::LogicOp::Clear;
+		case GL_AND:           return RHI::LogicOp::And;
+		case GL_AND_REVERSE:   return RHI::LogicOp::AndReverse;
+		case GL_COPY:          return RHI::LogicOp::Copy;
+		case GL_AND_INVERTED:  return RHI::LogicOp::AndInverted;
+		case GL_NOOP:          return RHI::LogicOp::Noop;
+		case GL_XOR:           return RHI::LogicOp::Xor;
+		case GL_OR:            return RHI::LogicOp::Or;
+		case GL_NOR:           return RHI::LogicOp::Nor;
+		case GL_EQUIV:         return RHI::LogicOp::Equiv;
+		case GL_INVERT:        return RHI::LogicOp::Invert;
+		case GL_OR_REVERSE:    return RHI::LogicOp::OrReverse;
+		case GL_COPY_INVERTED: return RHI::LogicOp::CopyInverted;
+		case GL_OR_INVERTED:   return RHI::LogicOp::OrInverted;
+		case GL_NAND:          return RHI::LogicOp::Nand;
+		case GL_SET:           return RHI::LogicOp::Set;
+		default:               return RHI::LogicOp::Copy;
+	}
+}
+
 // --- Texture Format Mappings (partial - commonly used formats) ---
 
 inline RHI::TextureFormat GLInternalFormatToRHI(GLenum glFormat) {

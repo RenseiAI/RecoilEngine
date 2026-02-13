@@ -111,6 +111,7 @@
 #include "LuaContextData.h"
 #include "LuaDisplayLists.h"
 #include "LuaGLConstMappings.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "LuaFBOs.h"
 #include "LuaFonts.h"
 #include "LuaHandle.h"
@@ -584,45 +585,47 @@ bool LuaOpenGL::PushEntries(lua_State* L)
 
 void LuaOpenGL::ResetGLState()
 {
-	glDisable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LEQUAL);
-	glDepthMask(GL_FALSE);
-	if (GLAD_GL_ARB_depth_clamp)
-		glDisable(GL_DEPTH_CLAMP);
+	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	// Modern state — via RHI
+	ctx->SetDepthTestEnabled(false);
+	ctx->SetDepthFunc(RHI::CompareFunc::LessEqual);
+	ctx->SetDepthWriteEnabled(false);
+	ctx->SetDepthClampEnabled(false);
 
-	glEnable(GL_BLEND);
-	if (IS_GL_FUNCTION_AVAILABLE(glBlendEquation))
-		glBlendEquation(GL_FUNC_ADD);
+	ctx->SetColorMask(true, true, true, true);
 
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendEquation(RHI::BlendOp::Add);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
+	ctx->SetLogicOpEnabled(false);
+	ctx->SetLogicOp(RHI::LogicOp::Invert);
+
+	ctx->SetCullFaceEnabled(false);
+	ctx->SetCullFace(RHI::CullMode::Back);
+
+	ctx->SetScissorTestEnabled(false);
+
+	ctx->SetStencilTestEnabled(false);
+	ctx->SetStencilMask(~0u);
+
+	ctx->SetPolygonMode(RHI::PolygonMode::Fill);
+	ctx->SetPolygonOffset(false);
+
+	ctx->SetLineWidth(1.0f);
+	ctx->SetPointSize(1.0f);
+
+	// Deprecated FFP state — keep as GL
 	glDisable(GL_ALPHA_TEST);
 	glAlphaFunc(GL_GREATER, 0.5f);
-
 	glDisable(GL_LIGHTING);
-
 	glShadeModel(GL_SMOOTH);
 
-	glDisable(GL_COLOR_LOGIC_OP);
-	glLogicOp(GL_INVERT);
-
-	// FIXME glViewport(gl); depends on the mode
-
-	// FIXME -- depends on the mode       glDisable(GL_FOG);
-
-	glDisable(GL_CULL_FACE);
-	glCullFace(GL_BACK);
-
-	glDisable(GL_SCISSOR_TEST);
-
-	glDisable(GL_STENCIL_TEST);
-	glStencilMask(~0);
 	if (GLAD_GL_EXT_stencil_two_side)
 		glDisable(GL_STENCIL_TEST_TWO_SIDE_EXT);
 
-	// FIXME -- multitexturing
+	// FFP texture state
 	glDisable(GL_TEXTURE_2D);
 	glDisable(GL_TEXTURE_GEN_S);
 	glDisable(GL_TEXTURE_GEN_T);
@@ -630,27 +633,22 @@ void LuaOpenGL::ResetGLState()
 	glDisable(GL_TEXTURE_GEN_Q);
 	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	glDisable(GL_POLYGON_OFFSET_FILL);
-	glDisable(GL_POLYGON_OFFSET_LINE);
-	glDisable(GL_POLYGON_OFFSET_POINT);
-
+	// FFP line stipple
 	glDisable(GL_LINE_STIPPLE);
 
+	// Clip planes (legacy numbered planes)
 	glDisable(GL_CLIP_PLANE4);
 	glDisable(GL_CLIP_PLANE5);
 
-	glLineWidth(1.0f);
-	glPointSize(1.0f);
-
+	// FFP point sprite parameters
 	glDisable(GL_POINT_SPRITE);
-
 	GLfloat atten[3] = { 1.0f, 0.0f, 0.0f };
 	glPointParameterfv(GL_POINT_DISTANCE_ATTENUATION, atten);
 	glPointParameterf(GL_POINT_SIZE_MIN, 0.0f);
 	glPointParameterf(GL_POINT_SIZE_MAX, 1.0e9f); // FIXME?
 	glPointParameterf(GL_POINT_FADE_THRESHOLD_SIZE, 1.0f);
 
+	// FFP material/color
 	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 	const float ambient[4] = { 0.2f, 0.2f, 0.2f, 1.0f };
 	const float diffuse[4] = { 0.8f, 0.8f, 0.8f, 1.0f };
@@ -701,15 +699,14 @@ void LuaOpenGL::EnableCommon(DrawMode mode)
 void LuaOpenGL::DisableCommon(DrawMode mode)
 {
 	assert(drawMode == mode);
-	// FIXME  --  not needed by shadow or minimap
+	// FFP lighting — keep as GL
 	glLightModeli(GL_LIGHT_MODEL_COLOR_CONTROL, GL_SINGLE_COLOR);
 	drawMode = DRAW_NONE;
 	if (safeMode) {
 		glPopAttrib();
 	}
-	if (IS_GL_FUNCTION_AVAILABLE(glUseProgram)) {
-		glUseProgram(0);
-	}
+	// Unbind any active shader
+	RHI::GetDevice()->GetContext()->BindShader(nullptr);
 }
 
 
@@ -3256,23 +3253,21 @@ int LuaOpenGL::Scissor(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 
+	auto* ctx = RHI::GetDevice()->GetContext();
 	const int args = lua_gettop(L); // number of arguments
 	if (args == 1) {
-		if (luaL_checkboolean(L, 1)) {
-			glEnable(GL_SCISSOR_TEST);
-		} else {
-			glDisable(GL_SCISSOR_TEST);
-		}
+		ctx->SetScissorTestEnabled(luaL_checkboolean(L, 1));
 	}
 	else if (args == 4) {
-		glEnable(GL_SCISSOR_TEST);
-		const GLint   x =   (GLint)luaL_checkint(L, 1);
-		const GLint   y =   (GLint)luaL_checkint(L, 2);
-		const GLsizei w = (GLsizei)luaL_checkint(L, 3);
-		const GLsizei h = (GLsizei)luaL_checkint(L, 4);
+		ctx->SetScissorTestEnabled(true);
+		const int x = luaL_checkint(L, 1);
+		const int y = luaL_checkint(L, 2);
+		const int w = luaL_checkint(L, 3);
+		const int h = luaL_checkint(L, 4);
 		if (w < 0) luaL_argerror(L, 3, "<width> must be greater than or equal zero!");
 		if (h < 0) luaL_argerror(L, 4, "<height> must be greater than or equal zero!");
-		glScissor(x + globalRendering->viewPosX, y + globalRendering->viewPosY, w, h);
+		ctx->SetScissor({x + globalRendering->viewPosX, y + globalRendering->viewPosY,
+		                 static_cast<uint32_t>(w), static_cast<uint32_t>(h)});
 	}
 	else {
 		luaL_error(L, "Incorrect arguments to gl.Scissor()");
@@ -3300,7 +3295,9 @@ int LuaOpenGL::Viewport(lua_State* L)
 	if (w < 0) luaL_argerror(L, 3, "<width> must be greater than or equal zero!");
 	if (h < 0) luaL_argerror(L, 4, "<height> must be greater than or equal zero!");
 
-	glViewport(x, y, w, h);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetViewport({static_cast<float>(x), static_cast<float>(y),
+	                  static_cast<float>(w), static_cast<float>(h)});
 	return 0;
 }
 
@@ -3322,17 +3319,15 @@ int LuaOpenGL::ColorMask(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 
+	auto* ctx = RHI::GetDevice()->GetContext();
 	const int args = lua_gettop(L); // number of arguments
 	if (args == 1) {
-		if (luaL_checkboolean(L, 1)) {
-			glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-		} else {
-			glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-		}
+		const bool v = luaL_checkboolean(L, 1);
+		ctx->SetColorMask(v, v, v, v);
 	}
 	else if (args == 4) {
-		glColorMask(luaL_checkboolean(L, 1), luaL_checkboolean(L, 2),
-		            luaL_checkboolean(L, 3), luaL_checkboolean(L, 4));
+		ctx->SetColorMask(luaL_checkboolean(L, 1), luaL_checkboolean(L, 2),
+		                  luaL_checkboolean(L, 3), luaL_checkboolean(L, 4));
 	}
 	else {
 		luaL_error(L, "Incorrect arguments to gl.ColorMask()");
@@ -3349,11 +3344,7 @@ int LuaOpenGL::ColorMask(lua_State* L)
 int LuaOpenGL::DepthMask(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
-	if (luaL_checkboolean(L, 1)) {
-		glDepthMask(GL_TRUE);
-	} else {
-		glDepthMask(GL_FALSE);
-	}
+	RHI::GetDevice()->GetContext()->SetDepthWriteEnabled(luaL_checkboolean(L, 1));
 	return 0;
 }
 
@@ -3382,16 +3373,13 @@ int LuaOpenGL::DepthTest(lua_State* L)
 		luaL_error(L, "Incorrect arguments to gl.DepthTest()");
 	}
 
+	auto* ctx = RHI::GetDevice()->GetContext();
 	if (lua_isboolean(L, 1)) {
-		if (lua_toboolean(L, 1)) {
-			glEnable(GL_DEPTH_TEST);
-		} else {
-			glDisable(GL_DEPTH_TEST);
-		}
+		ctx->SetDepthTestEnabled(lua_toboolean(L, 1));
 	}
 	else if (lua_isnumber(L, 1)) {
-		glEnable(GL_DEPTH_TEST);
-		glDepthFunc((GLenum)lua_tonumber(L, 1));
+		ctx->SetDepthTestEnabled(true);
+		ctx->SetDepthFunc(LuaGLConstMappings::GLCompareFuncToRHI((GLenum)lua_tonumber(L, 1)));
 	}
 	else {
 		luaL_error(L, "Incorrect arguments to gl.DepthTest()");
@@ -3408,11 +3396,7 @@ int LuaOpenGL::DepthClamp(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	luaL_checktype(L, 1, LUA_TBOOLEAN);
-	if (lua_toboolean(L, 1)) {
-		glEnable(GL_DEPTH_CLAMP);
-	} else {
-		glDisable(GL_DEPTH_CLAMP);
-	}
+	RHI::GetDevice()->GetContext()->SetDepthClampEnabled(lua_toboolean(L, 1));
 	return 0;
 }
 
@@ -3440,16 +3424,13 @@ int LuaOpenGL::Culling(lua_State* L)
 		luaL_error(L, "Incorrect arguments to gl.Culling()");
 	}
 
+	auto* ctx = RHI::GetDevice()->GetContext();
 	if (lua_isboolean(L, 1)) {
-		if (lua_toboolean(L, 1)) {
-			glEnable(GL_CULL_FACE);
-		} else {
-			glDisable(GL_CULL_FACE);
-		}
+		ctx->SetCullFaceEnabled(lua_toboolean(L, 1));
 	}
 	else if (lua_isnumber(L, 1)) {
-		glEnable(GL_CULL_FACE);
-		glCullFace((GLenum)lua_tonumber(L, 1));
+		ctx->SetCullFaceEnabled(true);
+		ctx->SetCullFace(LuaGLConstMappings::GLCullModeToRHI((GLenum)lua_tonumber(L, 1)));
 	}
 	else {
 		luaL_error(L, "Incorrect arguments to gl.Culling()");
@@ -3484,16 +3465,13 @@ int LuaOpenGL::LogicOp(lua_State* L)
 		luaL_error(L, "Incorrect arguments to gl.LogicOp()");
 	}
 
+	auto* ctx = RHI::GetDevice()->GetContext();
 	if (lua_isboolean(L, 1)) {
-		if (lua_toboolean(L, 1)) {
-			glEnable(GL_COLOR_LOGIC_OP);
-		} else {
-			glDisable(GL_COLOR_LOGIC_OP);
-		}
+		ctx->SetLogicOpEnabled(lua_toboolean(L, 1));
 	}
 	else if (lua_isnumber(L, 1)) {
-		glEnable(GL_COLOR_LOGIC_OP);
-		glLogicOp((GLenum)lua_tonumber(L, 1));
+		ctx->SetLogicOpEnabled(true);
+		ctx->SetLogicOp(LuaGLConstMappings::GLLogicOpToRHI((GLenum)lua_tonumber(L, 1)));
 	}
 	else {
 		luaL_error(L, "Incorrect arguments to gl.LogicOp()");
@@ -3537,42 +3515,40 @@ int LuaOpenGL::Blending(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 
+	auto* ctx = RHI::GetDevice()->GetContext();
 	const int args = lua_gettop(L); // number of arguments
 	if (args == 1) {
 		if (lua_isboolean(L, 1)) {
-			if (lua_toboolean(L, 1)) {
-				glEnable(GL_BLEND);
-			} else {
-				glDisable(GL_BLEND);
-			}
+			ctx->SetBlendEnabled(lua_toboolean(L, 1));
 		}
 		else if (lua_israwstring(L, 1)) {
+			using namespace RHI;
 			switch (hashString(lua_tostring(L, 1))) {
 				case hashString("add"): {
-					glBlendFunc(GL_ONE, GL_ONE);
-					glEnable(GL_BLEND);
+					ctx->SetBlendFunc(BlendFactor::One, BlendFactor::One);
+					ctx->SetBlendEnabled(true);
 				} break;
 				case hashString("alpha_add"): {
-					glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-					glEnable(GL_BLEND);
+					ctx->SetBlendFunc(BlendFactor::SrcAlpha, BlendFactor::One);
+					ctx->SetBlendEnabled(true);
 				} break;
 
 				case hashString("alpha"):
 				case hashString("reset"): {
-					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-					glEnable(GL_BLEND);
+					ctx->SetBlendFunc(BlendFactor::SrcAlpha, BlendFactor::OneMinusSrcAlpha);
+					ctx->SetBlendEnabled(true);
 				} break;
 				case hashString("color"): {
-					glBlendFunc(GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR);
-					glEnable(GL_BLEND);
+					ctx->SetBlendFunc(BlendFactor::SrcColor, BlendFactor::OneMinusSrcColor);
+					ctx->SetBlendEnabled(true);
 				} break;
 				case hashString("modulate"): {
-					glBlendFunc(GL_DST_COLOR, GL_ZERO);
-					glEnable(GL_BLEND);
+					ctx->SetBlendFunc(BlendFactor::DstColor, BlendFactor::Zero);
+					ctx->SetBlendEnabled(true);
 				} break;
 				case hashString("disable"): {
-					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-					glDisable(GL_BLEND);
+					ctx->SetBlendFunc(BlendFactor::SrcAlpha, BlendFactor::OneMinusSrcAlpha);
+					ctx->SetBlendEnabled(false);
 				} break;
 				default: {
 				} break;
@@ -3585,8 +3561,9 @@ int LuaOpenGL::Blending(lua_State* L)
 	else if (args == 2) {
 		const GLenum src = (GLenum)luaL_checkint(L, 1);
 		const GLenum dst = (GLenum)luaL_checkint(L, 2);
-		glBlendFunc(src, dst);
-		glEnable(GL_BLEND);
+		ctx->SetBlendFunc(LuaGLConstMappings::GLBlendFactorToRHI(src),
+		                  LuaGLConstMappings::GLBlendFactorToRHI(dst));
+		ctx->SetBlendEnabled(true);
 	}
 	else {
 		luaL_error(L, "Incorrect arguments to gl.Blending()");
@@ -3603,7 +3580,7 @@ int LuaOpenGL::BlendEquation(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	const GLenum mode = (GLenum)luaL_checkint(L, 1);
-	glBlendEquation(mode);
+	RHI::GetDevice()->GetContext()->SetBlendEquation(LuaGLConstMappings::GLBlendOpToRHI(mode));
 	return 0;
 }
 
@@ -3618,7 +3595,9 @@ int LuaOpenGL::BlendFunc(lua_State* L)
 	CheckDrawingEnabled(L, __func__);
 	const GLenum src = (GLenum)luaL_checkint(L, 1);
 	const GLenum dst = (GLenum)luaL_checkint(L, 2);
-	glBlendFunc(src, dst);
+	RHI::GetDevice()->GetContext()->SetBlendFunc(
+		LuaGLConstMappings::GLBlendFactorToRHI(src),
+		LuaGLConstMappings::GLBlendFactorToRHI(dst));
 	return 0;
 }
 
@@ -3633,7 +3612,9 @@ int LuaOpenGL::BlendEquationSeparate(lua_State* L)
 	CheckDrawingEnabled(L, __func__);
 	const GLenum modeRGB   = (GLenum)luaL_checkint(L, 1);
 	const GLenum modeAlpha = (GLenum)luaL_checkint(L, 2);
-	glBlendEquationSeparate(modeRGB, modeAlpha);
+	RHI::GetDevice()->GetContext()->SetBlendEquationSeparate(
+		LuaGLConstMappings::GLBlendOpToRHI(modeRGB),
+		LuaGLConstMappings::GLBlendOpToRHI(modeAlpha));
 	return 0;
 }
 
@@ -3652,7 +3633,11 @@ int LuaOpenGL::BlendFuncSeparate(lua_State* L)
 	const GLenum dstRGB   = (GLenum)luaL_checkint(L, 2);
 	const GLenum srcAlpha = (GLenum)luaL_checkint(L, 3);
 	const GLenum dstAlpha = (GLenum)luaL_checkint(L, 4);
-	glBlendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha);
+	RHI::GetDevice()->GetContext()->SetBlendFuncSeparate(
+		LuaGLConstMappings::GLBlendFactorToRHI(srcRGB),
+		LuaGLConstMappings::GLBlendFactorToRHI(dstRGB),
+		LuaGLConstMappings::GLBlendFactorToRHI(srcAlpha),
+		LuaGLConstMappings::GLBlendFactorToRHI(dstAlpha));
 	return 0;
 }
 
@@ -3709,12 +3694,7 @@ int LuaOpenGL::AlphaToCoverage(lua_State* L)
 		return 0;
 
 	CheckDrawingEnabled(L, __func__);
-	if (luaL_checkboolean(L, 1)) {
-		glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE_ARB);
-	}
-	else {
-		glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE_ARB);
-	}
+	RHI::GetDevice()->GetContext()->SetMultisampleEnabled(luaL_checkboolean(L, 1));
 	return 0;
 }
 
@@ -3739,9 +3719,10 @@ int LuaOpenGL::AlphaToCoverage(lua_State* L)
 int LuaOpenGL::PolygonMode(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
-	const GLenum face = (GLenum)luaL_checkint(L, 1);
+	// face parameter ignored — RHI always applies to both faces (GL_FRONT_AND_BACK)
+	(void)luaL_checkint(L, 1);
 	const GLenum mode = (GLenum)luaL_checkint(L, 2);
-	glPolygonMode(face, mode);
+	RHI::GetDevice()->GetContext()->SetPolygonMode(LuaGLConstMappings::GLPolygonModeToRHI(mode));
 	return 0;
 }
 
@@ -3766,23 +3747,13 @@ int LuaOpenGL::PolygonOffset(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 
+	auto* ctx = RHI::GetDevice()->GetContext();
 	const int args = lua_gettop(L); // number of arguments
 	if (args == 1) {
-		if (luaL_checkboolean(L, 1)) {
-			glEnable(GL_POLYGON_OFFSET_FILL);
-			glEnable(GL_POLYGON_OFFSET_LINE);
-			glEnable(GL_POLYGON_OFFSET_POINT);
-		} else {
-			glDisable(GL_POLYGON_OFFSET_FILL);
-			glDisable(GL_POLYGON_OFFSET_LINE);
-			glDisable(GL_POLYGON_OFFSET_POINT);
-		}
+		ctx->SetPolygonOffset(luaL_checkboolean(L, 1));
 	}
 	else if (args == 2) {
-		glEnable(GL_POLYGON_OFFSET_FILL);
-		glEnable(GL_POLYGON_OFFSET_LINE);
-		glEnable(GL_POLYGON_OFFSET_POINT);
-		glPolygonOffset((GLfloat)luaL_checkfloat(L, 1), (GLfloat)luaL_checkfloat(L, 2));
+		ctx->SetPolygonOffset(true, luaL_checkfloat(L, 1), luaL_checkfloat(L, 2));
 	}
 	else {
 		luaL_error(L, "Incorrect arguments to gl.PolygonOffset()");
@@ -3801,11 +3772,7 @@ int LuaOpenGL::StencilTest(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	luaL_checktype(L, 1, LUA_TBOOLEAN);
-	if (lua_toboolean(L, 1)) {
-		glEnable(GL_STENCIL_TEST);
-	} else {
-		glDisable(GL_STENCIL_TEST);
-	}
+	RHI::GetDevice()->GetContext()->SetStencilTestEnabled(lua_toboolean(L, 1));
 	return 0;
 }
 
@@ -3818,8 +3785,7 @@ int LuaOpenGL::StencilTest(lua_State* L)
 int LuaOpenGL::StencilMask(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
-	const GLuint mask = luaL_checkint(L, 1);
-	glStencilMask(mask);
+	RHI::GetDevice()->GetContext()->SetStencilMask(luaL_checkint(L, 1));
 	return 0;
 }
 
@@ -3837,7 +3803,8 @@ int LuaOpenGL::StencilFunc(lua_State* L)
 	const GLenum func = luaL_checkint(L, 1);
 	const GLint  ref  = luaL_checkint(L, 2);
 	const GLuint mask = luaL_checkint(L, 3);
-	glStencilFunc(func, ref, mask);
+	RHI::GetDevice()->GetContext()->SetStencilFunc(
+		LuaGLConstMappings::GLCompareFuncToRHI(func), ref, mask);
 	return 0;
 }
 
@@ -3855,7 +3822,10 @@ int LuaOpenGL::StencilOp(lua_State* L)
 	const GLenum fail  = luaL_checkint(L, 1);
 	const GLenum zfail = luaL_checkint(L, 2);
 	const GLenum zpass = luaL_checkint(L, 3);
-	glStencilOp(fail, zfail, zpass);
+	RHI::GetDevice()->GetContext()->SetStencilOp(
+		LuaGLConstMappings::GLStencilOpToRHI(fail),
+		LuaGLConstMappings::GLStencilOpToRHI(zfail),
+		LuaGLConstMappings::GLStencilOpToRHI(zpass));
 	return 0;
 }
 
@@ -3990,7 +3960,7 @@ int LuaOpenGL::LineWidth(lua_State* L)
 	CondWarnDeprecatedGL(L, __func__);
 	const float width = luaL_checkfloat(L, 1);
 	if (width <= 0.0f) luaL_argerror(L, 1, "Incorrect Width (must be greater zero)");
-	glLineWidth(width);
+	RHI::GetDevice()->GetContext()->SetLineWidth(width);
 	return 0;
 }
 
@@ -4004,7 +3974,7 @@ int LuaOpenGL::PointSize(lua_State* L)
 	CondWarnDeprecatedGL(L, __func__);
 	const float size = luaL_checkfloat(L, 1);
 	if (size <= 0.0f) luaL_argerror(L, 1, "Incorrect Size (must be greater zero)");
-	glPointSize(size);
+	RHI::GetDevice()->GetContext()->SetPointSize(size);
 	return 0;
 }
 
@@ -5184,6 +5154,7 @@ int LuaOpenGL::Clear(lua_State* L)
 		luaL_error(L, "Incorrect arguments to gl.Clear()");
 
 	const GLbitfield bits = (GLbitfield)lua_tonumber(L, 1);
+	auto* ctx = RHI::GetDevice()->GetContext();
 
 	switch (args) {
 		case 5: {
@@ -5191,8 +5162,15 @@ int LuaOpenGL::Clear(lua_State* L)
 				luaL_error(L, "Incorrect arguments to gl.Clear(bits, r, g, b, a)");
 
 			switch (bits) {
-				case GL_COLOR_BUFFER_BIT: { glClearColor((GLfloat)lua_tonumber(L, 2), (GLfloat)lua_tonumber(L, 3), (GLfloat)lua_tonumber(L, 4), (GLfloat)lua_tonumber(L, 5)); } break;
-				case GL_ACCUM_BUFFER_BIT: { glClearAccum((GLfloat)lua_tonumber(L, 2), (GLfloat)lua_tonumber(L, 3), (GLfloat)lua_tonumber(L, 4), (GLfloat)lua_tonumber(L, 5)); } break;
+				case GL_COLOR_BUFFER_BIT: {
+					ctx->ClearColor((float)lua_tonumber(L, 2), (float)lua_tonumber(L, 3),
+					                (float)lua_tonumber(L, 4), (float)lua_tonumber(L, 5));
+				} break;
+				case GL_ACCUM_BUFFER_BIT: {
+					// Accum buffer is deprecated FFP — no RHI equivalent, keep GL fallback
+					glClearAccum((GLfloat)lua_tonumber(L, 2), (GLfloat)lua_tonumber(L, 3),
+					             (GLfloat)lua_tonumber(L, 4), (GLfloat)lua_tonumber(L, 5));
+				} break;
 				default: {} break;
 			}
 		} break;
@@ -5201,14 +5179,17 @@ int LuaOpenGL::Clear(lua_State* L)
 				luaL_error(L, "Incorrect arguments to gl.Clear(bits, val)");
 
 			switch (bits) {
-				case GL_DEPTH_BUFFER_BIT: { glClearDepth((GLfloat)lua_tonumber(L, 2)); } break;
-				case GL_STENCIL_BUFFER_BIT: { glClearStencil((GLint)lua_tonumber(L, 2)); } break;
+				case GL_DEPTH_BUFFER_BIT: { ctx->ClearDepth((float)lua_tonumber(L, 2)); } break;
+				case GL_STENCIL_BUFFER_BIT: { ctx->ClearStencil((uint32_t)lua_tonumber(L, 2)); } break;
 				default: {} break;
 			}
 		} break;
 	}
 
-	glClear(bits);
+	ctx->Clear(
+		(bits & GL_COLOR_BUFFER_BIT) != 0,
+		(bits & GL_DEPTH_BUFFER_BIT) != 0,
+		(bits & GL_STENCIL_BUFFER_BIT) != 0);
 	return 0;
 }
 
@@ -6308,7 +6289,7 @@ int LuaOpenGL::DeleteList(lua_State* L)
 int LuaOpenGL::Flush(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
-	glFlush();
+	RHI::GetDevice()->GetContext()->Flush();
 	return 0;
 }
 
@@ -6319,7 +6300,7 @@ int LuaOpenGL::Flush(lua_State* L)
 int LuaOpenGL::Finish(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
-	glFinish();
+	RHI::GetDevice()->GetContext()->Finish();
 	return 0;
 }
 
