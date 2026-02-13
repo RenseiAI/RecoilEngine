@@ -6,13 +6,16 @@
  * Migrated GL calls to RHI equivalents:
  *   - Pipeline state (cull mode): RHI::PipelineDesc + BindPipeline()
  *   - RHI device/context access: RHI::GetDevice(), GetContext()
- *   - Model texture binding: IRHITexture::Bind() for 3DO atlas and S3O textures
+ *   - Model texture binding: IRHITexture::Bind() for 3DO atlas, S3O, ASS textures
  *   - Shadow texture binding: IRHITexture::Bind() via shadowHandler.GetColorTexture()
  *   - Cube map texture binding: IRHITexture::Bind() via cubeMapHandler.GetEnvReflectionTexture()/GetSpecularTexture()
+ *   - Texture unbinding: removed (next Bind() call overrides)
  *   - Matrix stack (14 calls): RHI::MatrixStack for CPU-side transforms
  *     [x] glMatrixMode/glPushMatrix/glPopMatrix/glLoadIdentity/glMultMatrixf -> RHI::MatrixStack
  *     [x] Static projectionStack/modelViewStack instances manage FFP state
  *     [x] FlushMatricesToFFP() syncs RHI stacks to GL FFP after each operation
+ *   - GL::SubState(DepthTest, Blending, BlendFunc) -> ctx->Set*() dynamic state
+ *   - GL_CLIP_PLANE0/1 enable/disable -> ctx->SetClipDistanceEnabled()
  *
  * Retained GL calls (FFP shader dependencies or external blockers):
  *   - FFP matrix flush (3 calls): glMatrixMode(2) + glLoadMatrixf(2) in FlushMatricesToFFP().

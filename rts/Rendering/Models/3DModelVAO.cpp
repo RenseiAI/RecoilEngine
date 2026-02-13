@@ -1,26 +1,35 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 /**
- * RHI Migration Status: PARTIAL
+ * RHI Migration Status: BLOCKED — Central model VBO/VAO infrastructure
  *
- * This file is partially migrated to the RHI abstraction layer.
- * The existing RHI_TODO comments document the migration path.
+ * This file is the core model geometry system. It manages vertex/index/instance
+ * buffers and all model draw calls. Full migration requires replacing the VBO/VAO
+ * GL wrapper classes with IRHIBuffer, which is a significant infrastructure change.
  *
- * Migrated patterns:
- *   - None yet - this is central model VAO/VBO infrastructure
+ * GL calls by category:
  *
- * Remaining GL calls (with RHI_TODO comments):
- *   - VBO/VAO classes: Need replacement with IRHIBuffer
- *   - glVertexAttribPointer/glVertexAttribIPointer: Need vertex input descriptions
- *   - glMultiDrawElementsIndirect: Need IRHIContext::DrawIndexedIndirect
- *   - glDrawElements: Maps to IRHIContext::DrawIndexed (with GLenum->RHI::PrimitiveType)
- *   - glEnableClientState/glVertexPointer/etc: Legacy FFP client state
+ * 1. Vertex attribute setup (EnableAttribs/DisableAttribs) — ~14 calls:
+ *    glEnableVertexAttribArray, glVertexAttribDivisor, glVertexAttribPointer,
+ *    glVertexAttribIPointer, glDisableVertexAttribArray
+ *    -> Needs RHI vertex input layout in PipelineDesc. The GL4 VAO handles this.
+ *
+ * 2. Legacy FFP client state (BindLegacyVertexAttribsAndVBOs) — ~20 calls:
+ *    glEnableClientState, glVertexPointer, glNormalPointer, glClientActiveTexture,
+ *    glTexCoordPointer, glDisableClientState
+ *    -> DEPRECATED. Used only by GLSL legacy path. Should be removed once GL4
+ *       path handles all rendering.
+ *
+ * 3. Draw calls (DrawElements/Submit/SubmitImmediately) — ~3 calls:
+ *    glDrawElements -> IRHIContext::DrawIndexed (with GLenum to RHI::PrimitiveType)
+ *    glMultiDrawElementsIndirect -> IRHIContext::DrawIndexedIndirect
+ *    -> IRHIContext already has DrawIndexedIndirect. Migration requires VBO -> IRHIBuffer
+ *       for the command buffer, then ctx->DrawIndexedIndirect(primitive, cmdBuffer, ...).
  *
  * Dependencies blocking full migration:
- *   - IRHIBuffer interface to replace VBO class
- *   - Vertex input layout descriptions in PipelineDesc
- *   - Multi-draw indirect support in IRHIContext
- *   - Legacy FFP path should be removed once GL4 handles all rendering
+ *   - VBO/VAO classes -> IRHIBuffer (Wave 2, Unit H: gl-utilities-scatter)
+ *   - RHI vertex input layout descriptions in PipelineDesc
+ *   - Legacy FFP path removal (after GL4 path handles all rendering)
  */
 
 #include "3DModelVAO.hpp"

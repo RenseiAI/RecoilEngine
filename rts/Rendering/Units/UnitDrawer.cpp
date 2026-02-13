@@ -3,31 +3,23 @@
 /**
  * RHI Migration Status: PARTIAL
  *
- * This file is partially migrated to the RHI abstraction layer.
+ * Migrated to RHI:
+ *   - RHI device/context access -> RHI::GetDevice(), GetContext()
+ *   - Pipeline state (depth test, polygon mode, polygon offset) -> ctx->Set*()
+ *   - GL_CLIP_PLANE0/1 enable/disable -> ctx->SetClipDistanceEnabled()
+ *   - GL::SubState(DepthTest, Blending, BlendFunc) -> ctx->Set*() dynamic state
  *
- * Migrated patterns:
- *   - RHI device/context access -> RHI::CreateDevice(), GetContext()
- *   - Inherits pipeline state from ModelDrawerState via base class
- *
- * Remaining GL calls (with RHI_TODO comments):
- *   - glCallList: Display lists are legacy GL with no RHI equivalent
- *   - glPushMatrix/glPopMatrix/glMultMatrixf: FFP matrix stack (GL4 uses uniforms)
- *   - glActiveTexture/glBindTexture: Icon textures use raw GL IDs
- *   - glColor4f/glColor4fv/glGetFloatv(GL_CURRENT_COLOR): Legacy FFP vertex color
- *   - glEnable/glDisable(GL_CLIP_PLANE* and GL_CLIP_DISTANCE*): Legacy clip planes (GL4 uses shader uniforms)
- *   - GL_TEXTURE_2D enable/disable: Legacy FFP texture state
- *
- * Migrated to RHI dynamic state:
- *   - glPolygonMode -> ctx->SetPolygonMode(RHI::PolygonMode::Line/Fill)
- *   - glPolygonOffset + GL_POLYGON_OFFSET_FILL -> ctx->SetPolygonOffset(enabled, factor, units)
- *   - glEnable/glDisable(GL_DEPTH_TEST) -> ctx->SetDepthTestEnabled(bool)
- *   - glPushAttrib/glPopAttrib (GL_CURRENT_BIT) -> explicit glGetFloatv/glColor4fv for current color
- *   - glPushAttrib/glPopAttrib (GL_POLYGON_BIT) -> removed (state now explicitly managed via RHI context)
- *
- * Dependencies blocking full migration:
- *   - IconHandler needs to return IRHITexture* for icon atlases
- *   - Display lists need replacement (used for Lua pre/post lists)
- *   - FFP matrix stack is GLSL path only; GL4 uses uniform buffers
+ * Remaining GL calls (blocked, cannot migrate yet):
+ *   - glCallList: Lua display lists, no RHI equivalent. Blocked on Lua infrastructure.
+ *   - glPushMatrix/glPopMatrix/glMultMatrixf/glTranslatef3/glRotatef: FFP matrix stack.
+ *     GLSL shaders read gl_ModelViewProjectionMatrix. Blocked on shader migration.
+ *   - glActiveTexture/glBindTexture for icons: IconHandler returns raw GLuint.
+ *     Blocked on IconHandler returning IRHITexture*.
+ *   - glColor4f/glColor4fv/glGetFloatv(GL_CURRENT_COLOR): FFP vertex color.
+ *     Shaders read gl_Color. Blocked on shader migration to uniform-based color.
+ *   - glClipPlane: FFP clip plane equation. No RHI equivalent for the equation;
+ *     the enable/disable IS migrated to ctx->SetClipDistanceEnabled().
+ *   - glGetIntegerv(GL_CURRENT_PROGRAM)/glUseProgram: Shader save/restore hack.
  */
 
 #include "UnitDrawer.h"
@@ -43,7 +35,6 @@
 #include "Map/MapInfo.h"
 #include "Map/ReadMap.h"
 #include "Rendering/Env/IWater.h"
-#include "Rendering/GL/SubState.h"
 #include "Rendering/GL/glExtra.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/Shaders/ShaderHandler.h"
@@ -619,14 +610,12 @@ void CUnitDrawerGLSL::DrawUnitIcons() const
 	if (!rb.ShouldSubmit())
 		return;
 
-	using namespace GL::State;
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetDepthTestEnabled(false);
+	ctx->SetBlendEnabled(false);
 
-	auto state = GL::SubState(
-		DepthTest(GL_FALSE),
-		Blending(GL_FALSE),
-		AlphaToCoverage(globalRendering->msaaLevel >= 4 ? GL_TRUE : GL_FALSE)
-	);
-
+	// RHI_TODO: icon atlas textures use raw GLuint from iconHandler.
+	// Blocked on IconHandler returning IRHITexture*.
 	const auto& atlasTexIDs = icon::iconHandler.GetAtlasTextureIDs();
 	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexIDs[0]);
 	if (atlasTexIDs[1]) {
@@ -645,6 +634,9 @@ void CUnitDrawerGLSL::DrawUnitIcons() const
 		glBindTexture(GL_TEXTURE_2D, 0);
 
 	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, 0);
+
+	// Restore default state
+	ctx->SetDepthTestEnabled(true);
 }
 
 void CUnitDrawerGLSL::DrawUnitIconScreen(TypedRenderBuffer<VA_TYPE_2DTC3>& rb, size_t iconIdx, const float3& pos, SColor& color, float unitRadius, bool isIcon) const
@@ -771,14 +763,12 @@ void CUnitDrawerGLSL::DrawUnitIconsScreen() const
 	if (!rb.ShouldSubmit())
 		return;
 
-	using namespace GL::State;
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetDepthTestEnabled(false);
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
-	auto state = GL::SubState(
-		DepthTest(GL_FALSE),
-		Blending(GL_TRUE),
-		BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-	);
-
+	// RHI_TODO: icon atlas textures use raw GLuint from iconHandler.
 	const auto& atlasTexIDs = icon::iconHandler.GetAtlasTextureIDs();
 	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexIDs[0]);
 	if (atlasTexIDs[1]) {
@@ -797,6 +787,10 @@ void CUnitDrawerGLSL::DrawUnitIconsScreen() const
 		glBindTexture(GL_TEXTURE_2D, 0);
 
 	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, 0);
+
+	// Restore default state
+	ctx->SetDepthTestEnabled(true);
+	ctx->SetBlendEnabled(false);
 }
 
 void CUnitDrawerGLSL::DrawObjectsShadow(int modelType) const
@@ -1104,14 +1098,12 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLu
 		{0.0f,  0.0f, 0.0f,                                                           0.0f },
 	};
 
-	// RHI_TODO: glColor4fv is legacy FFP vertex color with no RHI equivalent.
-	// glClipPlane/GL_CLIP_PLANE0/1 are legacy FFP clip planes with no RHI equivalent.
-	// The GL4 path uses GL_CLIP_DISTANCE with shader uniforms instead.
 	float savedColor[4];
 	glGetFloatv(GL_CURRENT_COLOR, savedColor);
 
-	glEnable(GL_CLIP_PLANE0);
-	glEnable(GL_CLIP_PLANE1);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetClipDistanceEnabled(0, true);
+	ctx->SetClipDistanceEnabled(1, true);
 
 	{
 		// wireframe, unconditional
@@ -1123,8 +1115,8 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLu
 		DrawModelFlatBuildStageShadow(unit, upperPlanes[BUILDSTAGE_FLAT], lowerPlanes[BUILDSTAGE_FLAT], noLuaCall);
 	}
 
-	glDisable(GL_CLIP_PLANE1);
-	glDisable(GL_CLIP_PLANE0);
+	ctx->SetClipDistanceEnabled(1, false);
+	ctx->SetClipDistanceEnabled(0, false);
 
 	if (stageBounds.z > 2.0f / 3.0f) {
 		// fully-shaded, conditional
@@ -1137,10 +1129,11 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLu
 void CUnitDrawerGLSL::DrawModelWireBuildStageShadow(const CUnit* unit, const double* upperPlane, const double* lowerPlane, bool noLuaCall) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: clip planes and FFP matrix stack are legacy GL with no RHI equivalent.
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	if (globalRendering->amdHacks) {
-		glDisable(GL_CLIP_PLANE0);
-		glDisable(GL_CLIP_PLANE1);
+		ctx->SetClipDistanceEnabled(0, false);
+		ctx->SetClipDistanceEnabled(1, false);
 	} else {
 		glPushMatrix();
 		glLoadIdentity();
@@ -1149,14 +1142,13 @@ void CUnitDrawerGLSL::DrawModelWireBuildStageShadow(const CUnit* unit, const dou
 		glPopMatrix();
 	}
 
-	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetPolygonMode(RHI::PolygonMode::Line);
 	DrawUnitModel(unit, noLuaCall);
 	ctx->SetPolygonMode(RHI::PolygonMode::Fill);
 
 	if (globalRendering->amdHacks) {
-		glEnable(GL_CLIP_PLANE0);
-		glEnable(GL_CLIP_PLANE1);
+		ctx->SetClipDistanceEnabled(0, true);
+		ctx->SetClipDistanceEnabled(1, true);
 	}
 }
 
@@ -1212,12 +1204,12 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLu
 		{0.0f,  0.0f, 0.0f,                                                           0.0f },
 	};
 
-	// RHI_TODO: glColor4fv and glClipPlane are legacy FFP with no RHI equivalent.
-	// See DrawUnitModelBeingBuiltShadow note.
 	float savedColor[4];
 	glGetFloatv(GL_CURRENT_COLOR, savedColor);
-	glEnable(GL_CLIP_PLANE0);
-	glEnable(GL_CLIP_PLANE1);
+
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetClipDistanceEnabled(0, true);
+	ctx->SetClipDistanceEnabled(1, true);
 
 	{
 		// wireframe, unconditional
@@ -1231,7 +1223,7 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLu
 		DrawModelFlatBuildStageOpaque(unit, upperPlanes[BUILDSTAGE_WIRE], lowerPlanes[BUILDSTAGE_WIRE], noLuaCall);
 	}
 
-	glDisable(GL_CLIP_PLANE1);
+	ctx->SetClipDistanceEnabled(1, false);
 
 	if (stageBounds.z > 2.0f / 3.0f) {
 		// fully-shaded, conditional
@@ -1240,29 +1232,30 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLu
 	}
 
 	SetNanoColor(float4(1.0f, 1.0f, 1.0f, 0.0f)); // turn off in any case
-	glDisable(GL_CLIP_PLANE0);
+	ctx->SetClipDistanceEnabled(0, false);
 	glColor4fv(savedColor);
 }
 
 void CUnitDrawerGLSL::DrawModelWireBuildStageOpaque(const CUnit* unit, const double* upperPlane, const double* lowerPlane, bool noLuaCall) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	if (globalRendering->amdHacks) {
-		glDisable(GL_CLIP_PLANE0);
-		glDisable(GL_CLIP_PLANE1);
+		ctx->SetClipDistanceEnabled(0, false);
+		ctx->SetClipDistanceEnabled(1, false);
 	} else {
 		glClipPlane(GL_CLIP_PLANE0, upperPlane);
 		glClipPlane(GL_CLIP_PLANE1, lowerPlane);
 	}
 
-	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetPolygonMode(RHI::PolygonMode::Line);
 	DrawUnitModel(unit, noLuaCall);
 	ctx->SetPolygonMode(RHI::PolygonMode::Fill);
 
 	if (globalRendering->amdHacks) {
-		glEnable(GL_CLIP_PLANE0);
-		glEnable(GL_CLIP_PLANE1);
+		ctx->SetClipDistanceEnabled(0, true);
+		ctx->SetClipDistanceEnabled(1, true);
 	}
 }
 
@@ -1278,12 +1271,13 @@ void CUnitDrawerGLSL::DrawModelFlatBuildStageOpaque(const CUnit* unit, const dou
 void CUnitDrawerGLSL::DrawModelFillBuildStageOpaque(const CUnit* unit, const double* upperPlane, const double* lowerPlane, bool noLuaCall) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	if (globalRendering->amdHacks)
-		glDisable(GL_CLIP_PLANE0);
+		ctx->SetClipDistanceEnabled(0, false);
 	else
 		glClipPlane(GL_CLIP_PLANE0, upperPlane);
 
-	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetPolygonOffset(true, 1.0f, 1.0f);
 	DrawUnitModel(unit, noLuaCall);
 	ctx->SetPolygonOffset(false);

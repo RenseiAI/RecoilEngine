@@ -1,5 +1,20 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * RHI Migration Status: BLOCKED
+ *
+ * Remaining GL calls (~5, all in CFeatureDrawerLegacy):
+ *   - glCallList(preList/postList): Lua display lists, no RHI equivalent.
+ *     Blocked on Lua display list infrastructure replacement.
+ *   - glPushMatrix/glMultMatrixf/glPopMatrix: FFP matrix stack in DrawFeatureTrans.
+ *     GLSL shaders read gl_ModelViewProjectionMatrix from FFP state.
+ *     Blocked on shader migration to uniform-based transforms (GL4 path).
+ *
+ * The GL4 path (CFeatureDrawerGL4) does NOT use these FFP calls — it uses
+ * S3DModelVAO::Submit with uniform buffers for transforms. Once the GL4 path
+ * handles all rendering, the legacy GLSL path and its FFP calls can be removed.
+ */
+
 #include "FeatureDrawer.h"
 
 #include "Game/Camera.h"

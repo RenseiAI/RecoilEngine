@@ -6,42 +6,27 @@
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
-#include "Rendering/GL/SubState.h"
 #include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Rendering/RHI/RHIFactory.h"
 
 /**
- * RHI_MIGRATION_DOCS(HUDDrawer)
- *
- * Migration Status: PARTIAL - Pipeline state abstracted, matrix stack migrated to RHI::MatrixStack
- *
- * GL::SubState to RHI Mapping (Draw function):
- *   GL::SubState(DepthTest(GL_FALSE), Blending(GL_TRUE), BlendFunc(...))
- *   Maps to:
- *     RHI::PipelineDesc desc;
- *     desc.depthStencil.depthTestEnabled = false;
- *     desc.blend.enabled = true;
- *     desc.blend.srcColor = RHI::BlendFactor::SrcAlpha;
- *     desc.blend.dstColor = RHI::BlendFactor::OneMinusSrcAlpha;
+ * RHI Migration Status: MOSTLY COMPLETE
  *
  * MIGRATED:
- *   - Immediate mode in DrawUnitDirectionArrow, DrawCameraDirectionArrow,
- *     DrawTargetReticle: glBegin/glEnd, glVertex*, glColor*
- *     -> TypedRenderBuffer<VA_TYPE_C>
- *   - FFP texturing: glEnable/glDisable(GL_TEXTURE_2D) -> removed (shader-based)
- *   - Matrix stack: glPushMatrix/glPopMatrix, glTranslatef, glScalef, glRotatef,
- *     glMultMatrixf, glLoadIdentity -> RHI::MatrixStack + RHI::ScopedMatrixPush
- *     [x] All transform computation on CPU via MatrixStack
- *     Remaining GL: glLoadMatrixf flush calls before draws (RenderBuffer shader
- *     reads gl_ModelViewProjectionMatrix from FFP state)
+ *   - Immediate mode drawing -> TypedRenderBuffer<VA_TYPE_C>
+ *   - FFP texturing (glEnable/glDisable GL_TEXTURE_2D) -> removed (shader-based)
+ *   - Matrix stack -> RHI::MatrixStack + RHI::ScopedMatrixPush (CPU-side)
+ *   - GL::SubState(DepthTest, Blending, BlendFunc) -> ctx->Set*() RHI dynamic state
  *
- * Not migrated (deferred):
- *   - DrawModel: glColor4f before unit->localModel.Draw() (model drawing)
- *
- * Completion Criteria:
- *   [x] Convert immediate-mode drawing to vertex buffers
- *   [x] Replace matrix stack with RHI::MatrixStack (flush via glLoadMatrixf)
- *   [x] Document GL::SubState -> RHI::PipelineDesc mapping
+ * Remaining GL calls (cannot migrate yet):
+ *   - glMatrixMode/glLoadMatrixf in FlushMatrices: RenderBuffer shader reads
+ *     gl_ModelViewProjectionMatrix from FFP state. Blocked on shader migration.
+ *   - glMatrixMode/glPushMatrix/glPopMatrix in Draw: save/restore outer GL
+ *     matrix state for GLSL shader compatibility.
+ *   - glColor4f in DrawModel: FFP vertex color read by model shader as gl_Color.
+ *     Blocked on shader migration to uniform-based vertex color.
  */
 #include "Game/Camera.h"
 #include "Game/GlobalUnsynced.h"
@@ -56,9 +41,6 @@
 #include "System/SpringMath.h"
 
 #include <cmath>
-
-using namespace GL::State;
-
 
 HUDDrawer* HUDDrawer::GetInstance()
 {
@@ -306,10 +288,10 @@ void HUDDrawer::Draw(const CUnit* unit)
 	mvStack.LoadIdentity();
 	FlushMatrices();
 
-	auto state = GL::SubState(
-		DepthTest(GL_FALSE),
-		Blending(GL_TRUE),
-		BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetDepthTestEnabled(false);
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
 	{
 		RHI::ScopedMatrixPush mvGuard(mvStack);
@@ -317,12 +299,16 @@ void HUDDrawer::Draw(const CUnit* unit)
 		DrawCameraDirectionArrow(unit);
 	}
 
-	state << DepthTest(GL_TRUE);
+	ctx->SetDepthTestEnabled(true);
 		DrawModel(unit);
 		DrawWeaponStates(unit);
 
-	state << DepthTest(GL_FALSE);
+	ctx->SetDepthTestEnabled(false);
 		DrawTargetReticle(unit);
+
+	// Restore default state
+	ctx->SetDepthTestEnabled(true);
+	ctx->SetBlendEnabled(false);
 
 	// Restore outer GL matrix state
 	glMatrixMode(GL_PROJECTION);
