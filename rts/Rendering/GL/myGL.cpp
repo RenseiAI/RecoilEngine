@@ -580,8 +580,8 @@ void ClearScreen()
 
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
-	glEnable(GL_TEXTURE_2D);
-	glColor3f(1, 1, 1);
+	// glEnable(GL_TEXTURE_2D) removed — no-op in core profile, shaders handle texturing
+	glColor3f(1, 1, 1); // FFP default vertex color — retained for legacy compat paths
 }
 
 

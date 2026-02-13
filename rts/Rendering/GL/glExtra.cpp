@@ -5,8 +5,8 @@
  *
  * RHI Migration Status: PARTIALLY MIGRATED
  * -----------------------------------------
- * glDrawVolume: Migrated to RHI dynamic state context (depth, cull, color mask, stencil test enable)
- *   Remaining GL: glDepthClamp, glStencil* ops (no RHI equivalent)
+ * glDrawVolume: FULLY MIGRATED to RHI dynamic state context
+ *   (depth, cull, color mask, stencil test/func/op/mask, depth clamp)
  *
  * GL::Shapes (~8 GL calls): glDrawElements, vertex attrib setup
  *   RHI: Use IRHIBuffer + IRHIContext::DrawIndexed()
@@ -236,20 +236,20 @@ void glDrawVolume(DrawVolumeFunc drawFunc, const void* data)
 	ctx->SetDepthWriteEnabled(false);
 	ctx->SetCullFaceEnabled(false);
 	ctx->SetDepthTestEnabled(true);
-	glEnable(GL_DEPTH_CLAMP);
+	ctx->SetDepthClampEnabled(true);
 
 	ctx->SetColorMask(false, false, false, false);
 
 		ctx->SetStencilTestEnabled(true);
-		glStencilMask(0x1);
-		glStencilFunc(GL_ALWAYS, 0, 0x1);
-		glStencilOp(GL_KEEP, GL_INCR, GL_KEEP);
+		ctx->SetStencilMask(0x1);
+		ctx->SetStencilFunc(RHI::CompareFunc::Always, 0, 0x1);
+		ctx->SetStencilOp(RHI::StencilOp::Keep, RHI::StencilOp::IncrClamp, RHI::StencilOp::Keep);
 		drawFunc(data); // draw
 
 	ctx->SetDepthTestEnabled(false);
 
-	glStencilFunc(GL_NOTEQUAL, 0, 0x1);
-	glStencilOp(GL_ZERO, GL_ZERO, GL_ZERO); // clear as we go
+	ctx->SetStencilFunc(RHI::CompareFunc::NotEqual, 0, 0x1);
+	ctx->SetStencilOp(RHI::StencilOp::Zero, RHI::StencilOp::Zero, RHI::StencilOp::Zero); // clear as we go
 
 	ctx->SetColorMask(true, true, true, true);
 
@@ -258,7 +258,7 @@ void glDrawVolume(DrawVolumeFunc drawFunc, const void* data)
 
 	drawFunc(data);   // draw
 
-	glDisable(GL_DEPTH_CLAMP);
+	ctx->SetDepthClampEnabled(false);
 	ctx->SetStencilTestEnabled(false);
 	ctx->SetCullFaceEnabled(false);
 	ctx->SetDepthTestEnabled(true);

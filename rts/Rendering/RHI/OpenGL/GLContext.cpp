@@ -84,6 +84,20 @@ static GLenum ToGLCullMode(CullMode mode) {
 	return GL_BACK;
 }
 
+static GLenum ToGLStencilOp(StencilOp op) {
+	switch (op) {
+		case StencilOp::Keep:      return GL_KEEP;
+		case StencilOp::Zero:      return GL_ZERO;
+		case StencilOp::Replace:   return GL_REPLACE;
+		case StencilOp::IncrClamp: return GL_INCR;
+		case StencilOp::DecrClamp: return GL_DECR;
+		case StencilOp::Invert:    return GL_INVERT;
+		case StencilOp::IncrWrap:  return GL_INCR_WRAP;
+		case StencilOp::DecrWrap:  return GL_DECR_WRAP;
+	}
+	return GL_KEEP;
+}
+
 static GLenum ToGLPolygonMode(PolygonMode mode) {
 	switch (mode) {
 		case PolygonMode::Fill:  return GL_FILL;
@@ -386,6 +400,25 @@ void GLContext::SetStencilTestEnabled(bool enabled) {
 		glEnable(GL_STENCIL_TEST);
 	else
 		glDisable(GL_STENCIL_TEST);
+}
+
+void GLContext::SetStencilFunc(CompareFunc func, int32_t ref, uint32_t mask) {
+	glStencilFunc(ToGLCompareFunc(func), ref, mask);
+}
+
+void GLContext::SetStencilOp(StencilOp sfail, StencilOp dpfail, StencilOp dppass) {
+	glStencilOp(ToGLStencilOp(sfail), ToGLStencilOp(dpfail), ToGLStencilOp(dppass));
+}
+
+void GLContext::SetStencilMask(uint32_t mask) {
+	glStencilMask(mask);
+}
+
+void GLContext::SetDepthClampEnabled(bool enabled) {
+	if (enabled)
+		glEnable(GL_DEPTH_CLAMP);
+	else
+		glDisable(GL_DEPTH_CLAMP);
 }
 
 void GLContext::SetScissorTestEnabled(bool enabled) {

@@ -57,6 +57,10 @@ public:
 	void SetPointSize(float size) override;
 	void SetPolygonMode(PolygonMode mode) override;
 	void SetStencilTestEnabled(bool enabled) override;
+	void SetStencilFunc(CompareFunc func, int32_t ref, uint32_t mask) override;
+	void SetStencilOp(StencilOp sfail, StencilOp dpfail, StencilOp dppass) override;
+	void SetStencilMask(uint32_t mask) override;
+	void SetDepthClampEnabled(bool enabled) override;
 	void SetScissorTestEnabled(bool enabled) override;
 
 	void ClearColor(float r, float g, float b, float a) override;

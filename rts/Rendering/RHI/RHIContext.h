@@ -95,6 +95,10 @@ public:
 	virtual void SetPointSize(float size) = 0;
 	virtual void SetPolygonMode(PolygonMode mode) = 0;
 	virtual void SetStencilTestEnabled(bool enabled) = 0;
+	virtual void SetStencilFunc(CompareFunc func, int32_t ref, uint32_t mask) = 0;
+	virtual void SetStencilOp(StencilOp sfail, StencilOp dpfail, StencilOp dppass) = 0;
+	virtual void SetStencilMask(uint32_t mask) = 0;
+	virtual void SetDepthClampEnabled(bool enabled) = 0;
 	virtual void SetScissorTestEnabled(bool enabled) = 0;
 
 	// --- Clear ---
