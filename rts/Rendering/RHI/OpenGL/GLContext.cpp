@@ -98,6 +98,17 @@ static GLenum ToGLStencilOp(StencilOp op) {
 	return GL_KEEP;
 }
 
+static GLenum ToGLBlendOp(BlendOp op) {
+	switch (op) {
+		case BlendOp::Add:             return GL_FUNC_ADD;
+		case BlendOp::Subtract:        return GL_FUNC_SUBTRACT;
+		case BlendOp::ReverseSubtract: return GL_FUNC_REVERSE_SUBTRACT;
+		case BlendOp::Min:             return GL_MIN;
+		case BlendOp::Max:             return GL_MAX;
+	}
+	return GL_FUNC_ADD;
+}
+
 static GLenum ToGLPolygonMode(PolygonMode mode) {
 	switch (mode) {
 		case PolygonMode::Fill:  return GL_FILL;
@@ -306,7 +317,7 @@ void GLContext::BlitFramebuffer(
 	IRHIFramebuffer* src, IRHIFramebuffer* dst,
 	int srcX0, int srcY0, int srcX1, int srcY1,
 	int dstX0, int dstY0, int dstX1, int dstY1,
-	bool colorBit, bool depthBit)
+	bool colorBit, bool depthBit, bool filterLinear)
 {
 	GLint srcId = src ? src->GetNativeHandle() : 0;
 	GLint dstId = dst ? dst->GetNativeHandle() : 0;
@@ -315,10 +326,12 @@ void GLContext::BlitFramebuffer(
 	if (colorBit) mask |= GL_COLOR_BUFFER_BIT;
 	if (depthBit) mask |= GL_DEPTH_BUFFER_BIT;
 
+	// Depth blits require GL_NEAREST; color-only blits use the caller's preference
+	GLenum filter = (depthBit || !filterLinear) ? GL_NEAREST : GL_LINEAR;
 	FBO::Blit(srcId, dstId,
 		{srcX0, srcY0, srcX1, srcY1},
 		{dstX0, dstY0, dstX1, dstY1},
-		mask, depthBit ? GL_NEAREST : GL_LINEAR);
+		mask, filter);
 }
 
 // --- Dynamic state ---
@@ -345,6 +358,14 @@ void GLContext::SetBlendFuncSeparate(BlendFactor srcColor, BlendFactor dstColor,
 		ToGLBlendFactor(srcAlpha),
 		ToGLBlendFactor(dstAlpha)
 	);
+}
+
+void GLContext::SetBlendEquation(BlendOp op) {
+	glBlendEquation(ToGLBlendOp(op));
+}
+
+void GLContext::SetBlendEquationSeparate(BlendOp colorOp, BlendOp alphaOp) {
+	glBlendEquationSeparate(ToGLBlendOp(colorOp), ToGLBlendOp(alphaOp));
 }
 
 void GLContext::SetCullFaceEnabled(bool enabled) {

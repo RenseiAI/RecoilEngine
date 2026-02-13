@@ -49,6 +49,8 @@ public:
 	void SetBlendEnabled(bool enabled) override;
 	void SetBlendFunc(BlendFactor src, BlendFactor dst) override;
 	void SetBlendFuncSeparate(BlendFactor srcColor, BlendFactor dstColor, BlendFactor srcAlpha, BlendFactor dstAlpha) override;
+	void SetBlendEquation(BlendOp op) override;
+	void SetBlendEquationSeparate(BlendOp colorOp, BlendOp alphaOp) override;
 	void SetCullFaceEnabled(bool enabled) override;
 	void SetCullFace(CullMode mode) override;
 	void SetColorMask(bool r, bool g, bool b, bool a) override;
@@ -70,7 +72,7 @@ public:
 	void ClearStencil(uint32_t value) override;
 	void Clear(bool color, bool depth, bool stencil) override;
 
-	void BlitFramebuffer(IRHIFramebuffer* src, IRHIFramebuffer* dst, int srcX0, int srcY0, int srcX1, int srcY1, int dstX0, int dstY0, int dstX1, int dstY1, bool colorBit, bool depthBit) override;
+	void BlitFramebuffer(IRHIFramebuffer* src, IRHIFramebuffer* dst, int srcX0, int srcY0, int srcX1, int srcY1, int dstX0, int dstY0, int dstX1, int dstY1, bool colorBit, bool depthBit, bool filterLinear) override;
 
 	void Flush() override;
 	void Finish() override;

@@ -87,6 +87,8 @@ public:
 	virtual void SetBlendEnabled(bool enabled) = 0;
 	virtual void SetBlendFunc(BlendFactor src, BlendFactor dst) = 0;
 	virtual void SetBlendFuncSeparate(BlendFactor srcColor, BlendFactor dstColor, BlendFactor srcAlpha, BlendFactor dstAlpha) = 0;
+	virtual void SetBlendEquation(BlendOp op) = 0;
+	virtual void SetBlendEquationSeparate(BlendOp colorOp, BlendOp alphaOp) = 0;
 	virtual void SetCullFaceEnabled(bool enabled) = 0;
 	virtual void SetCullFace(CullMode mode) = 0;
 	virtual void SetColorMask(bool r, bool g, bool b, bool a) = 0;
@@ -114,7 +116,7 @@ public:
 		IRHIFramebuffer* src, IRHIFramebuffer* dst,
 		int srcX0, int srcY0, int srcX1, int srcY1,
 		int dstX0, int dstY0, int dstX1, int dstY1,
-		bool colorBit, bool depthBit) = 0;
+		bool colorBit, bool depthBit, bool filterLinear = false) = 0;
 
 	// --- Synchronization ---
 	virtual void Flush() = 0;
