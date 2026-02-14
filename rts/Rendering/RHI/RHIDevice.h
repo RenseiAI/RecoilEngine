@@ -115,6 +115,18 @@ public:
 		uint32_t mipLevels = 1,
 		uint32_t sampleCount = 1) = 0;
 
+	/// Wrap an existing GL texture ID in an IRHITexture (OpenGL backend only).
+	/// The IRHITexture takes ownership and will delete the GL texture on destruction.
+	/// Metal backend returns nullptr (not supported).
+	virtual std::unique_ptr<IRHITexture> CreateTextureFromExisting(
+		uint32_t glTextureId,
+		TextureType type,
+		TextureFormat format,
+		uint32_t width,
+		uint32_t height,
+		uint32_t depthOrLayers = 1,
+		uint32_t mipLevels = 1) = 0;
+
 	virtual std::unique_ptr<IRHIShader> CreateShader(const std::string& name) = 0;
 
 	virtual std::unique_ptr<IRHIFramebuffer> CreateFramebuffer() = 0;

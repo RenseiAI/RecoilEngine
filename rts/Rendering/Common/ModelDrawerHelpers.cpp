@@ -1,26 +1,25 @@
 /* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
 
 /**
- * RHI Migration Status: PARTIAL
+ * RHI Migration Status: TIER 4.1 - MIGRATED
  *
- * This file is partially migrated to the RHI abstraction layer.
+ * Migrated GL calls to RHI equivalents:
+ *   - Pipeline state (cull mode): RHI::PipelineDesc + BindPipeline()
+ *   - RHI device/context access: RHI::GetDevice(), GetContext()
+ *   - Model texture binding: IRHITexture::Bind() for 3DO atlas and S3O textures
+ *   - Shadow texture binding: IRHITexture::Bind() via shadowHandler.GetColorTexture()
+ *   - Cube map texture binding: IRHITexture::Bind() via cubeMapHandler.GetEnvReflectionTexture()/GetSpecularTexture()
+ *   - Matrix stack (14 calls): RHI::MatrixStack for CPU-side transforms
+ *     [x] glMatrixMode/glPushMatrix/glPopMatrix/glLoadIdentity/glMultMatrixf -> RHI::MatrixStack
+ *     [x] Static projectionStack/modelViewStack instances manage FFP state
+ *     [x] FlushMatricesToFFP() syncs RHI stacks to GL FFP after each operation
  *
- * Migrated patterns:
- *   - Pipeline state (cull mode) -> RHI::PipelineDesc + ctx->BindPipeline()
- *   - RHI device/context access  -> RHI::CreateDevice(), GetContext()
- *   - Model texture binding -> IRHITexture::Bind() for 3DO atlas and S3O textures
- *   - Shadow texture binding -> IRHITexture::Bind() via shadowHandler.GetColorTexture()
- *
- * Remaining GL calls (with RHI_TODO comments):
- *   - glActiveTexture/glBindTexture(0): Texture unbinding not supported by IRHITexture
- *   - glActiveTexture/glBindTexture(cube maps): cubeMapHandler doesn't expose RHI textures
- *   - glMatrixMode/glPushMatrix/glPopMatrix: Legacy FFP matrix stack, no RHI equivalent
- *   - glGetIntegerv(GL_MATRIX_MODE): Legacy FFP state query, no RHI equivalent
- *
- * Dependencies blocking full migration:
- *   - cubeMapHandler needs to expose IRHITexture* getters (currently only GetNativeHandle())
- *   - IRHITexture needs Unbind() method or context->UnbindTexture(unit)
- *   - FFP matrix stack used by legacy path; GL4 path uses uniform buffers
+ * Retained GL calls (FFP shader dependencies or external blockers):
+ *   - FFP matrix flush (3 calls): glMatrixMode(2) + glLoadMatrixf(2) in FlushMatricesToFFP().
+ *     Required because ModelVertProg.glsl reads gl_ModelViewMatrix/gl_ProjectionMatrix.
+ *   - FFP matrix mode query (1 call): glGetIntegerv(GL_MATRIX_MODE) in DIDCheckMatrixMode() for debug checks.
+ *   - Shadow color texture fallback (2 calls): glActiveTexture + glBindTexture when GetColorTexture() returns nullptr.
+ *     Blocked: shadowHandler.GetColorTexture() doesn't always return RHI texture.
  */
 
 #include "ModelDrawerHelpers.h"
@@ -40,8 +39,24 @@
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/RHI/RHIPipeline.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/MatrixStack.h"
 
 #include "System/Misc/TracyDefs.h"
+
+// Static matrix stacks for FFP state manipulation
+// These stacks mirror the FFP GL_PROJECTION and GL_MODELVIEW matrix stacks.
+// After each manipulation, we flush to FFP state because model shaders read gl_ModelViewMatrix/gl_ProjectionMatrix.
+static RHI::MatrixStack projectionStack;
+static RHI::MatrixStack modelViewStack;
+
+// Flush RHI matrix stacks to FFP state (required by ModelVertProg.glsl and other model shaders)
+static void FlushMatricesToFFP()
+{
+	glMatrixMode(GL_PROJECTION);
+	glLoadMatrixf(projectionStack.Top());
+	glMatrixMode(GL_MODELVIEW);
+	glLoadMatrixf(modelViewStack.Top());
+}
 
 bool CModelDrawerHelper::ObjectVisibleReflection(const float3& objPos, const float3& camPos, float maxRadius)
 {
@@ -57,7 +72,7 @@ bool CModelDrawerHelper::ObjectVisibleReflection(const float3& objPos, const flo
 	float3 zeroPos;
 	zeroPos += (camPos * ( objPos.y / dif));
 	zeroPos += (objPos * (-camPos.y / dif));
-	// If the height of the ground at zeropos is less than the maxradius, 
+	// If the height of the ground at zeropos is less than the maxradius,
 	// we are likely to get a reflection (e.g. high cliffs will prevent reflections
 	return (CGround::GetApproximateHeight(zeroPos.x, zeroPos.z, false) <= maxRadius);
 #else
@@ -71,25 +86,24 @@ bool CModelDrawerHelper::ObjectVisibleReflection(const float3& objPos, const flo
 void CModelDrawerHelper::EnableTexturesCommon()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: cubeMapHandler doesn't yet expose RHI texture objects (only GetNativeHandle),
-	// so cube map binding still uses raw GL calls.
-
 	if (shadowHandler.ShadowsLoaded()) {
 		shadowHandler.SetupShadowTexSampler(GL_TEXTURE2, true);
 		// Shadow color texture - bind via RHI if available, else GL fallback
 		if (auto* colorTex = shadowHandler.GetColorTexture()) {
 			colorTex->Bind(3);
 		} else {
+			// RHI_TODO: shadowHandler.GetColorTexture() returns nullptr (raw GLuint fallback)
 			glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, shadowHandler.GetColorTextureID());
 		}
 	}
 
-	// Cube map textures - use GL until cubeMapHandler exposes RHI texture objects
-	glActiveTexture(GL_TEXTURE4);
-	glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapHandler.GetEnvReflectionTextureID());
-
-	glActiveTexture(GL_TEXTURE5);
-	glBindTexture(GL_TEXTURE_CUBE_MAP, cubeMapHandler.GetSpecularTextureID());
+	// Cube map textures - bind via RHI
+	if (auto* envReflTex = cubeMapHandler.GetEnvReflectionTexture()) {
+		envReflTex->Bind(4);
+	}
+	if (auto* specTex = cubeMapHandler.GetSpecularTexture()) {
+		specTex->Bind(5);
+	}
 }
 
 void CModelDrawerHelper::DisableTexturesCommon()
@@ -102,25 +116,26 @@ void CModelDrawerHelper::DisableTexturesCommon()
 void CModelDrawerHelper::PushTransform(const CCamera* cam)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: FFP matrix stack (glMatrixMode/glPushMatrix/glPopMatrix) has no
-	// RHI equivalent. GL4 path uses uniform buffers for transforms. This legacy
-	// path should be removed once the GL4 path handles all model rendering.
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glMultMatrixf(cam->GetViewMatrix());
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	glLoadIdentity();
+	// Push matrices on RHI stacks (mirrors FFP glPushMatrix behavior)
+	projectionStack.Push();
+	projectionStack.MultMatrix(cam->GetViewMatrix());
+
+	modelViewStack.Push();
+	modelViewStack.LoadIdentity();
+
+	// Flush to FFP state for shaders that read gl_ModelViewMatrix/gl_ProjectionMatrix
+	FlushMatricesToFFP();
 }
 
 void CModelDrawerHelper::PopTransform()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: FFP matrix stack - see PushTransform note
-	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
+	// Pop matrices from RHI stacks (mirrors FFP glPopMatrix behavior)
+	projectionStack.Pop();
+	modelViewStack.Pop();
+
+	// Flush to FFP state for shaders that read gl_ModelViewMatrix/gl_ProjectionMatrix
+	FlushMatricesToFFP();
 }
 
 float4 CModelDrawerHelper::GetTeamColor(int team, float alpha)
@@ -140,26 +155,31 @@ void CModelDrawerHelper::DIDResetPrevProjection(bool toScreen)
 	if (!toScreen)
 		return;
 
-	// RHI_TODO: FFP matrix stack - see PushTransform note
-	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-	glPushMatrix();
+	// Pop and re-push projection matrix (reset to previous state)
+	projectionStack.Pop();
+	projectionStack.Push();
+
+	// Flush to FFP state for shaders that read gl_ProjectionMatrix
+	FlushMatricesToFFP();
 }
 
 void CModelDrawerHelper::DIDResetPrevModelView()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: FFP matrix stack - see PushTransform note
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
-	glPushMatrix();
+	// Pop and re-push modelview matrix (reset to previous state)
+	modelViewStack.Pop();
+	modelViewStack.Push();
+
+	// Flush to FFP state for shaders that read gl_ModelViewMatrix
+	FlushMatricesToFFP();
 }
 
 bool CModelDrawerHelper::DIDCheckMatrixMode(int wantedMode)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: glGetIntegerv(GL_MATRIX_MODE) is FFP state query with no RHI equivalent.
-	// This debug check should be removed once FFP matrix stack is eliminated.
+	// Debug check for FFP matrix mode. Retained because FlushMatricesToFFP() manipulates GL matrix mode.
+	// This check verifies the FFP state is as expected before drawing.
+	// Could be removed once the legacy rendering path is eliminated.
 #if 1
 	int matrixMode = 0;
 	glGetIntegerv(GL_MATRIX_MODE, &matrixMode);

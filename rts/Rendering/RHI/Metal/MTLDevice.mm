@@ -352,6 +352,19 @@ std::unique_ptr<IRHITexture> MTLDevice::CreateTexture(
 	return std::make_unique<MTLTexture>(this, type, format, width, height, depthOrLayers, mipLevels, sampleCount);
 }
 
+std::unique_ptr<IRHITexture> MTLDevice::CreateTextureFromExisting(
+	uint32_t glTextureId,
+	TextureType type,
+	TextureFormat format,
+	uint32_t width,
+	uint32_t height,
+	uint32_t depthOrLayers,
+	uint32_t mipLevels)
+{
+	// Metal cannot wrap GL texture IDs — not supported
+	return nullptr;
+}
+
 std::unique_ptr<IRHIShader> MTLDevice::CreateShader(const std::string& name) {
 	if (!deviceValid) return nullptr;
 	return std::make_unique<MTLShader>(this, name);

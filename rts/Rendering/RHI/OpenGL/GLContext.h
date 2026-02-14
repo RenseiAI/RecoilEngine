@@ -66,6 +66,7 @@ public:
 	void SetScissorTestEnabled(bool enabled) override;
 	void SetLogicOpEnabled(bool enabled) override;
 	void SetLogicOp(LogicOp op) override;
+	void SetProgramPointSizeEnabled(bool enabled) override;
 
 	void ClearColor(float r, float g, float b, float a) override;
 	void ClearDepth(float depth) override;

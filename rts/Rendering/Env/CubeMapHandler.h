@@ -23,6 +23,10 @@ public:
 	unsigned int GetReflectionTextureSize() const { return reflTexSize; }
 	unsigned int GetSpecularTextureSize() const { return specTexSize; }
 
+	// RHI texture accessors (for migration from raw GL binding)
+	RHI::IRHITexture* GetEnvReflectionTexture() const { return envReflectionTex.get(); }
+	RHI::IRHITexture* GetSpecularTexture() const { return specularTex.get(); }
+
 private:
 	void CreateReflectionFace(unsigned int, bool);
 	void CreateSpecularFacePart(unsigned int, unsigned int, const float3&, const float3&, const float3&, unsigned int, unsigned char*);

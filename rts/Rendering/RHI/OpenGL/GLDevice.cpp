@@ -254,6 +254,10 @@ std::unique_ptr<IRHITexture> GLDevice::CreateTexture(TextureType type, TextureFo
 	return std::make_unique<GLTexture>(type, format, width, height, depthOrLayers, mipLevels, sampleCount);
 }
 
+std::unique_ptr<IRHITexture> GLDevice::CreateTextureFromExisting(uint32_t glTextureId, TextureType type, TextureFormat format, uint32_t width, uint32_t height, uint32_t depthOrLayers, uint32_t mipLevels) {
+	return std::make_unique<GLTexture>(glTextureId, type, format, width, height, depthOrLayers, mipLevels);
+}
+
 std::unique_ptr<IRHIShader> GLDevice::CreateShader(const std::string& name) {
 	return std::make_unique<GLShader>(name);
 }

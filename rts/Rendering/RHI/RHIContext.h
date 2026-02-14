@@ -104,6 +104,7 @@ public:
 	virtual void SetScissorTestEnabled(bool enabled) = 0;
 	virtual void SetLogicOpEnabled(bool enabled) = 0;
 	virtual void SetLogicOp(LogicOp op) = 0;
+	virtual void SetProgramPointSizeEnabled(bool enabled) = 0;
 
 	// --- Clear ---
 	virtual void ClearColor(float r, float g, float b, float a) = 0;

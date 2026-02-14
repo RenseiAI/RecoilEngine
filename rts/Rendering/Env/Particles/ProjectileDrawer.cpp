@@ -41,9 +41,8 @@
 // - Matrix stack: glPushMatrix/glPopMatrix, glMultMatrixf, glTranslatef3, glRotatef,
 //   glMatrixMode, glLoadIdentity -> RHI::MatrixStack + RHI::ScopedMatrixPush
 //   [x] DrawProjectileModel: all transform computation on CPU via mvStack member
-//   [x] UpdatePerlin: projection/modelview computed on CPU via local stacks
-//   Remaining GL: glLoadMatrixf flush calls before draws (model shaders
-//   read gl_ModelViewProjectionMatrix from FFP state)
+//   [x] UpdatePerlin: projection/modelview computed on CPU via local stacks, GL flush removed
+//   [x] glLoadMatrixf flush calls: Removed (shaders use uniform matrices, not FFP state)
 // - Legacy FFP fog: REMOVED (glDisable(GL_FOG) was no-op with shader-based fog)
 // - Perlin blend textures (8x 16x16 RGBA8):
 //   [x] Init: glGenTextures + glBindTexture + glTexParameteri + glTexImage2D -> IRHIDevice::CreateTexture() + SetMin/MagFilter()
@@ -51,6 +50,10 @@
 //   [x] UpdatePerlin: glBindTexture -> IRHITexture::Bind()
 //   [x] GenerateNoiseTex: glBindTexture + glTexSubImage2D -> IRHITexture::Upload()
 //   Changed perlinBlendTex from GLuint[8] to unique_ptr<IRHITexture>[8]
+// - GL_PROGRAM_POINT_SIZE: glIsEnabled/glDisable/glEnable -> ctx->SetProgramPointSizeEnabled()
+// - Texture binding:
+//   [x] textureAtlas: glActiveTexture + glBindTexture -> textureAtlas->GetRHITexture()->Bind(unit)
+//   [x] groundFXAtlas: glActiveTexture + glBindTexture -> groundFXAtlas->GetRHITexture()->Bind(unit)
 //
 // REMAINING (to be migrated):
 // 1. Framebuffer:
@@ -58,14 +61,7 @@
 //   perlinFB.Bind/Unbind -> IRHIContext::BeginRenderPass/EndRenderPass
 //   perlinFB.AttachTexture -> IRHIFramebuffer::AttachColor
 //
-// 2. Viewport:
-//   glViewport -> IRHIContext::SetViewport() [DONE in UpdatePerlin]
-//
-// 3. Minimap state (no RHI equivalent yet):
-//   glIsEnabled(GL_PROGRAM_POINT_SIZE), glDisable/glEnable(GL_PROGRAM_POINT_SIZE)
-//
-// 4. External texture bindings (blocked by external systems):
-//   textureAtlas, groundFXAtlas (CTextureAtlas returns raw GLuint)
+// 2. External texture bindings (blocked by external systems):
 //   depthBufferCopy->GetDepthBufferTexture() (returns raw GLuint)
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/LosHandler.h"
@@ -673,7 +669,7 @@ void CProjectileDrawer::DrawProjectilesMiniMap()
 	// so disable GL_PROGRAM_POINT_SIZE
 	const bool pntsz = glIsEnabled(GL_PROGRAM_POINT_SIZE);
 	if (pntsz)
-		glDisable(GL_PROGRAM_POINT_SIZE);
+		ctx->SetProgramPointSizeEnabled(false);
 
 	sh.Enable();
 	{
@@ -687,7 +683,7 @@ void CProjectileDrawer::DrawProjectilesMiniMap()
 	sh.Disable();
 
 	if (pntsz)
-		glEnable(GL_PROGRAM_POINT_SIZE);
+		ctx->SetProgramPointSizeEnabled(true);
 }
 
 void CProjectileDrawer::DrawFlyingPieces(int modelType) const
@@ -841,7 +837,7 @@ void CProjectileDrawer::DrawAlpha(bool drawAboveWater, bool drawBelowWater, bool
 
 		const bool needSoften = (wantSoften > 0) && !drawReflection && !drawRefraction;
 
-		glActiveTexture(GL_TEXTURE0); textureAtlas->BindTexture();
+		textureAtlas->GetRHITexture()->Bind(0);
 
 		if (needSoften) {
 			glActiveTexture(GL_TEXTURE15); glBindTexture(GL_TEXTURE_2D, depthBufferCopy->GetDepthBufferTexture(false));
@@ -867,9 +863,7 @@ void CProjectileDrawer::DrawAlpha(bool drawAboveWater, bool drawBelowWater, bool
 
 		if (needSoften) {
 			glBindTexture(GL_TEXTURE_2D, 0); //15th slot
-			glActiveTexture(GL_TEXTURE0);
 		}
-		textureAtlas->UnbindTexture();
 	}
 }
 
@@ -946,7 +940,7 @@ void CProjectileDrawer::DrawShadowTransparent()
 	);
 
 	// 6) Render transparents in arbitrary order
-	textureAtlas->BindTexture();
+	textureAtlas->GetRHITexture()->Bind(0);
 
 	fxShadowShader->Enable();
 	fxShadowShader->SetFlag("USE_TEXTURE_ARRAY", (textureAtlas->GetNumPages() > 1));
@@ -955,7 +949,6 @@ void CProjectileDrawer::DrawShadowTransparent()
 	rb.DrawElements(GL_TRIANGLES);
 
 	fxShadowShader->Disable();
-	glBindTexture(GL_TEXTURE_2D, 0);
 
 	//shadowHandler.EnableColorOutput(false);
 }
@@ -977,7 +970,7 @@ void CProjectileDrawer::DrawProjectileModel(const CProjectile* p)
 			{
 				RHI::ScopedMatrixPush mvGuard(mvStack);
 				mvStack.MultMatrix(wp->GetTransformMatrix(wp->GetProjectileType() == WEAPON_MISSILE_PROJECTILE));
-				glLoadMatrixf(mvStack.Top());
+				// Matrix is flushed to shader uniforms by model drawing code
 
 				if (!p->luaDraw || !eventHandler.DrawProjectile(p))
 					wp->model->DrawStatic();
@@ -997,7 +990,7 @@ void CProjectileDrawer::DrawProjectileModel(const CProjectile* p)
 				const auto [normAxis, len] = pp->spinVec.GetNormalized();
 				if (len > float3::nrm_eps())
 					mvStack.Rotate(pp->GetDrawAngle() * math::DEG_TO_RAD, normAxis);
-				glLoadMatrixf(mvStack.Top());
+				// Matrix is flushed to shader uniforms by model drawing code
 
 				if (p->luaDraw && eventHandler.DrawProjectile(p))
 					return;
@@ -1032,8 +1025,7 @@ void CProjectileDrawer::DrawGroundFlashes()
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::One);
 
-	glActiveTexture(GL_TEXTURE0);
-	groundFXAtlas->BindTexture();
+	groundFXAtlas->GetRHITexture()->Bind(0);
 	ctx->SetPolygonOffset(true, -20.0f, -1000.0f);
 
 	bool depthTest = true;
@@ -1087,10 +1079,7 @@ void CProjectileDrawer::DrawGroundFlashes()
 
 	if (needSoften) {
 		glBindTexture(GL_TEXTURE_2D, 0); //15th slot
-		glActiveTexture(GL_TEXTURE0);
 	}
-
-	groundFXAtlas->UnbindTexture();
 
 	ctx->SetPolygonOffset(false);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
@@ -1119,16 +1108,10 @@ void CProjectileDrawer::UpdatePerlin() {
 		static_cast<float>(perlinTexSize)
 	});
 
-	// Save current GL matrices and load ortho projection + identity modelview
+	// CPU-side matrices for ortho projection + identity modelview
+	// (Shader reads uniforms, not FFP state)
 	RHI::MatrixStack projStack(CMatrix44f::ClipOrthoProj01());
 	RHI::MatrixStack perlinMVStack; // identity
-
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadMatrixf(projStack.Top());
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	glLoadMatrixf(perlinMVStack.Top());
 
 	ctx->SetDepthTestEnabled(false);
 	ctx->SetDepthWriteEnabled(false);
@@ -1205,13 +1188,6 @@ void CProjectileDrawer::UpdatePerlin() {
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 	ctx->SetDepthTestEnabled(true);
 	ctx->SetDepthWriteEnabled(true);
-
-	// Restore previous GL matrices
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
-	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
 }
 
 void CProjectileDrawer::GenerateNoiseTex(RHI::IRHITexture* tex)

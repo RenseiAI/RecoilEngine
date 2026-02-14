@@ -73,6 +73,7 @@ public:
 	// Resource creation
 	std::unique_ptr<IRHIBuffer> CreateBuffer(BufferType type, BufferUsage usage, size_t size, const void* initialData) override;
 	std::unique_ptr<IRHITexture> CreateTexture(TextureType type, TextureFormat format, uint32_t width, uint32_t height, uint32_t depthOrLayers, uint32_t mipLevels, uint32_t sampleCount) override;
+	std::unique_ptr<IRHITexture> CreateTextureFromExisting(uint32_t glTextureId, TextureType type, TextureFormat format, uint32_t width, uint32_t height, uint32_t depthOrLayers, uint32_t mipLevels) override;
 	std::unique_ptr<IRHIShader> CreateShader(const std::string& name) override;
 	std::unique_ptr<IRHIFramebuffer> CreateFramebuffer() override;
 	std::unique_ptr<IRHIPipeline> CreatePipeline(const PipelineDesc& desc) override;

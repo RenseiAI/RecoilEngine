@@ -1,5 +1,19 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * RHI Migration Status: PARTIAL
+ *
+ * Completed:
+ *   - Removed dead FFP matrix stack calls (glLoadIdentity, glMultMatrixf)
+ *     Modern GLSL shaders receive transforms via direct uniforms, not gl_ModelViewMatrix
+ *
+ * Blocked (P2 - MapTexture migration):
+ *   - All texture binding (glActiveTexture + glBindTexture) in Enable()/Disable()
+ *   - MapTexture::GetID() returns raw GLuint, not IRHITexture*
+ *   - Needs P2 MapTexture refactor to store std::unique_ptr<IRHITexture>
+ *   - ~35 texture binding call sites remain (15 in Enable, 20 in Disable)
+ */
+
 #include "SMFRenderState.h"
 #include "SMFGroundDrawer.h"
 #include "SMFReadMap.h"
@@ -219,9 +233,9 @@ void SMFRenderStateGLSL::Enable(const CSMFGroundDrawer* smfGroundDrawer, const D
 
 	const CSMFReadMap* smfMap = smfGroundDrawer->GetReadMap();
 
-	// already on the MV stack at this point
-	glLoadIdentity();
-	glMultMatrixf(camera->GetViewMatrix());
+	// RHI_TODO(P2): Texture binding blocked by MapTexture migration
+	// MapTexture::GetID() returns raw GLuint; needs IRHITexture* + ctx->BindTexture()
+	// All glActiveTexture+glBindTexture calls below are blocked until P2 MapTexture refactor
 
 	if (isAdv && shadowHandler.ShadowsLoaded()) {
 		shadowHandler.SetupShadowTexSampler(GL_TEXTURE4, true);

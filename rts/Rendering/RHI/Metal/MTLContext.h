@@ -111,6 +111,7 @@ public:
 	void SetScissorTestEnabled(bool enabled) override { scissorEnabled = enabled; }
 	void SetLogicOpEnabled(bool enabled) override {}  // Metal: no logic ops, use shader blend
 	void SetLogicOp(LogicOp op) override {}            // Metal: no logic ops
+	void SetProgramPointSizeEnabled(bool enabled) override {}  // Metal: always from shader
 
 	// --- Clear ---
 	void ClearColor(float r, float g, float b, float a) override;

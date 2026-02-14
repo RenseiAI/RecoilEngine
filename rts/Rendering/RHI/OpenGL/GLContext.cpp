@@ -466,6 +466,13 @@ void GLContext::SetLogicOp(LogicOp op) {
 	glLogicOp(glOps[static_cast<uint8_t>(op)]);
 }
 
+void GLContext::SetProgramPointSizeEnabled(bool enabled) {
+	if (enabled)
+		glEnable(GL_PROGRAM_POINT_SIZE);
+	else
+		glDisable(GL_PROGRAM_POINT_SIZE);
+}
+
 // --- Sync ---
 
 void GLContext::Flush()  { glFlush(); }

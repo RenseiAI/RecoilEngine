@@ -9,6 +9,7 @@ set(sources_engine_Map
 		"${CMAKE_CURRENT_SOURCE_DIR}/MapDamage.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/MapInfo.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/MapParser.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/MapTexture.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/MetalMap.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/ReadMap.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Generation/BlankMapGenerator.cpp"

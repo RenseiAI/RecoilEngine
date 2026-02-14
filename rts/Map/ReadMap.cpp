@@ -130,16 +130,6 @@ std::vector<uint8_t> CReadMap::  syncedHeightMapDigests;
 std::vector<uint8_t> CReadMap::unsyncedHeightMapDigests;
 
 
-MapTexture::~MapTexture() {
-	// do NOT delete a Lua-set texture here!
-	glDeleteTextures(1, &texIDs[RAW_TEX_IDX]);
-
-	texIDs[RAW_TEX_IDX] = 0;
-	texIDs[LUA_TEX_IDX] = 0;
-}
-
-
-
 CReadMap* CReadMap::LoadMap(const std::string& mapName)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
