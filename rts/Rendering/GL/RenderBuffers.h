@@ -5,6 +5,7 @@
 #include "VertexArrayTypes.h"
 #include "VAO.h"
 
+#include "System/Matrix44f.h"
 #include "System/TypeToStr.h"
 #include "System/ContainerUtil.h"
 #include "System/Log/ILog.h"
@@ -651,6 +652,14 @@ public:
 
 	static Shader::IProgramObject& GetShader() { return shader.GetShader(); }
 
+	/// Set an explicit MVP transform for the next draw call, bypassing
+	/// the automatic FFP matrix sync. The value is consumed (reset) after
+	/// each DrawArrays/DrawElements call.
+	void SetTransformMatrix(const CMatrix44f& mvp) {
+		explicitTransform = mvp;
+		hasExplicitTransform = true;
+	}
+
 	/// Build an RHI VertexLayout from this type's attribute definitions.
 	/// Caller owns the returned attributes array (allocated via new[]).
 	static RHI::VertexLayout GetRHIVertexLayout() {
@@ -815,6 +824,9 @@ private:
 	bool readOnly = false;
 	bool optimizeForStreaming = true;
 
+	CMatrix44f explicitTransform;
+	bool hasExplicitTransform = false;
+
 	inline static RenderBufferShader<T> shader;
 
 	static constexpr const char* vboTypeName = spring::TypeToCStr<VertType>();
@@ -903,6 +915,21 @@ inline void TypedRenderBuffer<T>::DrawArrays(uint32_t mode, bool rewind)
 	assert(vao.GetIdRaw() > 0);
 #endif
 	vao.Bind();
+#ifndef HEADLESS
+	{
+		CMatrix44f mvp;
+		if (hasExplicitTransform) {
+			mvp = explicitTransform;
+			hasExplicitTransform = false;
+		} else {
+			CMatrix44f proj, mv;
+			glGetFloatv(GL_PROJECTION_MATRIX, proj);
+			glGetFloatv(GL_MODELVIEW_MATRIX, mv);
+			mvp = proj * mv;
+		}
+		static_cast<Shader::IProgramObject*>(shaderHandler->GetCurrentlyBoundProgram())->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
+	}
+#endif
 	glDrawArrays(mode, static_cast<GLint>(vbo->BufferElemOffset() + vboStartIndex), static_cast<GLsizei>(vertsCount));
 	vao.Unbind();
 
@@ -931,6 +958,21 @@ inline void TypedRenderBuffer<T>::DrawElements(uint32_t mode, bool rewind)
 	assert(vao.GetIdRaw() > 0);
 #endif
 	vao.Bind();
+#ifndef HEADLESS
+	{
+		CMatrix44f mvp;
+		if (hasExplicitTransform) {
+			mvp = explicitTransform;
+			hasExplicitTransform = false;
+		} else {
+			CMatrix44f proj, mv;
+			glGetFloatv(GL_PROJECTION_MATRIX, proj);
+			glGetFloatv(GL_MODELVIEW_MATRIX, mv);
+			mvp = proj * mv;
+		}
+		static_cast<Shader::IProgramObject*>(shaderHandler->GetCurrentlyBoundProgram())->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
+	}
+#endif
 	glDrawElements(mode, static_cast<GLsizei>(indcsCount), GL_UNSIGNED_INT, BUFFER_OFFSET(uint32_t, ebo->BufferElemOffset() + eboStartIndex));
 	vao.Unbind();
 	#undef BUFFER_OFFSET

@@ -19,12 +19,13 @@
  *   - FFP texturing (glEnable/glDisable GL_TEXTURE_2D) -> removed (shader-based)
  *   - Matrix stack -> RHI::MatrixStack + RHI::ScopedMatrixPush (CPU-side)
  *   - GL::SubState(DepthTest, Blending, BlendFunc) -> ctx->Set*() RHI dynamic state
+ *   - RenderBuffer draws use SetTransformMatrix() (bypasses FFP matrix sync)
  *
  * Remaining GL calls (cannot migrate yet):
- *   - glMatrixMode/glLoadMatrixf in FlushMatrices: RenderBuffer shader reads
- *     gl_ModelViewProjectionMatrix from FFP state. Blocked on shader migration.
- *   - glMatrixMode/glPushMatrix/glPopMatrix in Draw: save/restore outer GL
- *     matrix state for GLSL shader compatibility.
+ *   - glMatrixMode/glLoadMatrixf in FlushMatrices: still needed for DrawModel
+ *     (model shader reads gl_ModelViewProjectionMatrix) and DrawWeaponStates
+ *     (font renderer reads FFP matrices).
+ *   - glPushMatrix/glPopMatrix in Draw: save/restore outer FFP matrix state.
  *   - glColor4f in DrawModel: FFP vertex color read by model shader as gl_Color.
  *     Blocked on shader migration to uniform-based vertex color.
  */
@@ -90,12 +91,11 @@ void HUDDrawer::DrawUnitDirectionArrow(const CUnit* unit)
 		       .Scale(0.33f, 0.33f * globalRendering->aspectRatio, 0.33f)
 		       .RotateZ((unit->heading * 180.0f / 32768 + 180) * math::DEG_TO_RAD);
 
-		FlushMatrices();
-
 		const SColor color(0.3f, 0.9f, 0.3f, 0.4f);
 		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
 		auto& sh = rb.GetShader();
 		sh.Enable();
+		rb.SetTransformMatrix(CMatrix44f(projStack.Top()) * mvStack.Top());
 		rb.AddVertex({ {-0.2f, -0.3f, 0.0f}, color });
 		rb.AddVertex({ {-0.2f,  0.3f, 0.0f}, color });
 		rb.AddVertex({ { 0.0f,  0.4f, 0.0f}, color });
@@ -117,12 +117,11 @@ void HUDDrawer::DrawCameraDirectionArrow(const CUnit* unit)
 		       .RotateZ(heading * math::DEG_TO_RAD)
 		       .Scale(0.4f, 0.4f, 0.3f);
 
-		FlushMatrices();
-
 		const SColor color(0.4f, 0.4f, 1.0f, 0.6f);
 		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
 		auto& sh = rb.GetShader();
 		sh.Enable();
+		rb.SetTransformMatrix(CMatrix44f(projStack.Top()) * mvStack.Top());
 		rb.AddVertex({ {-0.2f, -0.3f, 0.0f}, color });
 		rb.AddVertex({ {-0.2f,  0.3f, 0.0f}, color });
 		rb.AddVertex({ { 0.0f,  0.5f, 0.0f}, color });
@@ -196,7 +195,7 @@ void HUDDrawer::DrawTargetReticle(const CUnit* unit)
 
 	RHI::ScopedMatrixPush mvGuard(mvStack);
 
-	FlushMatrices();
+	const CMatrix44f reticleMVP = CMatrix44f(projStack.Top()) * mvStack.Top();
 
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
 	auto& sh = rb.GetShader();
@@ -230,6 +229,7 @@ void HUDDrawer::DrawTargetReticle(const CUnit* unit)
 			for (int b = 0; b <= 80; ++b) {
 				rb.AddVertex({ pos + (v2 * fastmath::sin(b * math::TWOPI / 80) + v3 * fastmath::cos(b * math::TWOPI / 80)) * radius, color });
 			}
+			rb.SetTransformMatrix(reticleMVP);
 			rb.DrawArrays(GL_LINE_STRIP);
 
 			if (!w->onlyForward) {
@@ -247,6 +247,7 @@ void HUDDrawer::DrawTargetReticle(const CUnit* unit)
 				for (int b = 0; b <= 80; ++b) {
 					rb.AddVertex({ pos + (v2 * fastmath::sin(b * math::TWOPI / 80) + v3 * fastmath::cos(b * math::TWOPI / 80)) * radius, color });
 				}
+				rb.SetTransformMatrix(reticleMVP);
 				rb.DrawArrays(GL_LINE_STRIP);
 			}
 
@@ -265,6 +266,7 @@ void HUDDrawer::DrawTargetReticle(const CUnit* unit)
 				rb.AddVertex({ w->GetCurrentTargetPos(), color });
 				rb.AddVertex({ camera->GetPos() + camera->GetDir() * 100.0f, color });
 			}
+			rb.SetTransformMatrix(reticleMVP);
 			rb.DrawArrays(GL_LINES);
 		}
 	}
