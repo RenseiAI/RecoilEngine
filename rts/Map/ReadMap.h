@@ -130,6 +130,7 @@ public:
 
 	virtual uint32_t GetTexture(uint32_t type, uint32_t num = 0) const { return 0; }
 	virtual int2 GetTextureSize(uint32_t type, uint32_t num = 0) const { return int2(0, 0); }
+	virtual RHI::IRHITexture* GetRHITexture(uint32_t type, uint32_t num = 0) const { return nullptr; }
 
 	virtual bool SetLuaTexture(const MapTextureData&) { return false; }
 

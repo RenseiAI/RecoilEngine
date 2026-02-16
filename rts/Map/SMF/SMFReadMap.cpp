@@ -926,9 +926,8 @@ void CSMFReadMap::BindMiniMapTextures() const
 
 	// tc (0,0) - (isx,isy)
 	if (infoTextureHandler->IsEnabled()) {
-		// InfoTexture is external, use raw GL for now
-		glActiveTexture(GL_TEXTURE2);
-		glBindTexture(GL_TEXTURE_2D, infoTextureHandler->GetCurrentInfoTexture());
+		if (auto* infoTex = infoTextureHandler->GetCurrentInfoRHITexture())
+			infoTex->Bind(2);
 	}
 	else {
 		// just bind this since HAVE_INFOTEX is not available to the minimap shader

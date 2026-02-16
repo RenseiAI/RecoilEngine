@@ -70,6 +70,25 @@ public:
 		return texID;
 	}
 
+	RHI::IRHITexture* GetRHITexture(uint32_t type, uint32_t num = 0) const override {
+		switch (type) {
+			case MAP_BASE_GRASS_TEX:             return grassShadingTex.GetRHITexture();
+			case MAP_BASE_DETAIL_TEX:            return detailTex.GetRHITexture();
+			case MAP_BASE_MINIMAP_TEX:           return minimapTex.GetRHITexture();
+			case MAP_BASE_SHADING_TEX:           return shadingTex.GetRHITexture();
+			case MAP_BASE_NORMALS_TEX:           return normalsTex.GetRHITexture();
+			case MAP_SSMF_NORMALS_TEX:           return blendNormalsTex.GetRHITexture();
+			case MAP_SSMF_SPECULAR_TEX:          return specularTex.GetRHITexture();
+			case MAP_SSMF_SPLAT_DISTRIB_TEX:     return splatDistrTex.GetRHITexture();
+			case MAP_SSMF_SPLAT_DETAIL_TEX:      return splatDetailTex.GetRHITexture();
+			case MAP_SSMF_SPLAT_NORMAL_TEX:      return splatNormalTextures[num].GetRHITexture();
+			case MAP_SSMF_SKY_REFLECTION_TEX:    return skyReflectModTex.GetRHITexture();
+			case MAP_SSMF_LIGHT_EMISSION_TEX:    return lightEmissionTex.GetRHITexture();
+			case MAP_SSMF_PARALLAX_HEIGHT_TEX:   return parallaxHeightTex.GetRHITexture();
+			default: return nullptr;
+		}
+	}
+
 	int2 GetTextureSize(uint32_t type, uint32_t num = 0) const override {
 		int2 size;
 

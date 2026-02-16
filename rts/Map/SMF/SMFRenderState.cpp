@@ -5,13 +5,12 @@
  *
  * Completed:
  *   - Removed dead FFP matrix stack calls (glLoadIdentity, glMultMatrixf)
- *     Modern GLSL shaders receive transforms via direct uniforms, not gl_ModelViewMatrix
+ *   - Map texture binding migrated to RHI via readMap->GetRHITexture()
+ *   - InfoTexture binding migrated to RHI via GetCurrentInfoRHITexture()
  *
- * Blocked (P2 - MapTexture migration):
- *   - All texture binding (glActiveTexture + glBindTexture) in Enable()/Disable()
- *   - MapTexture::GetID() returns raw GLuint, not IRHITexture*
- *   - Needs P2 MapTexture refactor to store std::unique_ptr<IRHITexture>
- *   - ~35 texture binding call sites remain (15 in Enable, 20 in Disable)
+ * Remaining:
+ *   - Shadow handler textures (GetColorTextureID, SetupShadowTexSampler)
+ *   - CubeMap handler textures (GetSkyReflectionTextureID)
  */
 
 #include "SMFRenderState.h"
@@ -233,37 +232,37 @@ void SMFRenderStateGLSL::Enable(const CSMFGroundDrawer* smfGroundDrawer, const D
 
 	const CSMFReadMap* smfMap = smfGroundDrawer->GetReadMap();
 
-	// RHI_TODO(P2): Texture binding blocked by MapTexture migration
-	// MapTexture::GetID() returns raw GLuint; needs IRHITexture* + ctx->BindTexture()
-	// All glActiveTexture+glBindTexture calls below are blocked until P2 MapTexture refactor
-
+	// Shadow textures (not yet wrapped — keep GL)
 	if (isAdv && shadowHandler.ShadowsLoaded()) {
 		shadowHandler.SetupShadowTexSampler(GL_TEXTURE4, true);
 		glActiveTexture(GL_TEXTURE19); glBindTexture(GL_TEXTURE_2D, shadowHandler.GetColorTextureID());
 	}
 
-	glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, smfMap->GetHeightMapTexture());
-	glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, smfMap->GetDetailTexture());
-	glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, infoTextureHandler->GetCurrentInfoTexture());
+	// Map textures via RHI wrappers
+	smfMap->GetHeightMapTextureObj().GetRHITexture()->Bind(1);
+	smfMap->GetRHITexture(MAP_BASE_DETAIL_TEX)->Bind(2);
+	if (auto* infoTex = infoTextureHandler->GetCurrentInfoRHITexture())
+		infoTex->Bind(14);
+
 	if (isAdv) {
-		glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, smfMap->GetNormalsTexture());
-		glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D, smfMap->GetSpecularTexture());
-		glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, smfMap->GetSplatDetailTexture());
-		glActiveTexture(GL_TEXTURE8); glBindTexture(GL_TEXTURE_2D, smfMap->GetSplatDistrTexture());
+		smfMap->GetRHITexture(MAP_BASE_NORMALS_TEX)->Bind(5);
+		smfMap->GetRHITexture(MAP_SSMF_SPECULAR_TEX)->Bind(6);
+		smfMap->GetRHITexture(MAP_SSMF_SPLAT_DETAIL_TEX)->Bind(7);
+		smfMap->GetRHITexture(MAP_SSMF_SPLAT_DISTRIB_TEX)->Bind(8);
+		// Cubemap not wrapped yet — keep GL
 		glActiveTexture(GL_TEXTURE9); glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, cubeMapHandler.GetSkyReflectionTextureID());
-		glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, smfMap->GetSkyReflectModTexture());
-		glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, smfMap->GetBlendNormalsTexture());
-		glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, smfMap->GetLightEmissionTexture());
-		glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, smfMap->GetParallaxHeightTexture());
+		smfMap->GetRHITexture(MAP_SSMF_SKY_REFLECTION_TEX)->Bind(10);
+		smfMap->GetRHITexture(MAP_SSMF_NORMALS_TEX)->Bind(11);
+		smfMap->GetRHITexture(MAP_SSMF_LIGHT_EMISSION_TEX)->Bind(12);
+		smfMap->GetRHITexture(MAP_SSMF_PARALLAX_HEIGHT_TEX)->Bind(13);
 
 		for (int i = 0; i < CSMFReadMap::NUM_SPLAT_DETAIL_NORMALS; i++) {
-			if (smfMap->GetSplatNormalTexture(i) != 0) {
-				glActiveTexture(GL_TEXTURE15 + i); glBindTexture(GL_TEXTURE_2D, smfMap->GetSplatNormalTexture(i));
-			}
+			if (auto* splatTex = smfMap->GetRHITexture(MAP_SSMF_SPLAT_NORMAL_TEX, i))
+				splatTex->Bind(15 + i);
 		}
 	}
 	else {
-		glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, smfMap->GetShadingTexture());
+		smfMap->GetRHITexture(MAP_BASE_SHADING_TEX)->Bind(3);
 	}
 
 	glActiveTexture(GL_TEXTURE0);
@@ -304,29 +303,31 @@ void SMFRenderStateGLSL::Disable(const CSMFGroundDrawer* smfGroundDrawer, const 
 		glActiveTexture(GL_TEXTURE19); glBindTexture(GL_TEXTURE_2D, 0);
 	}
 
-	glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, 0);
-	glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, 0);
-	glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, 0);
+	// Unbind map textures via RHI
+	smfMap->GetHeightMapTextureObj().GetRHITexture()->Unbind(1);
+	smfMap->GetRHITexture(MAP_BASE_DETAIL_TEX)->Unbind(2);
+	if (auto* infoTex = infoTextureHandler->GetCurrentInfoRHITexture())
+		infoTex->Unbind(14);
 
 	if (isAdv) {
-		glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, 0);
-		glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D, 0);
-		glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, 0);
-		glActiveTexture(GL_TEXTURE8); glBindTexture(GL_TEXTURE_2D, 0);
+		smfMap->GetRHITexture(MAP_BASE_NORMALS_TEX)->Unbind(5);
+		smfMap->GetRHITexture(MAP_SSMF_SPECULAR_TEX)->Unbind(6);
+		smfMap->GetRHITexture(MAP_SSMF_SPLAT_DETAIL_TEX)->Unbind(7);
+		smfMap->GetRHITexture(MAP_SSMF_SPLAT_DISTRIB_TEX)->Unbind(8);
+		// Cubemap not wrapped yet — keep GL
 		glActiveTexture(GL_TEXTURE9); glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, 0);
-		glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, 0);
-		glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, 0);
-		glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, 0);
-		glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, 0);
+		smfMap->GetRHITexture(MAP_SSMF_SKY_REFLECTION_TEX)->Unbind(10);
+		smfMap->GetRHITexture(MAP_SSMF_NORMALS_TEX)->Unbind(11);
+		smfMap->GetRHITexture(MAP_SSMF_LIGHT_EMISSION_TEX)->Unbind(12);
+		smfMap->GetRHITexture(MAP_SSMF_PARALLAX_HEIGHT_TEX)->Unbind(13);
 
 		for (int i = 0; i < CSMFReadMap::NUM_SPLAT_DETAIL_NORMALS; i++) {
-			if (smfMap->GetSplatNormalTexture(i) != 0) {
-				glActiveTexture(GL_TEXTURE15 + i); glBindTexture(GL_TEXTURE_2D, 0);
-			}
+			if (auto* splatTex = smfMap->GetRHITexture(MAP_SSMF_SPLAT_NORMAL_TEX, i))
+				splatTex->Unbind(15 + i);
 		}
 	}
 	else {
-		glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, 0);
+		smfMap->GetRHITexture(MAP_BASE_SHADING_TEX)->Unbind(3);
 	}
 
 	glActiveTexture(GL_TEXTURE0);

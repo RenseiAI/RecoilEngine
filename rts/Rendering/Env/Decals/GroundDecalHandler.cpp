@@ -514,25 +514,17 @@ void CGroundDecalHandler::BindTextures()
 
 	const CSMFReadMap* smfMap = smfDrawer->GetReadMap();
 
-	// RHI_TODO [P2: MapTexture]: migrate SMFReadMap textures to IRHITexture
-	// Blocked by: SMFReadMap GetMiniMapTexture/GetHeightMapTexture/GetNormalsTexture return raw GLuint
-	glActiveTexture(GL_TEXTURE2);
-	glBindTexture(GL_TEXTURE_2D, smfMap->GetMiniMapTexture());
+	// Map textures via RHI wrappers
+	smfMap->GetRHITexture(MAP_BASE_MINIMAP_TEX)->Bind(2);
+	smfMap->GetHeightMapTextureObj().GetRHITexture()->Bind(3);
 
-	glActiveTexture(GL_TEXTURE3);
-	glBindTexture(GL_TEXTURE_2D, smfMap->GetHeightMapTexture());
-
-	// RHI_TODO [P2: DepthBuffer]: migrate depth buffer copy to IRHITexture
-	// Blocked by: ScopedDepthBufferCopy::GetDepthBufferTexture returns raw GLuint
+	// Depth buffer not wrapped yet — keep GL
 	glActiveTexture(GL_TEXTURE4);
 	glBindTexture(GetDepthBufferTextureTarget(), depthBufferCopy->GetDepthBufferTexture(highQuality));
 
-	// RHI_TODO [P2: MapTexture]: migrate SMFReadMap normals texture to IRHITexture
-	glActiveTexture(GL_TEXTURE5);
-	glBindTexture(GL_TEXTURE_2D, smfMap->GetNormalsTexture());
+	smfMap->GetRHITexture(MAP_BASE_NORMALS_TEX)->Bind(5);
 
-	// RHI_TODO [P2: Shadows]: migrate shadow handler textures to IRHITexture
-	// Blocked by: CShadowHandler GetColorTextureID returns raw GLuint
+	// Shadow textures not wrapped yet — keep GL
 	if (shadowHandler.ShadowsLoaded()) {
 		shadowHandler.SetupShadowTexSampler(GL_TEXTURE6, true);
 
@@ -540,10 +532,8 @@ void CGroundDecalHandler::BindTextures()
 		glBindTexture(GL_TEXTURE_2D, shadowHandler.GetColorTextureID());
 	}
 
-	// RHI_TODO [P2: InfoTexture]: migrate info texture handler to IRHITexture
-	// Blocked by: IInfoTextureHandler::GetCurrentInfoTexture returns raw GLuint
-	glActiveTexture(GL_TEXTURE8);
-	glBindTexture(GL_TEXTURE_2D, infoTextureHandler->GetCurrentInfoTexture());
+	if (auto* infoTex = infoTextureHandler->GetCurrentInfoRHITexture())
+		infoTex->Bind(8);
 
 	glActiveTexture(GL_TEXTURE0);
 }
@@ -554,22 +544,17 @@ void CGroundDecalHandler::UnbindTextures()
 	// RHI-backed texture
 	atlasTex->GetRHITexture()->Unbind(0);
 
-	// RHI_TODO [P2: MapTexture]: migrate to RHI when SMFReadMap textures are IRHITexture
-	glActiveTexture(GL_TEXTURE2);
-	glBindTexture(GL_TEXTURE_2D, 0);
+	const CSMFReadMap* smfMap = smfDrawer->GetReadMap();
+	smfMap->GetRHITexture(MAP_BASE_MINIMAP_TEX)->Unbind(2);
+	smfMap->GetHeightMapTextureObj().GetRHITexture()->Unbind(3);
 
-	glActiveTexture(GL_TEXTURE3);
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	// RHI_TODO [P2: DepthBuffer]: migrate to RHI when depth buffer is IRHITexture
+	// Depth buffer not wrapped yet — keep GL
 	glActiveTexture(GL_TEXTURE4);
 	glBindTexture(GetDepthBufferTextureTarget(), 0);
 
-	// RHI_TODO [P2: MapTexture]: migrate to RHI when SMFReadMap normals are IRHITexture
-	glActiveTexture(GL_TEXTURE5);
-	glBindTexture(GL_TEXTURE_2D, 0);
+	smfMap->GetRHITexture(MAP_BASE_NORMALS_TEX)->Unbind(5);
 
-	// RHI_TODO [P2: Shadows]: migrate to RHI when shadow handler textures are IRHITexture
+	// Shadow textures not wrapped yet — keep GL
 	if (smfDrawer->UseAdvShading() && shadowHandler.ShadowsLoaded()) {
 		shadowHandler.ResetShadowTexSampler(GL_TEXTURE6, true);
 
@@ -577,9 +562,8 @@ void CGroundDecalHandler::UnbindTextures()
 		glBindTexture(GL_TEXTURE_2D, 0);
 	}
 
-	// RHI_TODO [P2: InfoTexture]: migrate to RHI when info texture is IRHITexture
-	glActiveTexture(GL_TEXTURE8);
-	glBindTexture(GL_TEXTURE_2D, 0);
+	if (auto* infoTex = infoTextureHandler->GetCurrentInfoRHITexture())
+		infoTex->Unbind(8);
 
 	glActiveTexture(GL_TEXTURE0);
 }
