@@ -167,7 +167,7 @@ GLTexture::GLTexture(TextureType type, TextureFormat format, uint32_t width, uin
 	glBindTexture(glTarget, 0);
 }
 
-GLTexture::GLTexture(uint32_t existingId, TextureType type, TextureFormat format, uint32_t width, uint32_t height, uint32_t depthOrLayers, uint32_t mipLevels)
+GLTexture::GLTexture(uint32_t existingId, TextureType type, TextureFormat format, uint32_t width, uint32_t height, uint32_t depthOrLayers, uint32_t mipLevels, bool owning)
 	: texId(existingId)
 	, glTarget(ToGLTarget(type))
 	, glInternalFormat(ToGLInternalFormat(format))
@@ -178,12 +178,13 @@ GLTexture::GLTexture(uint32_t existingId, TextureType type, TextureFormat format
 	, texDepthOrLayers(depthOrLayers)
 	, texMipLevels(mipLevels)
 	, texSampleCount(1)
+	, ownsTexture(owning)
 {
-	// Wraps an existing GL texture — no allocation, takes ownership
+	// Wraps an existing GL texture — no allocation
 }
 
 GLTexture::~GLTexture() {
-	if (texId != 0) {
+	if (texId != 0 && ownsTexture) {
 		glDeleteTextures(1, &texId);
 		texId = 0;
 	}

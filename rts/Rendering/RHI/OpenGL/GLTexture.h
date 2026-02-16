@@ -12,8 +12,10 @@ namespace RHI {
 class GLTexture : public IRHITexture {
 public:
 	GLTexture(TextureType type, TextureFormat format, uint32_t width, uint32_t height, uint32_t depthOrLayers, uint32_t mipLevels, uint32_t sampleCount = 1);
-	/// Wrap an existing GL texture ID (takes ownership, will delete on destruction)
-	GLTexture(uint32_t existingId, TextureType type, TextureFormat format, uint32_t width, uint32_t height, uint32_t depthOrLayers, uint32_t mipLevels);
+	/// Wrap an existing GL texture ID.
+	/// @param owning If true (default), takes ownership and deletes on destruction.
+	///               If false, acts as non-owning view (does not delete).
+	GLTexture(uint32_t existingId, TextureType type, TextureFormat format, uint32_t width, uint32_t height, uint32_t depthOrLayers, uint32_t mipLevels, bool owning = true);
 	~GLTexture() override;
 
 	void Bind(uint32_t unit) override;
@@ -67,6 +69,7 @@ private:
 	uint32_t    texDepthOrLayers;
 	uint32_t    texMipLevels;
 	uint32_t    texSampleCount;
+	bool        ownsTexture = true; ///< If false, destructor skips glDeleteTextures
 };
 
 } // namespace RHI

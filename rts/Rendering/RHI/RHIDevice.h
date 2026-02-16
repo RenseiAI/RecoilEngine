@@ -127,6 +127,20 @@ public:
 		uint32_t depthOrLayers = 1,
 		uint32_t mipLevels = 1) = 0;
 
+	/// Create a non-owning IRHITexture view of an existing GL texture.
+	/// The returned texture does NOT delete the underlying GL texture on destruction.
+	/// Callers must ensure the GL texture outlives this wrapper.
+	/// Useful for wrapping textures owned by other subsystems (SMFReadMap, IconHandler, etc.)
+	/// Metal backend returns nullptr (not supported).
+	virtual std::unique_ptr<IRHITexture> WrapExistingTexture(
+		uint32_t glTextureId,
+		TextureType type,
+		TextureFormat format,
+		uint32_t width,
+		uint32_t height,
+		uint32_t depthOrLayers = 1,
+		uint32_t mipLevels = 1) = 0;
+
 	virtual std::unique_ptr<IRHIShader> CreateShader(const std::string& name) = 0;
 
 	virtual std::unique_ptr<IRHIFramebuffer> CreateFramebuffer() = 0;

@@ -130,6 +130,15 @@ public:
 		uint32_t depthOrLayers,
 		uint32_t mipLevels) override;
 
+	std::unique_ptr<IRHITexture> WrapExistingTexture(
+		uint32_t glTextureId,
+		TextureType type,
+		TextureFormat format,
+		uint32_t width,
+		uint32_t height,
+		uint32_t depthOrLayers,
+		uint32_t mipLevels) override { return nullptr; }
+
 	std::unique_ptr<IRHIShader> CreateShader(const std::string& name) override;
 
 	std::unique_ptr<IRHIFramebuffer> CreateFramebuffer() override;
