@@ -94,13 +94,7 @@ void CCursorIcons::DrawCursors() const
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_TC>();
 	auto& sh = rb.GetShader();
 
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	glLoadIdentity();
-
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadMatrixf(CMatrix44f::ClipOrthoProj01(RHI::GetDevice()->SupportClipSpaceControl() * 1.0f));
+	const CMatrix44f orthoProj = CMatrix44f::ClipOrthoProj01(RHI::GetDevice()->SupportClipSpaceControl() * 1.0f);
 
 	sh.Enable();
 	sh.SetUniform("alphaCtrl", 0.01f, 1.0f, 0.0f, 0.0f); // test > 0.01
@@ -115,6 +109,7 @@ void CCursorIcons::DrawCursors() const
 			continue;
 
 		if (currentCursor != lastCursor) {
+			rb.SetTransformMatrix(orthoProj);
 			rb.Submit(GL_TRIANGLES);
 			currentCursor->BindTexture();
 
@@ -136,14 +131,11 @@ void CCursorIcons::DrawCursors() const
 			{ cursorMat * ICON_VERTS[1], ICON_TXCDS[1].x, ICON_TXCDS[1].y, iconColor }  // bl
 		);
 	}
+	rb.SetTransformMatrix(orthoProj);
 	rb.Submit(GL_TRIANGLES);
 
 	sh.SetUniform("alphaCtrl", 0.0f, 0.0f, 0.0f, 1.0f); // no test
 	sh.Disable();
-
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
 }
 
 
