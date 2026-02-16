@@ -1,11 +1,13 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-// RHI Migration Status: GL state + FFP immediate-mode drawing migrated to RHI/RenderBuffer
-// Migrated: matrix transforms in DrawWeaponCone, DrawMapStuff build preview, DrawMiniMapMarker
-//   -> CMatrix44f computed on CPU, flushed via single glMultMatrixf/glLoadMatrixf
-// Remaining: glPushMatrix/glPopMatrix (save/restore external GL state), display list (GetConeList),
-//   stencil (glLogicOp), FullScreenDraw (glRectf), DrawOptionLEDs (glLoadIdentity),
-//   glAlphaFunc, glBindTexture (texture manager), glColor4f (font), DrawBoxShape/DrawCylinderShape/DrawMinMaxBox (glDrawVolume)
+// RHI Migration Status: GL state + FFP drawing largely migrated to RHI/RenderBuffer
+// Migrated: matrix transforms (CPU CMatrix44f), LogicOp → RHI, DrawBoxShape/DrawMinMaxBox/
+//   DrawCylinderShape → RenderBuffer, GetConeList display list → RenderBuffer (DrawConeGeometry),
+//   FullScreenDraw glRectf → RenderBuffer, glColor4f → per-vertex SColor in data structs
+// Remaining: glPushMatrix/glPopMatrix/glMultMatrixf/glLoadMatrixf (RenderBuffer shader reads
+//   gl_ModelViewProjectionMatrix), glLoadIdentity (DrawOptionLEDs), glColor4f in DrawMapStuff
+//   (model shader reads gl_Color), glBindTexture (external texture manager), glGetIntegerv,
+//   font->glPrint/glFormat (font system)
 
 #include "GuiHandler.h"
 
@@ -3570,27 +3572,25 @@ static void DrawUnitDefRanges(const CUnit* unit, const UnitDef* unitdef, const f
 
 
 
-static inline GLuint GetConeList()
+static void DrawConeGeometry(const SColor& color)
 {
-	RECOIL_DETAILED_TRACY_ZONE;
-	static GLuint list = 0; // FIXME: put in the class
+	const int divs = 64;
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
+	sh.Enable();
 
-	if (list != 0)
-		return list;
-
-	list = glGenLists(1);
-	glNewList(list, GL_COMPILE); {
-		glBegin(GL_TRIANGLE_FAN);
-		const int divs = 64;
-		glVertex3f(0.0f, 0.0f, 0.0f);
-		for (int i = 0; i <= divs; i++) {
-			const float rad = math::TWOPI * (float)i / (float)divs;
-			glVertex3f(1.0f, std::sin(rad), std::cos(rad));
-		}
-		glEnd();
+	// Triangle fan → triangles: apex at origin, rim at x=1
+	const float3 apex(0.0f, 0.0f, 0.0f);
+	for (int i = 0; i < divs; i++) {
+		const float rad0 = math::TWOPI * (float)i / (float)divs;
+		const float rad1 = math::TWOPI * (float)((i + 1) % divs) / (float)divs;
+		rb.AddVertex({ apex, color });
+		rb.AddVertex({ {1.0f, std::sin(rad0), std::cos(rad0)}, color });
+		rb.AddVertex({ {1.0f, std::sin(rad1), std::cos(rad1)}, color });
 	}
-	glEndList();
-	return list;
+	rb.DrawArrays(GL_TRIANGLES);
+
+	sh.Disable();
 }
 
 
@@ -3615,12 +3615,10 @@ static void DrawWeaponCone(const float3& pos, float len, float hrads, float head
 	ctx->SetCullFaceEnabled(true);
 
 	ctx->SetCullFace(RHI::CullMode::Front);
-	glColor4f(1.0f, 0.0f, 0.0f, 0.25f);
-	glCallList(GetConeList());
+	DrawConeGeometry(SColor(1.0f, 0.0f, 0.0f, 0.25f));
 
 	ctx->SetCullFace(RHI::CullMode::Back);
-	glColor4f(0.0f, 1.0f, 0.0f, 0.25f);
-	glCallList(GetConeList());
+	DrawConeGeometry(SColor(0.0f, 1.0f, 0.0f, 0.25f));
 
 	ctx->SetCullFaceEnabled(false);
 
@@ -4340,6 +4338,7 @@ void CGuiHandler::DrawFormationFrontOrder(
 struct BoxData {
 	float3 mins;
 	float3 maxs;
+	SColor color{255, 255, 255, 255};
 };
 
 
@@ -4349,31 +4348,54 @@ static void DrawBoxShape(const void* data)
 	const BoxData* boxData = static_cast<const BoxData*>(data);
 	const float3& mins = boxData->mins;
 	const float3& maxs = boxData->maxs;
-	glBegin(GL_QUADS);
-		// the top
-		glVertex3f(mins.x, maxs.y, mins.z);
-		glVertex3f(mins.x, maxs.y, maxs.z);
-		glVertex3f(maxs.x, maxs.y, maxs.z);
-		glVertex3f(maxs.x, maxs.y, mins.z);
-		// the bottom
-		glVertex3f(mins.x, mins.y, mins.z);
-		glVertex3f(maxs.x, mins.y, mins.z);
-		glVertex3f(maxs.x, mins.y, maxs.z);
-		glVertex3f(mins.x, mins.y, maxs.z);
-	glEnd();
-	glBegin(GL_QUAD_STRIP);
-		// the sides
-		glVertex3f(mins.x, maxs.y, mins.z);
-		glVertex3f(mins.x, mins.y, mins.z);
-		glVertex3f(mins.x, maxs.y, maxs.z);
-		glVertex3f(mins.x, mins.y, maxs.z);
-		glVertex3f(maxs.x, maxs.y, maxs.z);
-		glVertex3f(maxs.x, mins.y, maxs.z);
-		glVertex3f(maxs.x, maxs.y, mins.z);
-		glVertex3f(maxs.x, mins.y, mins.z);
-		glVertex3f(mins.x, maxs.y, mins.z);
-		glVertex3f(mins.x, mins.y, mins.z);
-	glEnd();
+	const SColor& white = boxData->color;
+
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
+	sh.Enable();
+
+	// the top (2 triangles)
+	rb.AddQuadTriangles(
+		{ {mins.x, maxs.y, mins.z}, white },
+		{ {mins.x, maxs.y, maxs.z}, white },
+		{ {maxs.x, maxs.y, maxs.z}, white },
+		{ {maxs.x, maxs.y, mins.z}, white }
+	);
+	// the bottom (2 triangles)
+	rb.AddQuadTriangles(
+		{ {mins.x, mins.y, mins.z}, white },
+		{ {maxs.x, mins.y, mins.z}, white },
+		{ {maxs.x, mins.y, maxs.z}, white },
+		{ {mins.x, mins.y, maxs.z}, white }
+	);
+	// the sides (4 quads = 8 triangles from quad strip)
+	rb.AddQuadTriangles(
+		{ {mins.x, maxs.y, mins.z}, white },
+		{ {mins.x, mins.y, mins.z}, white },
+		{ {mins.x, mins.y, maxs.z}, white },
+		{ {mins.x, maxs.y, maxs.z}, white }
+	);
+	rb.AddQuadTriangles(
+		{ {mins.x, maxs.y, maxs.z}, white },
+		{ {mins.x, mins.y, maxs.z}, white },
+		{ {maxs.x, mins.y, maxs.z}, white },
+		{ {maxs.x, maxs.y, maxs.z}, white }
+	);
+	rb.AddQuadTriangles(
+		{ {maxs.x, maxs.y, maxs.z}, white },
+		{ {maxs.x, mins.y, maxs.z}, white },
+		{ {maxs.x, mins.y, mins.z}, white },
+		{ {maxs.x, maxs.y, mins.z}, white }
+	);
+	rb.AddQuadTriangles(
+		{ {maxs.x, maxs.y, mins.z}, white },
+		{ {maxs.x, mins.y, mins.z}, white },
+		{ {mins.x, mins.y, mins.z}, white },
+		{ {mins.x, maxs.y, mins.z}, white }
+	);
+	rb.DrawArrays(GL_TRIANGLES);
+
+	sh.Disable();
 }
 
 
@@ -4420,13 +4442,13 @@ static void StencilDrawSelectBox(const float3& pos0, const float3& pos1,
 
 	if (!invColorSelect) {
 		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::One);
-		glColor4f(1.0f, 0.0f, 0.0f, 0.25f);
+		boxData.color = SColor(1.0f, 0.0f, 0.0f, 0.25f);
 		glDrawVolume(DrawBoxShape, &boxData);
 	} else {
-		glEnable(GL_COLOR_LOGIC_OP);
-		glLogicOp(GL_INVERT);
+		ctx->SetLogicOpEnabled(true);
+		ctx->SetLogicOp(RHI::LogicOp::Invert);
 		glDrawVolume(DrawBoxShape, &boxData);
-		glDisable(GL_COLOR_LOGIC_OP);
+		ctx->SetLogicOpEnabled(false);
 	}
 
 	DrawCornerPosts(pos0, pos1);
@@ -4436,13 +4458,29 @@ static void StencilDrawSelectBox(const float3& pos0, const float3& pos1,
 static void FullScreenDraw()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// Draw a fullscreen quad using identity matrices via RenderBuffer
+	// The RenderBuffer shader reads gl_ModelViewProjectionMatrix from FFP,
+	// so we set identity matrices temporarily.
 	glMatrixMode(GL_PROJECTION);
 	glPushMatrix();
 	glLoadIdentity();
 	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
 	glPushMatrix();
-	glRectf(-1.0f, -1.0f, +1.0f, +1.0f);
+	glLoadIdentity();
+
+	const SColor white(1.0f, 1.0f, 1.0f, 1.0f);
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
+	sh.Enable();
+	rb.AddQuadTriangles(
+		{ {-1.0f, -1.0f, 0.0f}, white },
+		{ {+1.0f, -1.0f, 0.0f}, white },
+		{ {+1.0f, +1.0f, 0.0f}, white },
+		{ {-1.0f, +1.0f, 0.0f}, white }
+	);
+	rb.DrawArrays(GL_TRIANGLES);
+	sh.Disable();
+
 	glMatrixMode(GL_PROJECTION);
 	glPopMatrix();
 	glMatrixMode(GL_MODELVIEW);
@@ -4453,26 +4491,47 @@ static void FullScreenDraw()
 static void DrawMinMaxBox(const float3& mins, const float3& maxs)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glBegin(GL_QUADS);
-		// the top
-		glVertex3f(mins.x, maxs.y, mins.z);
-		glVertex3f(maxs.x, maxs.y, mins.z);
-		glVertex3f(maxs.x, maxs.y, maxs.z);
-		glVertex3f(mins.x, maxs.y, maxs.z);
-	glEnd();
-	glBegin(GL_QUAD_STRIP);
-		// the sides
-		glVertex3f(mins.x, mins.y, mins.z);
-		glVertex3f(mins.x, maxs.y, mins.z);
-		glVertex3f(mins.x, mins.y, maxs.z);
-		glVertex3f(mins.x, maxs.y, maxs.z);
-		glVertex3f(maxs.x, mins.y, maxs.z);
-		glVertex3f(maxs.x, maxs.y, maxs.z);
-		glVertex3f(maxs.x, mins.y, mins.z);
-		glVertex3f(maxs.x, maxs.y, mins.z);
-		glVertex3f(mins.x, mins.y, mins.z);
-		glVertex3f(mins.x, maxs.y, mins.z);
-	glEnd();
+	const SColor white(1.0f, 1.0f, 1.0f, 1.0f);
+
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
+	sh.Enable();
+
+	// the top (2 triangles)
+	rb.AddQuadTriangles(
+		{ {mins.x, maxs.y, mins.z}, white },
+		{ {maxs.x, maxs.y, mins.z}, white },
+		{ {maxs.x, maxs.y, maxs.z}, white },
+		{ {mins.x, maxs.y, maxs.z}, white }
+	);
+	// the sides (4 quads = 8 triangles from quad strip)
+	rb.AddQuadTriangles(
+		{ {mins.x, maxs.y, mins.z}, white },
+		{ {mins.x, mins.y, mins.z}, white },
+		{ {mins.x, mins.y, maxs.z}, white },
+		{ {mins.x, maxs.y, maxs.z}, white }
+	);
+	rb.AddQuadTriangles(
+		{ {mins.x, maxs.y, maxs.z}, white },
+		{ {mins.x, mins.y, maxs.z}, white },
+		{ {maxs.x, mins.y, maxs.z}, white },
+		{ {maxs.x, maxs.y, maxs.z}, white }
+	);
+	rb.AddQuadTriangles(
+		{ {maxs.x, maxs.y, maxs.z}, white },
+		{ {maxs.x, mins.y, maxs.z}, white },
+		{ {maxs.x, mins.y, mins.z}, white },
+		{ {maxs.x, maxs.y, mins.z}, white }
+	);
+	rb.AddQuadTriangles(
+		{ {maxs.x, maxs.y, mins.z}, white },
+		{ {maxs.x, mins.y, mins.z}, white },
+		{ {mins.x, mins.y, mins.z}, white },
+		{ {mins.x, maxs.y, mins.z}, white }
+	);
+	rb.DrawArrays(GL_TRIANGLES);
+
+	sh.Disable();
 }
 
 
@@ -4494,8 +4553,8 @@ void CGuiHandler::DrawSelectBox(const float3& pos0, const float3& pos1, const fl
 	ctx->SetDepthWriteEnabled(false);
 	ctx->SetCullFaceEnabled(true);
 
-	glEnable(GL_COLOR_LOGIC_OP);
-	glLogicOp(GL_INVERT);
+	ctx->SetLogicOpEnabled(true);
+	ctx->SetLogicOp(RHI::LogicOp::Invert);
 
 	// invert the color for objects within the box
 	ctx->SetCullFace(RHI::CullMode::Front); DrawMinMaxBox(mins, maxs);
@@ -4512,7 +4571,7 @@ void CGuiHandler::DrawSelectBox(const float3& pos0, const float3& pos1, const fl
 		ctx->SetDepthTestEnabled(true);
 	}
 
-	glDisable(GL_COLOR_LOGIC_OP);
+	ctx->SetLogicOpEnabled(false);
 
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
@@ -4528,6 +4587,7 @@ struct CylinderData {
 	int divs;
 	float xc, zc, yp, yn;
 	float radius;
+	SColor color{255, 255, 255, 255};
 };
 
 
@@ -4536,32 +4596,62 @@ static void DrawCylinderShape(const void* data)
 	RECOIL_DETAILED_TRACY_ZONE;
 	const CylinderData& cyl = *static_cast<const CylinderData*>(data);
 	const float step = math::TWOPI / cyl.divs;
-	int i;
-	glBegin(GL_QUAD_STRIP); // the sides
-	for (i = 0; i <= cyl.divs; i++) {
-		const float radians = step * float(i % cyl.divs);
-		const float x = cyl.xc + (cyl.radius * fastmath::sin(radians));
-		const float z = cyl.zc + (cyl.radius * fastmath::cos(radians));
-		glVertex3f(x, cyl.yp, z);
-		glVertex3f(x, cyl.yn, z);
+	const SColor& white = cyl.color;
+
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	auto& sh = rb.GetShader();
+	sh.Enable();
+
+	// the sides (quad strip → triangles)
+	for (int i = 0; i < cyl.divs; i++) {
+		const float rad0 = step * float(i);
+		const float rad1 = step * float((i + 1) % cyl.divs);
+		const float x0 = cyl.xc + (cyl.radius * fastmath::sin(rad0));
+		const float z0 = cyl.zc + (cyl.radius * fastmath::cos(rad0));
+		const float x1 = cyl.xc + (cyl.radius * fastmath::sin(rad1));
+		const float z1 = cyl.zc + (cyl.radius * fastmath::cos(rad1));
+		rb.AddQuadTriangles(
+			{ {x0, cyl.yp, z0}, white },
+			{ {x0, cyl.yn, z0}, white },
+			{ {x1, cyl.yn, z1}, white },
+			{ {x1, cyl.yp, z1}, white }
+		);
 	}
-	glEnd();
-	glBegin(GL_TRIANGLE_FAN); // the top
-	for (i = 0; i < cyl.divs; i++) {
-		const float radians = step * float(i);
-		const float x = cyl.xc + (cyl.radius * fastmath::sin(radians));
-		const float z = cyl.zc + (cyl.radius * fastmath::cos(radians));
-		glVertex3f(x, cyl.yp, z);
+	// the top (triangle fan → triangles)
+	{
+		const float x0 = cyl.xc + (cyl.radius * fastmath::sin(0.0f));
+		const float z0 = cyl.zc + (cyl.radius * fastmath::cos(0.0f));
+		for (int i = 1; i < cyl.divs - 1; i++) {
+			const float rad = step * float(i);
+			const float radN = step * float(i + 1);
+			const float xi = cyl.xc + (cyl.radius * fastmath::sin(rad));
+			const float zi = cyl.zc + (cyl.radius * fastmath::cos(rad));
+			const float xn = cyl.xc + (cyl.radius * fastmath::sin(radN));
+			const float zn = cyl.zc + (cyl.radius * fastmath::cos(radN));
+			rb.AddVertex({ {x0, cyl.yp, z0}, white });
+			rb.AddVertex({ {xi, cyl.yp, zi}, white });
+			rb.AddVertex({ {xn, cyl.yp, zn}, white });
+		}
 	}
-	glEnd();
-	glBegin(GL_TRIANGLE_FAN); // the bottom
-	for (i = (cyl.divs - 1); i >= 0; i--) {
-		const float radians = step * float(i);
-		const float x = cyl.xc + (cyl.radius * fastmath::sin(radians));
-		const float z = cyl.zc + (cyl.radius * fastmath::cos(radians));
-		glVertex3f(x, cyl.yn, z);
+	// the bottom (triangle fan → triangles, reversed winding)
+	{
+		const float x0 = cyl.xc + (cyl.radius * fastmath::sin(step * float(cyl.divs - 1)));
+		const float z0 = cyl.zc + (cyl.radius * fastmath::cos(step * float(cyl.divs - 1)));
+		for (int i = cyl.divs - 2; i >= 1; i--) {
+			const float rad = step * float(i);
+			const float radP = step * float(i - 1);
+			const float xi = cyl.xc + (cyl.radius * fastmath::sin(rad));
+			const float zi = cyl.zc + (cyl.radius * fastmath::cos(rad));
+			const float xp = cyl.xc + (cyl.radius * fastmath::sin(radP));
+			const float zp = cyl.zc + (cyl.radius * fastmath::cos(radP));
+			rb.AddVertex({ {x0, cyl.yn, z0}, white });
+			rb.AddVertex({ {xi, cyl.yn, zi}, white });
+			rb.AddVertex({ {xp, cyl.yn, zp}, white });
+		}
 	}
-	glEnd();
+	rb.DrawArrays(GL_TRIANGLES);
+
+	sh.Disable();
 }
 
 
@@ -4578,10 +4668,10 @@ void CGuiHandler::DrawSelectCircle(const float3& pos, float radius,
 	cylData.yn = readMap->GetCurrMinHeight() -   250.0f;
 	cylData.radius = radius;
 	cylData.divs = 128;
+	cylData.color = SColor(color[0], color[1], color[2], 0.25f);
 
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::One);
-	glColor4f(color[0], color[1], color[2], 0.25f);
 
 	glDrawVolume(DrawCylinderShape, &cylData);
 
