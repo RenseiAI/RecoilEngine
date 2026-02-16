@@ -1,19 +1,16 @@
 /**
  * RHI Migration Status: COMPLETE
  *
- * All migratable GL calls have been replaced with RHI equivalents:
+ * All GL calls have been replaced with RHI equivalents:
  *   - Pipeline state (blend, depth test): RHI::PipelineDesc + BindPipeline()
  *   - Draw call: ctx->Draw()
- *
- * Retained GL calls (no RHI equivalent):
- *   - glMatrixMode, glPushMatrix, glPopMatrix, glLoadMatrixf: FFP matrix stack
- *   Modern rendering uses uniform matrices. These remain for compatibility.
+ *   - Matrix transforms: explicit uniform uploads (modelViewProjectionMatrix, modelViewMatrixInverse)
  */
 
 #include "ModernSky.h"
 
 #include "Rendering/GlobalRendering.h"
-#include "Rendering/GL/myGL.h"  // retained: FFP matrix stack calls have no RHI equivalent
+#include "Rendering/GL/myGL.h"  // retained: GL_VERTEX_SHADER, GL_FRAGMENT_SHADER constants
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/RHI/RHIPipeline.h"
 #include "Rendering/RHI/RHIContext.h"
@@ -80,23 +77,18 @@ void CModernSky::Draw()
 		RHI::GetDevice()->GetContext()->BindPipeline(pipeline.get());
 	}
 
-	// FFP matrix stack - no RHI equivalent
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	const CMatrix44f& view = camera->GetViewMatrix();
-	//view.SetPos(float3());
-	glLoadMatrixf(view);
-
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadMatrixf(camera->GetProjectionMatrix());
-
 	vao.Bind();
-	//assert(skyShader->IsValid());
 
 	auto* skyShader = skyShaders[game->GetDrawMode() != CGame::GameDrawMode::gameNormalDraw];
 
 	skyShader->Enable();
+
+	// Upload matrix uniforms (replaces FFP matrix stack)
+	const CMatrix44f& view = camera->GetViewMatrix();
+	const CMatrix44f mvp = camera->GetProjectionMatrix() * view;
+	const CMatrix44f mvInverse = CMatrix44f(view).InvertAffine();
+	skyShader->SetUniformMatrix4x4<float>("modelViewProjectionMatrix", false, &mvp.md[0][0]);
+	skyShader->SetUniformMatrix4x4<float>("modelViewMatrixInverse", false, &mvInverse.md[0][0]);
 
 	const float3 midMap{ static_cast<float>(SQUARE_SIZE * mapDims.mapx >> 1), 0.0f, static_cast<float>(SQUARE_SIZE * mapDims.mapy >> 1) };
 	skyShader->SetUniform("midMap", midMap.x, midMap.y, midMap.z);
@@ -126,13 +118,6 @@ void CModernSky::Draw()
 
 	skyShader->Disable();
 	vao.Unbind();
-
-	// FFP
-	// glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
 
 	sky->SetupFog();
 #endif

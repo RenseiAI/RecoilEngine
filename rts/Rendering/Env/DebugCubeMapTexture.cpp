@@ -1,11 +1,11 @@
 // RHI migration status: COMPLETE
 // - Cubemap creation migrated to RHI::IRHITexture
 // - Texture binding migrated to RHI context
-// - Matrix stack operations kept as GL FFP (no RHI equivalent)
+// - Matrix transforms: explicit uniform upload (modelViewProjectionMatrix)
 
 #include "DebugCubeMapTexture.h"
 
-#include "Rendering/GL/myGL.h"  // retained: FFP matrix stack (glMatrixMode/glPush/glPop)
+#include "Rendering/GL/myGL.h"  // retained: GL constants (GL_TEXTURE_CUBE_MAP_*, GL_VERTEX_SHADER, etc.)
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/RHI/RHIPipeline.h"
 #include "Rendering/RHI/RHIContext.h"
@@ -153,32 +153,21 @@ void DebugCubeMapTexture::Draw(uint32_t face) const
 	// Bind cubemap via RHI
 	ctx->BindTexture(0, cubeTexture.get());
 
-	// FFP matrix stack - no RHI equivalent
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	CMatrix44f view = camera->GetViewMatrix();
-	view.SetPos(float3());
-	glLoadMatrixf(view);
-
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadMatrixf(camera->GetProjectionMatrix());
-
 	vao.Bind();
 	assert(shader->IsValid());
 	shader->Enable();
+
+	// Upload MVP uniform (replaces FFP matrix stack)
+	CMatrix44f view = camera->GetViewMatrix();
+	view.SetPos(float3());
+	const CMatrix44f mvp = camera->GetProjectionMatrix() * view;
+	shader->SetUniformMatrix4x4<float>("modelViewProjectionMatrix", false, &mvp.md[0][0]);
 
 	// Draw via RHI
 	ctx->Draw(RHI::PrimitiveType::Triangles, vertCount, baseVertex);
 
 	shader->Disable();
 	vao.Unbind();
-
-	// glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
 
 	ctx->BindTexture(0, nullptr);
 #endif

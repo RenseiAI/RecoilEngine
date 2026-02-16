@@ -47,12 +47,14 @@ const vec3 CUBE_VERT[36] = vec3[36](
 );
 
 uniform vec3 midMap;
+uniform mat4 modelViewProjectionMatrix;
+uniform mat4 modelViewMatrixInverse;
 
 out vec3 dir;
 
 void main()
 {
-	vec3 camPos = gl_ModelViewMatrixInverse[3].xyz;
+	vec3 camPos = modelViewMatrixInverse[3].xyz;
 
 	float R = sqrt(16.0 * (midMap.x * midMap.x + midMap.z * midMap.z));
 
@@ -60,6 +62,6 @@ void main()
 
 	dir = pos - camPos.xyz;
 
-	gl_Position = gl_ModelViewProjectionMatrix * vec4(pos, 1.0);
+	gl_Position = modelViewProjectionMatrix * vec4(pos, 1.0);
 	gl_Position = gl_Position.xyww;
 }
