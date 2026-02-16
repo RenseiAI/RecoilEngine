@@ -23,6 +23,7 @@
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Game/UI/CommandColors.h"
+#include "System/Matrix44f.h"
 
 CLineDrawer lineDrawer;
 
@@ -63,7 +64,7 @@ void CLineDrawer::SetupLineStipple()
 }
 
 
-void CLineDrawer::DrawAll()
+void CLineDrawer::DrawAll(const CMatrix44f* transform)
 {
 	if (lines.empty() && stippled.empty())
 		return;
@@ -90,6 +91,7 @@ void CLineDrawer::DrawAll()
 					color
 				});
 			}
+			if (transform) rb.SetTransformMatrix(*transform);
 			rb.DrawArrays(lp.type);  // GL_LINES or GL_LINE_STRIP
 		}
 	};

@@ -17,6 +17,7 @@
 #include "System/EventClient.h"
 #include "System/UnorderedSet.hpp"
 
+class CMatrix44f;
 class CSolidObject;
 class CTextureAtlas;
 struct AtlasedTexture;
@@ -40,7 +41,7 @@ public:
 	void DrawOpaque(bool drawReflection, bool drawRefraction = false);
 	void DrawAlpha(bool drawAboveWater, bool drawBelowWater, bool drawReflection, bool drawRefraction);
 
-	void DrawProjectilesMiniMap();
+	void DrawProjectilesMiniMap(const CMatrix44f* transform = nullptr);
 
 	void DrawGroundFlashes();
 

@@ -183,7 +183,7 @@ void CShadowHandler::SaveShadowMapTextures() const
 		glSaveTexture(colorID, fmt::format("smColor_{}.png", globalRendering->drawFrame).c_str());
 }
 
-void CShadowHandler::DrawFrustumDebug() const
+void CShadowHandler::DrawFrustumDebug(const CMatrix44f* transform) const
 {
 	if (!debugFrustum || !shadowsLoaded)
 		return;
@@ -213,6 +213,7 @@ void CShadowHandler::DrawFrustumDebug() const
 	ctx->SetLineWidth(2.0f);
 	sh.Enable();
 	sh.SetUniform("ucolor", 0.0f, 0.0f, 1.0f, 1.0f);
+	if (transform) rb.SetTransformMatrix(*transform);
 	rb.DrawArrays(GL_LINES);
 	sh.SetUniform("ucolor", 1.0f, 1.0f, 1.0f, 1.0f);
 	sh.Disable();

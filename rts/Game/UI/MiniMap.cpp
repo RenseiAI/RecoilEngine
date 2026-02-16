@@ -6,7 +6,14 @@
  * - Migrated: buttonsTextureID and minimapTex textures to IRHITexture (23 GL calls removed)
  * - Migrated: Matrix stack (glPushMatrix/glPopMatrix, glTranslatef, glScalef, glRotatef,
  *   glMultMatrixf, glLoadIdentity, glOrtho, gluOrtho2D) -> RHI::MatrixStack + ScopedMatrixPush
- *   Remaining GL: glLoadMatrixf flush calls (RenderBuffer shader reads gl_ModelViewProjectionMatrix)
+ * - Migrated: DrawCameraFrustumAndMouseSelection, RenderCachedTexture, DrawNotes, DrawUnitRanges
+ *   use SetTransformMatrix() instead of FlushMatrices (bypasses FFP matrix sync)
+ * - Migrated: DrawWorldStuff downstream: ProjectileDrawer::DrawProjectilesMiniMap,
+ *   ShadowHandler::DrawFrustumDebug, DebugVisibilityDrawer::DrawMinimap, LineDrawer::DrawAll,
+ *   GuiHandler::DrawMapStuff all accept optional transform for explicit MVP
+ *   Remaining GL: FlushMatrices in DrawWorldStuff (for glExtra, commandDrawer auto-sync),
+ *   DrawBackground/DrawUnitIcons (bgShader/icons2DShader read gl_ModelViewProjectionMatrix),
+ *   SetClipPlanes (glClipPlane reads inverse modelview)
  * - Not migrated: GL_TEXTURE_2D (FFP), ApplyConstraintsMatrix (public API), other texture bindings
  */
 
@@ -1387,7 +1394,6 @@ void CMiniMap::DrawForReal(bool useNormalizedCoors, bool updateTex, bool luaCall
 			mvStack.Translate(curPos.x * globalRendering->pixelX, curPos.y * globalRendering->pixelY, 0.0f)
 			       .Scale(curDim.x * globalRendering->pixelX, curDim.y * globalRendering->pixelY, 1.0f);
 		}
-		FlushMatrices();
 		DrawCameraFrustumAndMouseSelection();
 		mvStack.Pop();
 	}
@@ -1436,7 +1442,7 @@ void CMiniMap::DrawCameraFrustumAndMouseSelection()
 			       .RotateZ(-90.0f * math::DEG_TO_RAD);
 			break;
 	}
-	FlushMatrices();
+	const CMatrix44f mvp = CMatrix44f(projStack.Top()) * mvStack.Top();
 
 	static auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2D0>();
 	rb.AssertSubmission();
@@ -1504,10 +1510,12 @@ void CMiniMap::DrawCameraFrustumAndMouseSelection()
 		sh.Enable();
 
 		sh.SetUniform("ucolor", 0.0f, 0.0f, 0.0f, 0.5f);
+		rb.SetTransformMatrix(mvp);
 		rb.DrawArrays(GL_LINE_LOOP, false);
 
 		ctx->SetLineWidth(1.5f);
 		sh.SetUniform("ucolor", 1.0f, 1.0f, 1.0f, 0.75f);
+		rb.SetTransformMatrix(mvp);
 		rb.DrawArrays(GL_LINE_LOOP);
 
 		sh.SetUniform("ucolor", 1.0f, 1.0f, 1.0f, 1.0f);
@@ -1536,13 +1544,14 @@ void CMiniMap::DrawCameraFrustumAndMouseSelection()
 
 		sh.Enable();
 		sh.SetUniform("ucolor", cmdColors.mouseBox[0], cmdColors.mouseBox[1], cmdColors.mouseBox[2], cmdColors.mouseBox[3]);
+		rb.SetTransformMatrix(mvp);
 		rb.DrawArrays(GL_LINE_LOOP);
 		sh.SetUniform("ucolor", 1.0f, 1.0f, 1.0f, 1.0f);
 		sh.Disable();
 		ctx->SetLineWidth(1.0f);
 	}
 
-	DrawNotes();
+	DrawNotes(mvp);
 
 	mvStack.Pop();
 
@@ -1706,7 +1715,7 @@ void CMiniMap::DrawButtons()
 }
 
 
-void CMiniMap::DrawNotes()
+void CMiniMap::DrawNotes(const CMatrix44f& mvp)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (notes.empty() || !drawPings) {
@@ -1756,6 +1765,7 @@ void CMiniMap::DrawNotes()
 	}
 
 	shader.Enable();
+	rb.SetTransformMatrix(mvp);
 	rb.DrawArrays(GL_LINES);
 	shader.Disable();
 }
@@ -1783,8 +1793,10 @@ bool CMiniMap::RenderCachedTexture(bool useNormalizedCoors)
 			mvStack.Translate(curPos.x * globalRendering->pixelX, curPos.y * globalRendering->pixelY, 0.0f)
 			       .Scale(curDim.x * globalRendering->pixelX, curDim.y * globalRendering->pixelY, 1.0f);
 		}
-		FlushMatrices();
+		// MVP computed below after stack is set up
 	}
+
+	const CMatrix44f mvp = CMatrix44f(projStack.Top()) * mvStack.Top();
 
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2DT>();
 	rb.AssertSubmission();
@@ -1799,6 +1811,7 @@ bool CMiniMap::RenderCachedTexture(bool useNormalizedCoors)
 	auto& sh = rb.GetShader();
 	sh.Enable();
 	sh.SetUniform("ucolor", 1.0f, 1.0f, 1.0f, 1.0f);
+	rb.SetTransformMatrix(mvp);
 	rb.DrawElements(GL_TRIANGLES);
 	sh.Disable();
 
@@ -1907,7 +1920,7 @@ void CMiniMap::DrawUnitIcons() const
 }
 
 
-void CMiniMap::DrawUnitRanges() const
+void CMiniMap::DrawUnitRanges(const CMatrix44f& mvp) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	// draw unit ranges
@@ -1943,6 +1956,7 @@ void CMiniMap::DrawUnitRanges() const
 
 	auto& sh = rb.GetShader();
 	sh.Enable();
+	rb.SetTransformMatrix(mvp);
 	rb.DrawArrays(GL_LINES);
 	sh.Disable();
 }
@@ -1977,15 +1991,18 @@ void CMiniMap::DrawWorldStuff() const
 			       .RotateY(-90.0f * math::DEG_TO_RAD);
 			break;
 	}
+	// FlushMatrices kept for non-migrated downstream draws (glExtra circles,
+	// commandDrawer, etc.) that still auto-sync from FFP state.
 	FlushMatrices();
+	const CMatrix44f mvp = CMatrix44f(projStack.Top()) * mvStack.Top();
 
 	// draw the projectiles
 	if (drawProjectiles) {
-		projectileDrawer->DrawProjectilesMiniMap();
+		projectileDrawer->DrawProjectilesMiniMap(&mvp);
 	}
 
-	shadowHandler.DrawFrustumDebug();
-	DebugVisibilityDrawer::DrawMinimap();
+	shadowHandler.DrawFrustumDebug(&mvp);
+	DebugVisibilityDrawer::DrawMinimap(&mvp);
 
 	{
 		// draw the queued commands
@@ -2001,14 +2018,14 @@ void CMiniMap::DrawWorldStuff() const
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetLineWidth(2.5f);
-	lineDrawer.DrawAll();
+	lineDrawer.DrawAll(&mvp);
 	ctx->SetLineWidth(1.0f);
 
 	// draw the selection shape, and some ranges
 	if (drawCommands > 0)
-		guihandler->DrawMapStuff(true);
+		guihandler->DrawMapStuff(true, &mvp);
 
-	DrawUnitRanges();
+	DrawUnitRanges(mvp);
 
 	mvStack.Pop();
 }

@@ -113,13 +113,13 @@ protected:
 	bool RenderCachedTexture(bool useGeom);
 	void DrawBackground() const;
 	void DrawUnitIcons() const;
-	void DrawUnitRanges() const;
+	void DrawUnitRanges(const CMatrix44f& mvp) const;
 	void DrawWorldStuff() const;
 	void DrawCameraFrustumAndMouseSelection();
 	void SetClipPlanes(const bool lua) const;
 
 	void DrawFrame();
-	void DrawNotes();
+	void DrawNotes(const CMatrix44f& mvp);
 	void DrawButtons();
 	void DrawMinimizedButtonQuad() const;
 	void DrawMinimizedButtonLoop() const;

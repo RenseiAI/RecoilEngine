@@ -3,6 +3,7 @@
 #include "DebugVisibilityDrawer.h"
 
 #include "Game/Camera.h"
+#include "System/Matrix44f.h"
 #include "Map/ReadMap.h"
 #include "Map/Ground.h"
 #include "Rendering/GL/glExtra.h"
@@ -129,7 +130,7 @@ void DebugVisibilityDrawer::DrawWorld()
 	ctx->SetBlendEnabled(false);
 }
 
-void DebugVisibilityDrawer::DrawMinimap()
+void DebugVisibilityDrawer::DrawMinimap(const CMatrix44f* transform)
 {
 	if (!enable)
 		return;
@@ -168,6 +169,7 @@ void DebugVisibilityDrawer::DrawMinimap()
 	ctx->SetDepthWriteEnabled(false);
 
 	sh.Enable();
+	if (transform) rb.SetTransformMatrix(*transform);
 	rb.DrawElements(GL_TRIANGLES);
 	sh.Disable();
 

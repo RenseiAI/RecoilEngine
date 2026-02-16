@@ -633,7 +633,7 @@ bool CProjectileDrawer::ShouldDrawProjectile(const CProjectile* p, uint8_t thisP
 	return p->HasDrawFlag(static_cast<DrawFlags>(thisPassMask));
 }
 
-void CProjectileDrawer::DrawProjectilesMiniMap()
+void CProjectileDrawer::DrawProjectilesMiniMap(const CMatrix44f* transform)
 {
 	ZoneScopedN("ProjectileDrawer::DrawMiniMap");
 
@@ -674,11 +674,15 @@ void CProjectileDrawer::DrawProjectilesMiniMap()
 	sh.Enable();
 	{
 		ZoneScopedN("DrawProjectilesMiniMap::MiniMapLinesRB");
-		CProjectile::GetMiniMapLinesRB().DrawArrays(GL_LINES);
+		auto& linesRB = CProjectile::GetMiniMapLinesRB();
+		if (transform) linesRB.SetTransformMatrix(*transform);
+		linesRB.DrawArrays(GL_LINES);
 	}
 	{
 		ZoneScopedN("DrawProjectilesMiniMap::MiniMapPointsRB");
-		CProjectile::GetMiniMapPointsRB().DrawArrays(GL_POINTS);
+		auto& pointsRB = CProjectile::GetMiniMapPointsRB();
+		if (transform) pointsRB.SetTransformMatrix(*transform);
+		pointsRB.DrawArrays(GL_POINTS);
 	}
 	sh.Disable();
 

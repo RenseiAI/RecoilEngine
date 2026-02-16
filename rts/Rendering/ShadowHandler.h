@@ -93,7 +93,7 @@ public:
 	bool InShadowPass() const { return inShadowPass; }
 
 	void SaveShadowMapTextures() const;
-	void DrawFrustumDebug() const;
+	void DrawFrustumDebug(const CMatrix44f* transform = nullptr) const;
 
 	bool& DebugFrustumRef() { return debugFrustum; }
 private:

@@ -15,6 +15,7 @@
 
 #define DEFAULT_GUI_CONFIG "ctrlpanel.txt"
 
+class CMatrix44f;
 class CUnit;
 struct SColor;
 struct UnitDef;
@@ -32,7 +33,7 @@ public:
 	void Update();
 
 	void Draw();
-	void DrawMapStuff(bool onMiniMap);
+	void DrawMapStuff(bool onMiniMap, const CMatrix44f* transform = nullptr);
 	void DrawCentroidCursor();
 
 	bool AboveGui(int x, int y);

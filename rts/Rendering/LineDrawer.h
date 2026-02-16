@@ -10,6 +10,8 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/RHI/RHITypes.h"
 
+class CMatrix44f;
+
 class CLineDrawer {
 	public:
 		CLineDrawer();
@@ -32,7 +34,7 @@ class CLineDrawer {
 		void RestartWithColor(const float* color);
 		const float3& GetLastPos() const { return lastPos; }
 
-		void DrawAll();
+		void DrawAll(const CMatrix44f* transform = nullptr);
 
 	private:
 		bool lineStipple;

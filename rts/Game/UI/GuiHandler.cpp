@@ -3646,7 +3646,7 @@ static inline void DrawWeaponArc(const CUnit* unit)
 }
 
 
-void CGuiHandler::DrawMapStuff(bool onMiniMap)
+void CGuiHandler::DrawMapStuff(bool onMiniMap, const CMatrix44f* transform)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	auto* ctx = RHI::GetDevice()->GetContext();
@@ -3780,6 +3780,7 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap)
 								p.z += (fastmath::cos(radians) * radius);
 								rbMC.AddVertex({ p, mmCircCol });
 							}
+							if (transform) rbMC.SetTransformMatrix(*transform);
 							rbMC.DrawArrays(GL_TRIANGLE_FAN);
 							shMC.Disable();
 						}
@@ -3817,6 +3818,7 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap)
 								{ {outerPos.x, 0.0f, outerPos.z}, mmRectCol },
 								{ {innerPos.x, 0.0f, outerPos.z}, mmRectCol }
 							);
+							if (transform) rbMR.SetTransformMatrix(*transform);
 							rbMR.DrawElements(GL_TRIANGLES);
 							shMR.Disable();
 						}
