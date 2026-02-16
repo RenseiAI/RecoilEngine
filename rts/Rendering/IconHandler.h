@@ -6,12 +6,15 @@
 #include <vector>
 #include <string>
 #include <bitset>
+#include <memory>
 
 #include "System/float3.h"
 #include "System/UnorderedMap.hpp"
 #include "System/ScopedResource.h"
 #include "Rendering/GL/RenderBuffersFwd.h"
 #include "Rendering/Textures/TextureAtlas.h"
+
+namespace RHI { class IRHITexture; }
 
 class UnitDef;
 class CTextureRenderAtlas;
@@ -107,6 +110,7 @@ namespace icon {
 			const auto& GetAtlasTextureIDs() const { return atlasTextureIDs; }
 			auto GetAtlasTextureID(size_t i) const { return atlasTextureIDs[i]; }
 			const auto& GetAtlasSize(size_t i) const { return atlasTextureSizes[i]; }
+			RHI::IRHITexture* GetAtlasRHITexture(size_t i) const { return atlasRHITextures[i].get(); }
 
 			void DumpAtlasTextures() const;
 		private:
@@ -125,6 +129,7 @@ namespace icon {
 			std::array<int2, 2> atlasTextureSizes = {};
 			std::array<std::unique_ptr<CTextureRenderAtlas>, 2> atlases;
 			std::bitset<2> atlasNeedsUpdate = { false };
+			std::array<std::unique_ptr<RHI::IRHITexture>, 2> atlasRHITextures;
 	};
 
 	extern CIconHandler iconHandler;

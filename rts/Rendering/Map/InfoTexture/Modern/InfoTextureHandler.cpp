@@ -14,6 +14,10 @@
 #include "Path.h"
 #include "Radar.h"
 
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHITexture.h"
+#include "Rendering/RHI/RHIFactory.h"
+
 #include "System/Misc/TracyDefs.h"
 
 
@@ -148,6 +152,23 @@ int2 CInfoTextureHandler::GetCurrentInfoTextureSize() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	return (infoTex->GetTexSize());
+}
+
+RHI::IRHITexture* CInfoTextureHandler::GetCurrentInfoRHITexture()
+{
+	const uint32_t texId = GetCurrentInfoTexture();
+	if (texId == 0)
+		return nullptr;
+
+	// Lazily create/update cached non-owning wrapper
+	if (cachedInfoTexId != texId) {
+		cachedInfoTexId = texId;
+		const int2 size = GetCurrentInfoTextureSize();
+		cachedInfoRHITexture = RHI::GetDevice()->WrapExistingTexture(
+			texId, RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
+			size.x, size.y);
+	}
+	return cachedInfoRHITexture.get();
 }
 
 

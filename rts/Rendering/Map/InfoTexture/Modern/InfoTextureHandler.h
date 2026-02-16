@@ -3,11 +3,14 @@
 #pragma once
 
 #include <string>
+#include <memory>
 
 #include "Rendering/GL/myGL.h"
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
 #include "System/type2.h"
 #include "System/UnorderedMap.hpp"
+
+namespace RHI { class IRHITexture; }
 
 
 class CModernInfoTexture;
@@ -35,6 +38,7 @@ public:
 
 	GLuint GetCurrentInfoTexture() const override;
 	int2 GetCurrentInfoTextureSize() const override;
+	RHI::IRHITexture* GetCurrentInfoRHITexture() override;
 
 public:
 	const CInfoTexture* GetInfoTextureConst(const std::string& name) const override;
@@ -53,6 +57,10 @@ protected:
 
 	// special; always non-NULL at runtime
 	CInfoTextureCombiner* infoTex = nullptr;
+
+	// Cached non-owning RHI wrapper for the combiner texture
+	std::unique_ptr<RHI::IRHITexture> cachedInfoRHITexture;
+	uint32_t cachedInfoTexId = 0;
 };
 
 class CNullInfoTextureHandler : public IInfoTextureHandler
@@ -75,6 +83,7 @@ public:
 
 	GLuint GetCurrentInfoTexture() const override { return 0; }
 	int2 GetCurrentInfoTextureSize() const override { return int2{ 1, 1 }; }
+	RHI::IRHITexture* GetCurrentInfoRHITexture() override { return nullptr; }
 
 public:
 	const CInfoTexture* GetInfoTextureConst(const std::string& name) const override { return nullptr; }

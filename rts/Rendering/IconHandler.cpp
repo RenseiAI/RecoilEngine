@@ -11,6 +11,8 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "Rendering/RHI/RHIFactory.h"
 
 /**
@@ -65,6 +67,9 @@ CIconHandler iconHandler;
 void CIconHandler::Kill()
 {
 	defaultIconIdx = INVALID_ICON_INDEX;
+
+	// Clear non-owning RHI wrappers before deleting GL textures
+	atlasRHITextures = {};
 
 	// RHI_TODO: raw GLuint texture cleanup - no RHI wrapper available
 	// Atlases use GLuint from CBitmap::CreateMipMapTexture() or CTextureRenderAtlas::DisownTexture()
@@ -163,10 +168,16 @@ bool CIconHandler::CreateAtlasTexture(size_t atlasIdx)
 
 		// RHI_TODO: raw GLuint texture cleanup - no RHI wrapper available
 		// CBitmap::CreateMipMapTexture() returns raw GL handle, not IRHITexture
+		atlasRHITextures[atlasIdx].reset(); // clear wrapper before deleting GL texture
 		glDeleteTextures(1, &atlasTextureIDs[atlasIdx]);
 		atlasTextureIDs[atlasIdx] = 0; // just in case
 		atlasTextureIDs[atlasIdx] = bm.CreateMipMapTexture();
 		atlasTextureSizes[atlasIdx] = int2(bm.xsize, bm.ysize);
+
+		// Wrap with non-owning RHI texture for RHI binding
+		atlasRHITextures[atlasIdx] = RHI::GetDevice()->WrapExistingTexture(
+			atlasTextureIDs[atlasIdx], RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
+			bm.xsize, bm.ysize);
 
 		return true;
 	}
@@ -179,6 +190,7 @@ bool CIconHandler::CreateAtlasTexture(size_t atlasIdx)
 
 	// RHI_TODO: raw GLuint texture cleanup - no RHI wrapper available
 	// CTextureRenderAtlas::DisownTexture() returns raw GL handle, not IRHITexture
+	atlasRHITextures[atlasIdx].reset(); // clear wrapper before deleting GL texture
 	if (atlasTextureIDs[atlasIdx]) {
 		glDeleteTextures(1, &atlasTextureIDs[atlasIdx]);
 		atlasTextureIDs[atlasIdx] = 0; // just in case
@@ -186,6 +198,12 @@ bool CIconHandler::CreateAtlasTexture(size_t atlasIdx)
 
 	atlasTextureIDs[atlasIdx] = atlas->DisownTexture();
 	atlas = nullptr;
+
+	// Wrap with non-owning RHI texture for RHI binding
+	const int2 size = atlasTextureSizes[atlasIdx];
+	atlasRHITextures[atlasIdx] = RHI::GetDevice()->WrapExistingTexture(
+		atlasTextureIDs[atlasIdx], RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
+		size.x, size.y);
 
 	return true;
 }

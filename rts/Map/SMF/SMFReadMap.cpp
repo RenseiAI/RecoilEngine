@@ -59,6 +59,23 @@
 
 using std::max;
 
+/// Wrap a CBitmap-created MapTexture with a non-owning RHI wrapper.
+/// Skips textures that already have RHI wrappers (created via RHI API)
+/// or have no GL texture allocated yet.
+static void WrapMapTexture(MapTexture& mt,
+	RHI::TextureType type = RHI::TextureType::Texture2D,
+	RHI::TextureFormat format = RHI::TextureFormat::RGBA8)
+{
+	if (mt.GetID() == 0 || mt.GetRawRHITexture() != nullptr)
+		return;
+
+	auto* device = RHI::GetDevice();
+	const int2 size = mt.GetRawSize();
+	mt.SetRawRHITexture(device->WrapExistingTexture(
+		mt.GetID(), type, format,
+		size.x, size.y));
+}
+
 CONFIG(bool, GroundNormalTextureHighPrecision).deprecated(true);
 CONFIG(float, SMFTexAniso).defaultValue(4.0f).minimumValue(0.0f);
 CONFIG(float, SSMFTexAniso).defaultValue(4.0f).minimumValue(0.0f);
@@ -117,6 +134,22 @@ CSMFReadMap::CSMFReadMap(const std::string& mapName): CEventClient("[CSMFReadMap
 		CreateNormalTex();
 		CreateHeightMapTex();
 		CreateShadingGL();
+
+		// Wrap CBitmap-created textures with non-owning RHI wrappers.
+		// shadingTex, normalsTex, heightMapTexture already have RHI textures
+		// created via CreateTexture() — WrapMapTexture skips those.
+		WrapMapTexture(minimapTex);
+		WrapMapTexture(detailTex);
+		WrapMapTexture(grassShadingTex);
+		WrapMapTexture(specularTex);
+		WrapMapTexture(skyReflectModTex);
+		WrapMapTexture(blendNormalsTex);
+		WrapMapTexture(lightEmissionTex);
+		WrapMapTexture(parallaxHeightTex);
+		WrapMapTexture(splatDetailTex);
+		WrapMapTexture(splatDistrTex);
+		for (auto& t : splatNormalTextures)
+			WrapMapTexture(t);
 	}
 
 	mapFile.ReadFeatureInfo();
@@ -849,6 +882,25 @@ void CSMFReadMap::ReloadTextures()
 
 		ReloadTextureFunc(mapInfo->smf.splatDetailNormalTexNames[i], splatNormalTextures[i], texAnisotropyLevels[true], 0.0f, true);
 	}
+
+	// Re-wrap textures since GL IDs may have changed.
+	// Clear existing wrappers first so WrapMapTexture sees null and re-wraps.
+	auto clearAndWrap = [](MapTexture& mt) {
+		mt.SetRawRHITexture(nullptr);
+		WrapMapTexture(mt);
+	};
+	clearAndWrap(grassShadingTex);
+	clearAndWrap(detailTex);
+	clearAndWrap(minimapTex);
+	clearAndWrap(specularTex);
+	clearAndWrap(blendNormalsTex);
+	clearAndWrap(splatDistrTex);
+	clearAndWrap(splatDetailTex);
+	clearAndWrap(skyReflectModTex);
+	clearAndWrap(lightEmissionTex);
+	clearAndWrap(parallaxHeightTex);
+	for (auto& t : splatNormalTextures)
+		clearAndWrap(t);
 }
 
 int2 CSMFReadMap::GetPatch(int hmx, int hmz) const

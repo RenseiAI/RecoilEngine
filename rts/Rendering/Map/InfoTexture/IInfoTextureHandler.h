@@ -7,6 +7,8 @@
 #include <string>
 #include <memory>
 
+namespace RHI { class IRHITexture; }
+
 
 class CInfoTexture;
 
@@ -53,6 +55,7 @@ public:
 
 	virtual GLuint GetCurrentInfoTexture() const = 0;
 	virtual int2   GetCurrentInfoTextureSize() const = 0;
+	virtual RHI::IRHITexture* GetCurrentInfoRHITexture() = 0;
 
 public:
 	virtual const CInfoTexture* GetInfoTextureConst(const std::string& name) const = 0;
