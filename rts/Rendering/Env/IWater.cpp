@@ -16,7 +16,10 @@
 #include "Rendering/Features/FeatureDrawer.h"
 #include "Rendering/Units/UnitDrawer.h"
 #include "Rendering/Env/Particles/ProjectileDrawer.h"
-#include "Rendering/GL/myGL.h" // retained: GL_CLIP_PLANE2, glClipPlane, matrix stack ops (no RHI equivalent)
+#include "Rendering/GL/myGL.h" // retained: GL_CLIP_PLANE2, glClipPlane (remaining unmigrated sites)
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Sim/Projectiles/ExplosionListener.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/EventHandler.h"
@@ -59,18 +62,10 @@ void IWater::ExplosionOccurred(const CExplosionParams& event) {
 	AddExplosion(event.pos, event.damages.GetDefault(), event.craterAreaOfEffect);
 }
 
-// RHI-GAP: glClipPlane / GL_CLIP_PLANE2 / matrix stack have no RHI equivalent.
-// Metal uses [[clip_distance]] in shaders. This must remain as direct GL
-// until shader-based clip-distance is implemented across both backends.
-// The matrix stack ops (glPushMatrix/glLoadIdentity/glPopMatrix) ensure
-// the clip plane is set in eye-space coordinates. In an RHI world, clip
-// plane equations would be passed as uniforms to shaders.
 void IWater::SetModelClippingPlane(const double* planeEq) {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glPushMatrix();
-	glLoadIdentity();
-	glClipPlane(GL_CLIP_PLANE2, planeEq);
-	glPopMatrix();
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetClipPlaneEquation(2, planeEq);
 }
 
 void IWater::SetWater(int rendererMode)

@@ -1135,11 +1135,8 @@ void CUnitDrawerGLSL::DrawModelWireBuildStageShadow(const CUnit* unit, const dou
 		ctx->SetClipDistanceEnabled(0, false);
 		ctx->SetClipDistanceEnabled(1, false);
 	} else {
-		glPushMatrix();
-		glLoadIdentity();
-		glClipPlane(GL_CLIP_PLANE0, upperPlane);
-		glClipPlane(GL_CLIP_PLANE1, lowerPlane);
-		glPopMatrix();
+		ctx->SetClipPlaneEquation(0, upperPlane);
+		ctx->SetClipPlaneEquation(1, lowerPlane);
 	}
 
 	ctx->SetPolygonMode(RHI::PolygonMode::Line);
@@ -1155,11 +1152,9 @@ void CUnitDrawerGLSL::DrawModelWireBuildStageShadow(const CUnit* unit, const dou
 void CUnitDrawerGLSL::DrawModelFlatBuildStageShadow(const CUnit* unit, const double* upperPlane, const double* lowerPlane, bool noLuaCall) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glPushMatrix();
-	glLoadIdentity();
-	glClipPlane(GL_CLIP_PLANE0, upperPlane);
-	glClipPlane(GL_CLIP_PLANE1, lowerPlane);
-	glPopMatrix();
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetClipPlaneEquation(0, upperPlane);
+	ctx->SetClipPlaneEquation(1, lowerPlane);
 
 	DrawUnitModel(unit, noLuaCall);
 }

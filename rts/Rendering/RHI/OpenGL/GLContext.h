@@ -35,6 +35,7 @@ public:
 	void SetViewport(const Viewport& viewport) override;
 	void SetScissor(const ScissorRect& rect) override;
 	void SetClipDistanceEnabled(uint32_t index, bool enabled) override;
+	void SetClipPlaneEquation(uint32_t index, const double* equation) override;
 
 	void SetVertexAttribDivisor(uint32_t index, uint32_t divisor) override;
 

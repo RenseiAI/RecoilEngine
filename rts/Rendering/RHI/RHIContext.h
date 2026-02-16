@@ -69,6 +69,13 @@ public:
 	virtual void SetClipDistanceEnabled(uint32_t index, bool enabled) = 0;
 	static constexpr uint32_t MaxClipDistances = 8;
 
+	/// Set clip plane equation in eye-space coordinates.
+	/// GL backend: internally sets identity MV before calling glClipPlane, so the
+	/// equation is interpreted directly in eye-space (no MV transform applied).
+	/// @param index Clip plane index (0 to MaxClipDistances-1)
+	/// @param equation 4 doubles [a, b, c, d] defining half-space ax+by+cz+d >= 0
+	virtual void SetClipPlaneEquation(uint32_t index, const double* equation) = 0;
+
 	// --- Vertex attribute ---
 	virtual void SetVertexAttribDivisor(uint32_t index, uint32_t divisor) = 0;
 

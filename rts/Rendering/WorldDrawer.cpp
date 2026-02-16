@@ -18,8 +18,9 @@
  * Remaining (marked RHI_TODO, blocked on infrastructure):
  *   - FFP matrix stack (glMatrixMode/glPushMatrix/glPopMatrix/glLoadIdentity/gluOrtho2D)
  *     in ResetMVPMatrices() - modern path uses uniform buffers; legacy GLSL needs FFP state
- *   - FFP clip planes (glClipPlane/glEnable/glDisable(GL_CLIP_PLANE3))
- *     in DrawAlphaObjects() - modern path uses gl_ClipDistance[] in shaders; legacy needs FFP
+ *
+ * Completed clip plane migration:
+ *   - glClipPlane/glEnable/glDisable(GL_CLIP_PLANE3) -> ctx->SetClipPlaneEquation/SetClipDistanceEnabled
  */
 
 #include "Rendering/GL/myGL.h"
@@ -432,14 +433,9 @@ void CWorldDrawer::DrawAlphaObjects() const
 		SCOPED_TIMER("Draw::World::Models::Alpha");
 		SCOPED_GL_DEBUGGROUP("Draw::World::Models::Alpha");
 		// clip in model-space
-		// RHI_TODO: FFP clip planes - no RHI equivalent
-		// Modern path uses gl_ClipDistance[] in shaders; legacy GLSL needs FFP state
 		if (hasWaterRendering) {
-			glPushMatrix();
-			glLoadIdentity();
-			glClipPlane(GL_CLIP_PLANE3, belowPlaneEq);
-			glPopMatrix();
-			glEnable(GL_CLIP_PLANE3);
+			ctx->SetClipPlaneEquation(3, belowPlaneEq);
+			ctx->SetClipDistanceEnabled(3, true);
 		}
 
 		// draw alpha-objects below water surface (farthest)
@@ -452,7 +448,7 @@ void CWorldDrawer::DrawAlphaObjects() const
 		projectileDrawer->DrawAlpha(!hasWaterRendering, true, false, false);
 
 		if (hasWaterRendering)
-			glDisable(GL_CLIP_PLANE3);
+			ctx->SetClipDistanceEnabled(3, false);
 	}
 
 	if (!hasWaterRendering)
@@ -475,13 +471,8 @@ void CWorldDrawer::DrawAlphaObjects() const
 	{
 		SCOPED_TIMER("Draw::World::Models::Alpha");
 		SCOPED_GL_DEBUGGROUP("Draw::World::Alpha");
-		// RHI_TODO: FFP clip planes - no RHI equivalent
-		// Modern path uses gl_ClipDistance[] in shaders; legacy GLSL needs FFP state
-		glPushMatrix();
-		glLoadIdentity();
-		glClipPlane(GL_CLIP_PLANE3, abovePlaneEq);
-		glPopMatrix();
-		glEnable(GL_CLIP_PLANE3);
+		ctx->SetClipPlaneEquation(3, abovePlaneEq);
+		ctx->SetClipDistanceEnabled(3, true);
 
 		// draw alpha-objects above water surface (closest)
 		unitDrawer->DrawAlphaPass(false);
@@ -492,7 +483,7 @@ void CWorldDrawer::DrawAlphaObjects() const
 		SCOPED_GL_DEBUGGROUP("Draw::World::Particles");
 		projectileDrawer->DrawAlpha(true, false, false, false);
 
-		glDisable(GL_CLIP_PLANE3);
+		ctx->SetClipDistanceEnabled(3, false);
 	}
 }
 

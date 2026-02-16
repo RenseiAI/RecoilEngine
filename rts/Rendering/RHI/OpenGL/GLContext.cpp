@@ -252,6 +252,17 @@ void GLContext::SetClipDistanceEnabled(uint32_t index, bool enabled) {
 		glDisable(GL_CLIP_DISTANCE0 + index);
 }
 
+void GLContext::SetClipPlaneEquation(uint32_t index, const double* equation) {
+	if (index >= IRHIContext::MaxClipDistances) return;
+	// glClipPlane transforms the equation by the current MV matrix.
+	// We want to pass eye-space equations directly, so set MV to identity.
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
+	glClipPlane(GL_CLIP_PLANE0 + index, equation);
+	glPopMatrix();
+}
+
 void GLContext::SetVertexAttribDivisor(uint32_t index, uint32_t divisor) {
 	glVertexAttribDivisor(index, divisor);
 }
