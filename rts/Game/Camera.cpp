@@ -291,6 +291,8 @@ void CCamera::UpdateLoadViewport(int px, int py, int sx, int sy)
 void CCamera::LoadMatrices() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: FFP matrix stack - no RHI equivalent
+	// Modern path uses uniform buffers; legacy GLSL path still needs FFP state
 	glMatrixMode(GL_PROJECTION);
 	glLoadMatrixf(&projectionMatrix.m[0]);
 

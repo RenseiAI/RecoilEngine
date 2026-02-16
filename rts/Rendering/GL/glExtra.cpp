@@ -11,12 +11,12 @@
  * GL::Shapes (~8 GL calls): glDrawElements, vertex attrib setup
  *   RHI: Use IRHIBuffer + IRHIContext::DrawIndexed()
  *
- * glSurfaceCircle/glBallisticCircle: Already use RenderBuffer (abstracted)
+ * glSurfaceCircle/glBallisticCircle: FULLY MIGRATED to TypedRenderBuffer
+ *   (including Lua variants)
  */
 
 #include "glExtra.h"
 #include "RenderBuffers.h"
-#include "VertexArray.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
 
@@ -74,16 +74,19 @@ void glSurfaceCircle(const float3& center, float radius, const SColor& col, uint
 void glSurfaceCircleLua(const float3& center, float radius, const SColor& col, uint32_t res)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	CVertexArray* va = GetVertexArray();
-	va->Initialize();
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	rb.AssertSubmission();
+	auto& sh = rb.GetShader();
 
-	const auto addFunc = [va](auto&& pos, const auto& col) {
-		va->AddVertexC(pos, col);
+	const auto addFunc = [&rb](auto&& pos, const auto& col) {
+		rb.AddVertex({ std::forward<float3>(pos), col });
 	};
 
 	glSurfaceCircleImpl(center, radius, col, res, addFunc);
 
-	va->DrawArrayC(GL_LINE_LOOP);
+	sh.Enable();
+	rb.DrawArrays(GL_LINE_LOOP);
+	sh.Disable();
 }
 
 static constexpr float (*weaponRangeFuncs[])(const CWeapon*, const WeaponDef*, float, float) = {
@@ -185,22 +188,19 @@ void glBallisticCircle(const CWeapon* weapon, const WeaponDef* weaponDef, const 
 void glBallisticCircleLua(const CWeapon* weapon, const WeaponDef* weaponDef, const SColor& color, uint32_t resolution, const float3& center, const float3& params)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	CVertexArray* va = GetVertexArray();
-	va->Initialize();
-	va->EnlargeArrays(resolution, 0, VA_SIZE_C);
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+	rb.AssertSubmission();
+	auto& sh = rb.GetShader();
 
 	auto vertices = glBallisticCircleImpl(weapon, weaponDef, resolution, center, params);
-	auto* vaVertices = va->GetTypedVertexArray<VA_TYPE_C>(resolution);
 
 	for (auto&& vert : vertices) {
-		*vaVertices = VA_TYPE_C {
-			std::forward<float3>(vert.pos),
-			color
-		};
-		vaVertices++;
+		rb.AddVertex({ std::forward<float3>(vert.pos), color });
 	}
 
-	va->DrawArrayC(GL_LINE_LOOP);
+	sh.Enable();
+	rb.DrawArrays(GL_LINE_LOOP);
+	sh.Disable();
 }
 
 void glBallisticCircle(const CWeapon* weapon     , const SColor& color, uint32_t resolution, const float3& center, const float3& params)

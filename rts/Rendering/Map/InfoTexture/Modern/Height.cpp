@@ -1,8 +1,10 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-// RHI migration status: PARTIAL
-// - RHI used for viewport, clear, draw operations (via RunFullScreenPass)
-// - glActiveTexture/glBindTexture cannot be migrated: readMap->GetHeightMapTexture() returns raw GLuint
+// RHI migration status: BLOCKED
+// - RHI used for viewport, draw operations via RunFullScreenPass()
+// - Remaining GL calls (2): glActiveTexture, glBindTexture for heightmap texture
+// - Blocker: ReadMap::GetHeightMapTexture() returns raw GLuint, not IRHITexture*
+// - Requires changing heightmap texture storage in map reader
 
 #include "Height.h"
 #include "Map/HeightLinePalette.h"
@@ -121,8 +123,10 @@ void CHeightTexture::Update()
 	);
 	auto binding = paletteTex.ScopedBind(1);
 
-	// TODO [RHI cross-cutting]: readMap->GetHeightMapTexture() returns raw GLuint;
-	// needs RHI texture wrapper before this can be migrated to ctx->BindTexture()
+	// RHI_TODO: readMap->GetHeightMapTexture() returns raw GLuint
+	// (see ReadMap::GetHeightMapTexture() in ReadMap.h). Migration blocked until
+	// ReadMap interface is extended to return IRHITexture* or GL::Texture2D wrapper.
+	// This would require changing the heightmap texture storage in the map reader.
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, hmTexID);
 

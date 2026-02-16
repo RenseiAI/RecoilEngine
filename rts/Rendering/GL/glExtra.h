@@ -1,7 +1,7 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 // RHI Migration: glDrawVolume uses stencil state -> RHI::DepthStencilState pipeline objects.
 // GL::Shapes uses VAO/VBO/glDrawElements -> RHI::IRHIBuffer + IRHIContext::DrawIndexed().
-// Surface circle and ballistic circle functions use RenderBuffers (already abstracted).
+// Surface circle and ballistic circle functions fully migrated to TypedRenderBuffer (including Lua variants).
 
 #pragma once
 

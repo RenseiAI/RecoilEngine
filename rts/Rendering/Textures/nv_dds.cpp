@@ -6,25 +6,27 @@
 /**
  * nv_dds.cpp - NVIDIA DDS texture loader implementation.
  *
- * RHI Migration Status: NOT MIGRATED (Legacy GL-only)
- * ===================================================
- * GL dependencies in upload_texture*() functions (lines ~740-950):
+ * RHI Migration Status: NOT MIGRATED (Low-level GL texture loader)
+ * =================================================================
+ * This file is a legacy DDS texture loading library using direct GL calls.
+ * It is kept for backward compatibility and specialized DDS format support.
+ *
+ * GL dependencies in upload_texture*() functions (lines ~766-976):
  *   - glCompressedTexImage1D/2D/3DARB for DXT compressed textures
  *   - glTexImage1D/2D/3D for uncompressed textures
- *   - glPixelStorei(GL_UNPACK_ALIGNMENT) for alignment
- *   - GL texture targets (GL_TEXTURE_1D, GL_TEXTURE_2D, etc.)
+ *   - glPixelStorei(GL_UNPACK_ALIGNMENT) for pixel pack/unpack alignment
+ *   - GL texture targets (GL_TEXTURE_1D, GL_TEXTURE_2D, GL_TEXTURE_3D, etc.)
  *
- * GL format enum usage in load() (lines ~390-440):
- *   - GL_COMPRESSED_RGBA_S3TC_DXT1/3/5_EXT for compressed
- *   - GL_BGRA, GL_BGR, GL_LUMINANCE for uncompressed
+ * GL format enum usage in load() (lines ~417-464):
+ *   - GL_COMPRESSED_RGBA_S3TC_DXT1/3/5_EXT for compressed formats
+ *   - GL_BGRA, GL_BGR, GL_LUMINANCE for uncompressed formats
  *
- * TODO: RHI gap - Full migration would require:
- *   1. Map m_format to RHI::TextureFormat in load()
- *   2. Replace upload_texture*() with RHI texture Upload() calls
- *   3. Handle compressed texture formats in RHI layer
+ * RHI Migration Strategy:
+ *   1. Use CBitmap::CreateDDSTextureRHI() for high-level RHI texture creation
+ *   2. Keep nv_dds for specialized/legacy DDS loading paths
+ *   3. Full migration would require RHI compressed texture upload API and format mapping
  *
- * Alternative: Use Bitmap::CreateDDSTextureRHI() which already wraps
- * the loaded data into RHI textures (see Bitmap.cpp).
+ * Note: CPU-side load/flip/save functions need no migration (pure data manipulation).
  */
 
 // Modified DDS reader class from NVIDIA SDK
@@ -190,9 +192,9 @@
 #include <nowide/cstdio.hpp>
 
 // spring related
-// nv_dds uses direct GL calls for DDS texture upload (glCompressedTexImage*,
-// glTexImage*, glPixelStorei). These upload functions are deeply GL-specific
-// and should be wrapped behind RHI::IRHITexture::Upload() in a future pass.
+// RHI_TODO: nv_dds uses direct GL calls for DDS texture upload (glCompressedTexImage*,
+// glTexImage*, glPixelStorei). Migration would require RHI compressed texture upload API.
+// Alternative: Use CBitmap::CreateDDSTextureRHI() which wraps this library.
 // The load/save/flip functions are pure CPU data manipulation and need no changes.
 #include "Rendering/GL/myGL.h"
 #include "nv_dds.h"
@@ -413,7 +415,7 @@ bool CDDSImage::load(string filename, bool flipImage)
 	if ((ddsh.dwCaps2 & DDSF_VOLUME) && (ddsh.dwDepth > 0))
 		m_type = Texture3D;
 
-	// figure out what the image format is
+	// RHI_TODO: figure out what the image format is (stores GL enums; would need RHI::TextureFormat mapping)
 	if (ddsh.ddspf.dwFlags & DDSF_FOURCC)
 	{
 		switch(ddsh.ddspf.dwFourCC)
@@ -761,7 +763,7 @@ bool CDDSImage::is_compressed() const
 #ifndef HEADLESS
 
 ///////////////////////////////////////////////////////////////////////////////
-// uploads a compressed/uncompressed 1D texture
+// RHI_TODO: uploads a compressed/uncompressed 1D texture (uses glCompressedTexImage1D/glTexImage1D)
 bool CDDSImage::upload_texture1D() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -775,6 +777,7 @@ bool CDDSImage::upload_texture1D() const
 
     if (is_compressed())
     {
+        // RHI_TODO: migrate to IRHITexture::UploadCompressed
         glCompressedTexImage1DARB(GL_TEXTURE_1D, 0, m_format,
             baseImage.get_width(), 0, baseImage.get_size(), baseImage);
 
@@ -792,9 +795,11 @@ bool CDDSImage::upload_texture1D() const
         if (!is_dword_aligned())
         {
             glGetIntegerv(GL_UNPACK_ALIGNMENT, &alignment);
+            // RHI_TODO: glPixelStorei is GL-specific; no RHI equivalent (pixel pack/unpack alignment)
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         }
 
+        // RHI_TODO: migrate to IRHITexture::Upload
         glTexImage1D(GL_TEXTURE_1D, 0, m_components, baseImage.get_width(), 0,
             m_format, GL_UNSIGNED_BYTE, baseImage);
 
@@ -815,7 +820,7 @@ bool CDDSImage::upload_texture1D() const
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// uploads a compressed/uncompressed 2D texture
+// RHI_TODO: uploads a compressed/uncompressed 2D texture (uses glCompressedTexImage2D/glTexImage2D)
 //
 // imageIndex - allows you to optionally specify other loaded surfaces for 2D
 //              textures such as a face in a cubemap or a slice in a volume
@@ -845,6 +850,7 @@ bool CDDSImage::upload_texture2D(unsigned int imageIndex, int target) const
 
     if (is_compressed())
     {
+        // RHI_TODO: migrate to IRHITexture::UploadCompressed
         glCompressedTexImage2DARB(target, 0, m_format, image.get_width(),
             image.get_height(), 0, image.get_size(), image);
 
@@ -863,9 +869,11 @@ bool CDDSImage::upload_texture2D(unsigned int imageIndex, int target) const
         if (!is_dword_aligned())
         {
             glGetIntegerv(GL_UNPACK_ALIGNMENT, &alignment);
+            // RHI_TODO: glPixelStorei is GL-specific; no RHI equivalent (pixel pack/unpack alignment)
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         }
 
+        // RHI_TODO: migrate to IRHITexture::Upload
         glTexImage2D(target, 0, m_components, image.get_width(),
             image.get_height(), 0, m_format, GL_UNSIGNED_BYTE,
             image);
@@ -887,7 +895,7 @@ bool CDDSImage::upload_texture2D(unsigned int imageIndex, int target) const
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// uploads a compressed/uncompressed 3D texture
+// RHI_TODO: uploads a compressed/uncompressed 3D texture (uses glCompressedTexImage3D/glTexImage3D)
 bool CDDSImage::upload_texture3D() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -901,6 +909,7 @@ bool CDDSImage::upload_texture3D() const
 
     if (is_compressed())
     {
+        // RHI_TODO: migrate to IRHITexture::UploadCompressed for 3D textures
         glCompressedTexImage3DARB(GL_TEXTURE_3D, 0, m_format,
             baseImage.get_width(), baseImage.get_height(), baseImage.get_depth(),
             0, baseImage.get_size(), baseImage);
@@ -920,9 +929,11 @@ bool CDDSImage::upload_texture3D() const
         if (!is_dword_aligned())
         {
             glGetIntegerv(GL_UNPACK_ALIGNMENT, &alignment);
+            // RHI_TODO: glPixelStorei is GL-specific; no RHI equivalent (pixel pack/unpack alignment)
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         }
 
+        // RHI_TODO: migrate to IRHITexture::Upload for 3D textures
         glTexImage3D(GL_TEXTURE_3D, 0, m_components, baseImage.get_width(),
             baseImage.get_height(), baseImage.get_depth(), 0, m_format,
             GL_UNSIGNED_BYTE, baseImage);

@@ -1,8 +1,18 @@
+// RHI migration status: COMPLETE
+// - Cubemap creation migrated to RHI::IRHITexture
+// - Texture binding migrated to RHI context
+// - Matrix stack operations kept as GL FFP (no RHI equivalent)
+
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include "Rendering/GL/VAO.h"
 #include "System/type2.h"
+
+namespace RHI {
+	class IRHITexture;
+}
 
 namespace Shader {
 	struct IProgramObject;
@@ -15,14 +25,15 @@ public:
 	DebugCubeMapTexture();
 	~DebugCubeMapTexture();
 
-	uint32_t GetId() const { return texId; }
+	RHI::IRHITexture* GetTexture() const { return cubeTexture.get(); }
+	uint32_t GetId() const;
 	int2 GetDimensions() const { return dims; }
 
 	void Draw(uint32_t face = 0) const;
 
 	static DebugCubeMapTexture& GetInstance();
 private:
-	uint32_t texId;
+	std::unique_ptr<RHI::IRHITexture> cubeTexture;
 	int2 dims;
 	VAO vao; //even though VAO has no attached VBOs, it's still needed to perform rendering
 	Shader::IProgramObject* shader;

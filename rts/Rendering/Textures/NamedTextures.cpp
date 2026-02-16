@@ -291,6 +291,7 @@ namespace CNamedTextures {
 			texID = bitmap.CreateTexture(tcp);
 
 			// specify extra params via direct GL (raw handle from CBitmap)
+			// RHI_TODO: migrate to IRHITexture::Bind/SetWrap* once CBitmap returns RHI textures
 			glBindTexture(GL_TEXTURE_2D, texID);
 
 			if (clamped) {
@@ -299,7 +300,7 @@ namespace CNamedTextures {
 			}
 
 			if (border) {
-				// TODO: RHI gap - no SetBorderColor on IRHITexture
+				// RHI_TODO: RHI gap - no SetBorderColor on IRHITexture
 				float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 				glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, white);
 			}
@@ -354,13 +355,14 @@ namespace CNamedTextures {
 				texInfo.rhiTexture->Bind(0);
 			} else {
 				// Fallback for textures loaded via CBitmap (not yet migrated)
+				// RHI_TODO: migrate once CBitmap returns RHI textures
 				glBindTexture(GL_TEXTURE_2D, texInfo.id);
 			}
 			return (texInfo.id != 0);
 		}
 
 		// load texture
-		// NOTE: display list compilation check is GL-specific, no RHI equivalent
+		// RHI_TODO: display list compilation check is deprecated GL-specific feature, no RHI equivalent
 		GLboolean inListCompile;
 		glGetBooleanv(GL_LIST_INDEX, &inListCompile);
 		if (inListCompile) {
@@ -430,7 +432,7 @@ namespace CNamedTextures {
 
 		if (forceLoad) {
 			// load texture
-			// NOTE: display list compilation check is GL-specific, no RHI equivalent
+			// RHI_TODO: display list compilation check is deprecated GL-specific feature, no RHI equivalent
 			GLboolean inListCompile;
 			glGetBooleanv(GL_LIST_INDEX, &inListCompile);
 

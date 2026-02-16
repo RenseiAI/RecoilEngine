@@ -1,5 +1,19 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * RHI Migration Status: PARTIAL
+ *
+ * Migrated:
+ *   - Texture creation for minimap, shading, normals, heightmap via RHI::IRHITexture
+ *   - Texture parameter setting (filters, wrap modes, swizzle, anisotropy)
+ *   - Texture binding in UpdateVisNormalsAndShadingTexture, BindMiniMapTextures
+ *
+ * Remaining:
+ *   - glTexSubImage2D in UpdateHeightMapTexture (needs Upload API)
+ *   - glCompressedTexImage2DARB for minimap (compressed upload not in RHI yet)
+ *   - glDrawBuffers (FBO state, not texture-specific)
+ */
+
 #include <cstring> // mem{set,cpy}
 
 #include "xsimd/xsimd.hpp"
@@ -27,7 +41,9 @@
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
 #include "Rendering/Textures/Bitmap.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/EventHandler.h"
 #include "System/Exceptions.h"
@@ -180,6 +196,8 @@ void CSMFReadMap::LoadMinimap()
 	// default; only valid for mip 0
 	minimapTex.SetRawSize(int2(1024, 1024));
 
+	// RHI_TODO(compressed upload): glCompressedTexImage2D not yet in RHI API
+	// Keep raw GL calls for now since this is DXT1-compressed data
 	glGenTextures(1, minimapTex.GetIDPtr());
 	glBindTexture(GL_TEXTURE_2D, minimapTex.GetID());
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -344,69 +362,102 @@ void CSMFReadMap::CreateDetailTex()
 void CSMFReadMap::CreateShadingTex()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* device = RHI::GetDevice();
+
 	// +1 to accomodate two FBO attachments of same size, not fully correct
 	shadingTex.SetRawSize(int2(mapDims.mapxp1, mapDims.mapyp1));
 
 	// the shading/normal texture buffers must have PO2 dimensions
 	// (excess elements that no vertices map into are left unused)
-	glGenTextures(1, shadingTex.GetIDPtr());
-	glBindTexture(GL_TEXTURE_2D, shadingTex.GetID());
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	auto rhiTex = device->CreateTexture(
+		RHI::TextureType::Texture2D,
+		RHI::TextureFormat::RGBA8,
+		shadingTex.GetSize().x,
+		shadingTex.GetSize().y,
+		1, // depthOrLayers
+		1  // mipLevels (single mip, MAX_LEVEL=0)
+	);
 
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+	rhiTex->SetMagFilter(RHI::TextureFilter::Linear);
+	rhiTex->SetMinFilter(RHI::TextureFilter::Nearest);
+	rhiTex->SetWrapS(RHI::TextureWrap::ClampToEdge);
+	rhiTex->SetWrapT(RHI::TextureWrap::ClampToEdge);
 
 	if (texAnisotropyLevels[false] != 0.0f)
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, texAnisotropyLevels[false]);
+		rhiTex->SetAnisotropy(texAnisotropyLevels[false]);
 
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, shadingTex.GetSize().x, shadingTex.GetSize().y, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+	// Store raw GL ID for legacy FBO attachment
+	shadingTex.SetRawTexID(rhiTex->GetNativeHandle());
+	// Store RHI texture for binding
+	shadingTex.SetRawRHITexture(std::move(rhiTex));
 }
 
 
 void CSMFReadMap::CreateNormalTex()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* device = RHI::GetDevice();
+
 	normalsTex.SetRawSize(int2(mapDims.mapxp1, mapDims.mapyp1));
 
-	glGenTextures(1, normalsTex.GetIDPtr());
-	glBindTexture(GL_TEXTURE_2D, normalsTex.GetID());
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	auto rhiTex = device->CreateTexture(
+		RHI::TextureType::Texture2D,
+		RHI::TextureFormat::RG16F,
+		normalsTex.GetSize().x,
+		normalsTex.GetSize().y,
+		1, // depthOrLayers
+		1  // mipLevels
+	);
 
-	constexpr GLint swizzleMask[] = { GL_RED, GL_GREEN, GL_GREEN, GL_GREEN };
-	glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
+	rhiTex->SetMagFilter(RHI::TextureFilter::Linear);
+	rhiTex->SetMinFilter(RHI::TextureFilter::Nearest);
+	rhiTex->SetWrapS(RHI::TextureWrap::ClampToEdge);
+	rhiTex->SetWrapT(RHI::TextureWrap::ClampToEdge);
 
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16F, (normalsTex.GetSize()).x, (normalsTex.GetSize()).y, 0, GL_RG, GL_FLOAT, nullptr);
+	// Swizzle: RGGR pattern (R=Red, G=Green)
+	rhiTex->SetSwizzle(
+		static_cast<uint8_t>(RHI::SwizzleComponent::Red),
+		static_cast<uint8_t>(RHI::SwizzleComponent::Green),
+		static_cast<uint8_t>(RHI::SwizzleComponent::Green),
+		static_cast<uint8_t>(RHI::SwizzleComponent::Green)
+	);
+
+	// Store raw GL ID for legacy FBO attachment
+	normalsTex.SetRawTexID(rhiTex->GetNativeHandle());
+	// Store RHI texture for binding
+	normalsTex.SetRawRHITexture(std::move(rhiTex));
 }
 
 void CSMFReadMap::CreateHeightMapTex()
 {
-	glGenTextures(1, heightMapTexture.GetIDPtr());
-	glBindTexture(GL_TEXTURE_2D, heightMapTexture.GetID());
+	auto* device = RHI::GetDevice();
 
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
-
-	constexpr GLint swizzleMask[] = { GL_RED, GL_RED, GL_RED, GL_RED };
-	glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
-
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F,
-		mapDims.mapxp1, mapDims.mapyp1, 0,
-		GL_RED, GL_FLOAT, nullptr
+	auto rhiTex = device->CreateTexture(
+		RHI::TextureType::Texture2D,
+		RHI::TextureFormat::R32F,
+		mapDims.mapxp1,
+		mapDims.mapyp1,
+		1, // depthOrLayers
+		1  // mipLevels
 	);
 
-	glBindTexture(GL_TEXTURE_2D, 0);
+	rhiTex->SetWrapS(RHI::TextureWrap::ClampToEdge);
+	rhiTex->SetWrapT(RHI::TextureWrap::ClampToEdge);
+	rhiTex->SetMinFilter(RHI::TextureFilter::Nearest);
+	rhiTex->SetMagFilter(RHI::TextureFilter::Linear);
+
+	// Swizzle: RRRR pattern (broadcast R to all channels)
+	rhiTex->SetSwizzle(
+		static_cast<uint8_t>(RHI::SwizzleComponent::Red),
+		static_cast<uint8_t>(RHI::SwizzleComponent::Red),
+		static_cast<uint8_t>(RHI::SwizzleComponent::Red),
+		static_cast<uint8_t>(RHI::SwizzleComponent::Red)
+	);
+
+	// Store raw GL ID for legacy glTexSubImage2D calls
+	heightMapTexture.SetRawTexID(rhiTex->GetNativeHandle());
+	// Store RHI texture for binding
+	heightMapTexture.SetRawRHITexture(std::move(rhiTex));
 }
 
 void CSMFReadMap::CreateShadingGL()
@@ -506,6 +557,8 @@ void CSMFReadMap::UpdateHeightMapTexture(const SRectangle& update)
 	// consider full update if the area of update is >= 50% of full update
 	const auto refFullUpdateThreshold = (mapDims.mapx * mapDims.mapy) >> 1;
 	if (update.GetArea() >= refFullUpdateThreshold) {
+		// RHI_TODO(upload): Use heightMapTexture.GetRawRHITexture()->Upload() instead
+		// Requires mapping GL_RED format to RHI upload API
 		glBindTexture(GL_TEXTURE_2D, heightMapTexture.GetID());
 		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, mapDims.mapxp1, mapDims.mapyp1, GL_RED, GL_FLOAT, GetCornerHeightMapUnsynced());
 		glBindTexture(GL_TEXTURE_2D, 0);
@@ -535,6 +588,7 @@ void CSMFReadMap::UpdateHeightMapTexture(const SRectangle& update)
 
 	pbo.UnmapBuffer();
 
+	// RHI_TODO(upload): Use heightMapTexture.GetRawRHITexture()->Upload() instead
 	glBindTexture(GL_TEXTURE_2D, heightMapTexture.GetID());
 	glTexSubImage2D(GL_TEXTURE_2D, 0, update.x1, update.z1, sizeX, sizeZ, GL_RED, GL_FLOAT, pbo.GetPtr());
 
@@ -721,7 +775,11 @@ void CSMFReadMap::UpdateVisNormalsAndShadingTexture(const SRectangle& update)
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetViewport({0.0f, 0.0f, static_cast<float>(mapDims.mapxp1), static_cast<float>(mapDims.mapyp1)});
 
-	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, heightMapTexture.GetID());
+	if (auto* rhiTex = heightMapTexture.GetRawRHITexture()) {
+		rhiTex->Bind(0);
+	} else {
+		glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, heightMapTexture.GetID());
+	}
 
 	shadingShader->Enable();
 
@@ -740,7 +798,11 @@ void CSMFReadMap::UpdateVisNormalsAndShadingTexture(const SRectangle& update)
 	shadingFBO->Unbind();
 	globalRendering->LoadViewport();
 
-	glBindTexture(GL_TEXTURE_2D, 0);
+	if (auto* rhiTex = heightMapTexture.GetRawRHITexture()) {
+		rhiTex->Unbind(0);
+	} else {
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
 }
 
 void CSMFReadMap::SunChanged()
@@ -802,23 +864,37 @@ void CSMFReadMap::BindMiniMapTextures() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	// tc (0,0) - (1,1)
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, minimapTex.GetID());
-
-	glActiveTexture(GL_TEXTURE2);
+	// Minimap texture may be raw GL (compressed DXT1), fall back to GL binding
+	if (auto* rhiTex = minimapTex.GetRawRHITexture()) {
+		rhiTex->Bind(1);
+	} else {
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, minimapTex.GetID());
+	}
 
 	// tc (0,0) - (isx,isy)
 	if (infoTextureHandler->IsEnabled()) {
+		// InfoTexture is external, use raw GL for now
+		glActiveTexture(GL_TEXTURE2);
 		glBindTexture(GL_TEXTURE_2D, infoTextureHandler->GetCurrentInfoTexture());
 	}
 	else {
 		// just bind this since HAVE_INFOTEX is not available to the minimap shader
-		glBindTexture(GL_TEXTURE_2D, shadingTex.GetID());
+		if (auto* rhiTex = shadingTex.GetRawRHITexture()) {
+			rhiTex->Bind(2);
+		} else {
+			glActiveTexture(GL_TEXTURE2);
+			glBindTexture(GL_TEXTURE_2D, shadingTex.GetID());
+		}
 	}
 
 	// tc (0,0) - (isx,isy)
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, shadingTex.GetID());
+	if (auto* rhiTex = shadingTex.GetRawRHITexture()) {
+		rhiTex->Bind(0);
+	} else {
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, shadingTex.GetID());
+	}
 }
 
 

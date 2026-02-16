@@ -3,10 +3,18 @@
  *
  * RHI Migration Status: PARTIAL
  * ============================
- * - Atlas storage uses RHI::IRHITexture (migrated)
- * - FBO render-to-texture pipeline still uses GL
- * - filenameToTexID intermediate textures still use raw GLuint
- * - glDeleteTextures for intermediate cleanup still GL
+ * Migrated:
+ *   - Atlas storage uses RHI::IRHITexture (lines 391-408)
+ *   - RHI::IRHIContext::SetViewport for FBO rendering (lines 437-441)
+ *
+ * Remaining GL (render-to-texture pipeline):
+ *   - FBO attachment/rendering still uses GL (lines 418-449)
+ *   - glTexParameteri for source texture sampling (lines 471-474)
+ *   - glDrawBuffer/glReadBuffer for FBO attachment selection (lines 448-449)
+ *   - filenameToTexID stores raw GLuint from CBitmap::CreateMipMapTexture (lines 203-206)
+ *   - glDeleteTextures for intermediate texture cleanup (lines 146-151, 499-504)
+ *
+ * Note: Full migration blocked by FBO RHI wrapper and CBitmap RHI return types.
  */
 
 #include "TextureRenderAtlas.h"
@@ -145,6 +153,7 @@ CTextureRenderAtlas::~CTextureRenderAtlas()
 
 	for (auto& [_, tID] : filenameToTexID) {
 		if (tID) {
+			// RHI_TODO: migrate once CBitmap returns RHI textures (CreateMipMapTexture -> CreateTextureRHI)
 			glDeleteTextures(1, &tID);
 			tID = 0;
 		}
@@ -202,6 +211,7 @@ bool CTextureRenderAtlas::AddTexFromBitmapRaw(const std::string& name, const CBi
 
 	auto it = filenameToTexID.find(refFileName);
 	if (it == filenameToTexID.end()) {
+		// RHI_TODO: migrate to bm.CreateTextureRHI() once atlas rendering pipeline supports RHI textures
 		it = filenameToTexID.emplace(refFileName, bm.CreateMipMapTexture()).first;
 	}
 
@@ -440,11 +450,13 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 						static_cast<float>(std::max(atlasSize.y >> level, 1))
 					});
 
+					// RHI_TODO: FBO attachment still uses GL; migrate once FBO has RHI wrapper
 					if (numPages > 1)
 						fbo.AttachTextureLayer(atlasTex->GetNativeHandle(), GL_COLOR_ATTACHMENT0, level, page);
 					else
 						fbo.AttachTexture(atlasTex->GetNativeHandle(), GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0, level);
 
+					// RHI_TODO: migrate to RHI framebuffer binding API once available
 					glDrawBuffer(GL_COLOR_ATTACHMENT0);
 					glReadBuffer(GL_COLOR_ATTACHMENT0);
 
@@ -468,6 +480,7 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 
 						auto texBind = GL::TexBind(GL_TEXTURE_2D, srcTexID);
 
+						// RHI_TODO: migrate to IRHITexture::SetMinFilter/SetMagFilter/SetWrap* once CBitmap returns RHI textures
 						glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 						glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
 						glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -498,6 +511,7 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 
 	for (auto& [_, texID] : filenameToTexID) {
 		if (texID) {
+			// RHI_TODO: migrate once CBitmap returns RHI textures (CreateMipMapTexture -> CreateTextureRHI)
 			glDeleteTextures(1, &texID);
 			texID = 0;
 		}

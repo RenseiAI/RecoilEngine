@@ -1,5 +1,22 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * Bitmap.cpp - Image loading, processing, and GL/RHI texture creation.
+ *
+ * RHI Migration Status: PARTIAL
+ * ============================
+ * Migrated:
+ *   - CreateTextureRHI(), CreateDDSTextureRHI() use full RHI pipeline
+ *   - CreateTexture() uses RHI for texture object creation
+ *
+ * Remaining GL (legacy compatibility):
+ *   - CreateTexture() uses glTexParameteri for wrap/filter/LOD/aniso
+ *   - CreateDDSTexture() uses glBindTexture, glTexParameteri, glDeleteTextures, glGenerateMipmap
+ *   - RecoilBuildMipmaps() is a GL utility (uses glTexImage2D internally)
+ *
+ * Note: RHI methods preferred for new code; GL methods kept for backward compatibility.
+ */
+
 #include <algorithm>
 #include <bit>
 #include <utility>
@@ -18,6 +35,8 @@
 #include "Rendering/GL/TexBind.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHITexture.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "System/ScopedFPUSettings.h"
 #include "System/ContainerUtil.h"
 #include "System/SafeUtil.h"
@@ -1746,17 +1765,19 @@ uint32_t CBitmap::CreateTexture(const GL::TextureCreationParams& tcp) const
 
 	auto binding = GL::TexBind(GL_TEXTURE_2D, texID);
 
+	// RHI_TODO: migrate to IRHITexture::SetWrapS/T when wrapping existing GLuint handles
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
 	if (tcp.lodBias != 0.0f)
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, tcp.lodBias);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, tcp.lodBias); // RHI_TODO: SetLodBias
 	if (tcp.aniso > 0.0f)
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, tcp.aniso);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, tcp.aniso); // RHI_TODO: SetAnisotropy
 
-	// RecoilBuildMipmaps does glTexImage2D for each level; no RHI equivalent yet
+	// RHI_TODO: RecoilBuildMipmaps does glTexImage2D for each level; no RHI equivalent yet
 	RecoilBuildMipmaps(GL_TEXTURE_2D, GetIntFmt(), xsize, ysize, GetExtFmt(), dataType, GetRawMem(), numLevels);
 
+	// RHI_TODO: migrate to IRHITexture::SetMinFilter/SetMagFilter
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magFilter);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minFilter);
 
@@ -1767,8 +1788,10 @@ uint32_t CBitmap::CreateTexture(const GL::TextureCreationParams& tcp) const
 static void HandleDDSMipmap(GLenum target, int32_t numEmbeddedLevels, uint32_t minFilter)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// RHI_TODO: migrate to IRHITexture::SetMinFilter
 	glTexParameteri(target, GL_TEXTURE_MIN_FILTER, minFilter);
 
+	// RHI_TODO: migrate to IRHITexture::GenerateMipmaps
 	if (numEmbeddedLevels == 0 && minFilter != GL_LINEAR && minFilter != GL_NEAREST)
 		glGenerateMipmap(target);
 }
@@ -1790,21 +1813,26 @@ uint32_t CBitmap::CreateDDSTexture(const GL::TextureCreationParams& tcp) const
 
 	switch (ddsimage.get_type()) {
 		case nv_dds::TextureNone:
+			// RHI_TODO: migrate to unique_ptr destruction
 			glDeleteTextures(1, &texID);
 			texID = 0;
 			break;
 
 		case nv_dds::TextureFlat:    // 1D, 2D, and rectangle textures
+			// RHI_TODO: migrate to IRHITexture::Bind
 			glBindTexture(GL_TEXTURE_2D, texID);
 
+			// RHI_TODO: ddsimage.upload_texture2D uses glCompressedTexImage2D; needs RHI UploadCompressed
 			if (!ddsimage.upload_texture2D(0, GL_TEXTURE_2D)) {
 				glDeleteTextures(1, &texID);
 				texID = 0;
 				break;
 			}
 
+			// RHI_TODO: migrate to IRHITexture::SetLodBias
 			if (tcp.lodBias != 0.0f)
 				glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, tcp.lodBias);
+			// RHI_TODO: migrate to IRHITexture::SetAnisotropy
 			if (tcp.aniso > 0.0f)
 				glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, tcp.aniso);
 
@@ -1812,14 +1840,17 @@ uint32_t CBitmap::CreateDDSTexture(const GL::TextureCreationParams& tcp) const
 			break;
 
 		case nv_dds::Texture3D:
+			// RHI_TODO: migrate to IRHITexture::Bind
 			glBindTexture(GL_TEXTURE_3D, texID);
 
+			// RHI_TODO: ddsimage.upload_texture3D uses glCompressedTexImage3D; needs RHI UploadCompressed
 			if (!ddsimage.upload_texture3D()) {
 				glDeleteTextures(1, &texID);
 				texID = 0;
 				break;
 			}
 
+			// RHI_TODO: migrate to IRHITexture::SetLodBias
 			if (tcp.lodBias != 0.0f)
 				glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_LOD_BIAS, tcp.lodBias);
 
@@ -1827,16 +1858,20 @@ uint32_t CBitmap::CreateDDSTexture(const GL::TextureCreationParams& tcp) const
 			break;
 
 		case nv_dds::TextureCubemap:
+			// RHI_TODO: migrate to IRHITexture::Bind
 			glBindTexture(GL_TEXTURE_CUBE_MAP, texID);
 
+			// RHI_TODO: ddsimage.upload_textureCubemap uses glCompressedTexImage2D; needs RHI UploadCompressed
 			if (!ddsimage.upload_textureCubemap()) {
 				glDeleteTextures(1, &texID);
 				texID = 0;
 				break;
 			}
 
+			// RHI_TODO: migrate to IRHITexture::SetLodBias
 			if (tcp.lodBias != 0.0f)
 				glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_LOD_BIAS, tcp.lodBias);
+			// RHI_TODO: migrate to IRHITexture::SetAnisotropy
 			if (tcp.aniso > 0.0f)
 				glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_ANISOTROPY_EXT, tcp.aniso);
 

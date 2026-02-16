@@ -66,6 +66,9 @@ void CIconHandler::Kill()
 {
 	defaultIconIdx = INVALID_ICON_INDEX;
 
+	// RHI_TODO: raw GLuint texture cleanup - no RHI wrapper available
+	// Atlases use GLuint from CBitmap::CreateMipMapTexture() or CTextureRenderAtlas::DisownTexture()
+	// Needs refactor to std::unique_ptr<IRHITexture> atlasTextures[2]
 	glDeleteTextures(2, atlasTextureIDs.data());
 	atlasTextureIDs = { 0 };
 	atlasTextureSizes = { int2{0, 0}, int2{0, 0} };
@@ -80,6 +83,8 @@ void CIconHandler::Kill()
 
 void CIconHandler::DumpAtlasTextures() const
 {
+	// RHI_TODO: glSaveTexture debug utility - no RHI equivalent
+	// Debug-only function for texture inspection; keep GL for now
 	if (atlasTextureIDs[0])
 		glSaveTexture(atlasTextureIDs[0], "IconsAtlas1.png");
 	if (atlasTextureIDs[1])
@@ -156,6 +161,8 @@ bool CIconHandler::CreateAtlasTexture(size_t atlasIdx)
 		if (!bm.Load(*allFiles.begin()))
 			return false;
 
+		// RHI_TODO: raw GLuint texture cleanup - no RHI wrapper available
+		// CBitmap::CreateMipMapTexture() returns raw GL handle, not IRHITexture
 		glDeleteTextures(1, &atlasTextureIDs[atlasIdx]);
 		atlasTextureIDs[atlasIdx] = 0; // just in case
 		atlasTextureIDs[atlasIdx] = bm.CreateMipMapTexture();
@@ -170,6 +177,8 @@ bool CIconHandler::CreateAtlasTexture(size_t atlasIdx)
 
 	atlasTextureSizes[atlasIdx] = atlas->GetAtlasSize();
 
+	// RHI_TODO: raw GLuint texture cleanup - no RHI wrapper available
+	// CTextureRenderAtlas::DisownTexture() returns raw GL handle, not IRHITexture
 	if (atlasTextureIDs[atlasIdx]) {
 		glDeleteTextures(1, &atlasTextureIDs[atlasIdx]);
 		atlasTextureIDs[atlasIdx] = 0; // just in case

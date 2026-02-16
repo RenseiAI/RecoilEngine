@@ -1,8 +1,10 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-// RHI migration status: PARTIAL
-// - RHI used for viewport, draw operations (via RunFullScreenPass)
-// - glBindTexture cannot be migrated: infoTextureHandler->GetInfoTexture() returns raw GLuint
+// RHI migration status: BLOCKED
+// - RHI used for viewport, draw operations via RunFullScreenPass()
+// - Remaining GL calls (2): glBindTexture for external LOS texture (bind + unbind)
+// - Blocker: CInfoTexture::GetTexture() returns raw GLuint, not IRHITexture*
+// - Requires interface change across all InfoTexture implementations
 
 #include "MetalExtraction.h"
 #include "InfoTextureHandler.h"
@@ -118,8 +120,9 @@ void CMetalExtractionTexture::Update()
 	);
 
 	// do post-processing on the gpu (los-checking & scaling)
-	// TODO [RHI cross-cutting]: infoTex->GetTexture() returns raw GLuint;
-	// needs RHI texture wrapper in CInfoTexture before migration to ctx->BindTexture()
+	// RHI_TODO: infoTex->GetTexture() returns raw GLuint
+	// (see CInfoTexture::GetTexture() in InfoTexture.h). Migration blocked until
+	// CInfoTexture interface is extended to return IRHITexture* instead of GLuint.
 	glBindTexture(GL_TEXTURE_2D, infoTex->GetTexture());
 	RunFullScreenPass();
 	glBindTexture(GL_TEXTURE_2D, 0);

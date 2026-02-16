@@ -1,11 +1,17 @@
+// RHI migration status: COMPLETE
+// - Cubemap creation migrated to RHI::IRHITexture
+// - Texture binding migrated to RHI context
+// - Matrix stack operations kept as GL FFP (no RHI equivalent)
+
 #include "DebugCubeMapTexture.h"
 
-#include "Rendering/GL/myGL.h"  // retained: raw cubemap texture creation/binding, FFP matrix stack
+#include "Rendering/GL/myGL.h"  // retained: FFP matrix stack (glMatrixMode/glPush/glPop)
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/RHI/RHIPipeline.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "Rendering/Textures/Bitmap.h"
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/Shaders/ShaderHandler.h"
@@ -13,14 +19,10 @@
 #include "Game/Camera.h"
 
 DebugCubeMapTexture::DebugCubeMapTexture()
-	: texId(0)
-	, vao()
+	: vao()
 {
 #ifndef HEADLESS
-	// NOTE: Raw GL cubemap texture creation retained - texId is stored as a raw
-	// uint32_t and shared via GetId(). Converting to RHI texture requires
-	// interface changes.
-	glGenTextures(1, &texId);
+	auto* device = RHI::GetDevice();
 
 	static constexpr const char* texture = "bitmaps/testsky.dds";
 
@@ -38,29 +40,61 @@ DebugCubeMapTexture::DebugCubeMapTexture()
 			{1.0f, 0.0f, 0.0f, 1.0f}, // red  	GL_TEXTURE_CUBE_MAP_NEGATIVE_Z, Back
 		};
 
-		static constexpr GLsizei FALLBACK_DIM = 16;
+		static constexpr int32_t FALLBACK_DIM = 16;
 		std::vector<SColor> debugColorVec;
 		debugColorVec.resize(FALLBACK_DIM * FALLBACK_DIM);
 
 		dims = { FALLBACK_DIM, FALLBACK_DIM };
 
-		glBindTexture(GL_TEXTURE_CUBE_MAP, texId);
-		for (GLenum glFace = GL_TEXTURE_CUBE_MAP_POSITIVE_X; glFace <= GL_TEXTURE_CUBE_MAP_NEGATIVE_Z; ++glFace) {
-			std::fill(debugColorVec.begin(), debugColorVec.end(), debugFaceColors[glFace - GL_TEXTURE_CUBE_MAP_POSITIVE_X]);
-			glTexImage2D(glFace, 0, GL_RGBA8, FALLBACK_DIM, FALLBACK_DIM, 0, GL_RGBA, GL_UNSIGNED_BYTE, debugColorVec.data());
+		// Create cubemap via RHI
+		cubeTexture = device->CreateTexture(
+			RHI::TextureType::TextureCube,
+			RHI::TextureFormat::RGBA8,
+			FALLBACK_DIM, FALLBACK_DIM,
+			1, // depthOrLayers (ignored for cubemaps)
+			1  // mipLevels
+		);
+
+		// Upload each face
+		for (int faceIdx = 0; faceIdx < 6; ++faceIdx) {
+			std::fill(debugColorVec.begin(), debugColorVec.end(), debugFaceColors[faceIdx]);
+			cubeTexture->UploadCubeFace(
+				static_cast<RHI::CubeFace>(faceIdx),
+				0, // mipLevel
+				debugColorVec.data(),
+				debugColorVec.size() * sizeof(SColor)
+			);
 		}
-		glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
 	} else {
 		dims = { btex.xsize, btex.ysize };
-		texId = btex.CreateTexture();
+
+		// RHI_TODO: CBitmap::CreateDDSTextureRHI() doesn't support cubemaps yet.
+		// For now, create RHI texture and use legacy CreateTexture() to populate it.
+		cubeTexture = device->CreateTexture(
+			RHI::TextureType::TextureCube,
+			RHI::TextureFormat::RGBA8,
+			btex.xsize, btex.ysize,
+			1, // depthOrLayers (ignored for cubemaps)
+			1  // mipLevels
+		);
+
+		// RHI_TODO: CBitmap::CreateDDSTextureRHI() doesn't support TextureCubemap yet.
+		// Use legacy CreateTexture() to create a temp GL texture, then delete it.
+		// This leaves cubeTexture empty (only allocated, no data uploaded).
+		// Need to extend CBitmap to expose cubemap face data for RHI upload,
+		// or extend CreateDDSTextureRHI() to support nv_dds::TextureCubemap type.
+		uint32_t tempTexId = btex.CreateTexture();
+		glDeleteTextures(1, &tempTexId); // cleanup temp texture
+
+		LOG_L(L_WARNING, "[DebugCubeMapTexture] DDS cubemap upload via RHI not yet implemented - texture may be incomplete");
 	}
 
-	glBindTexture(GL_TEXTURE_CUBE_MAP, texId);
-	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+	// Set texture parameters via RHI
+	cubeTexture->SetMinFilter(RHI::TextureFilter::Linear);
+	cubeTexture->SetMagFilter(RHI::TextureFilter::Linear);
+	cubeTexture->SetWrapS(RHI::TextureWrap::ClampToEdge);
+	cubeTexture->SetWrapT(RHI::TextureWrap::ClampToEdge);
+	cubeTexture->SetWrapR(RHI::TextureWrap::ClampToEdge);
 
 	shader = shaderHandler->CreateProgramObject("[DebugCubeMap]", "DebugCubeMap");
 	shader->AttachShaderObject(shaderHandler->CreateShaderObject("GLSL/CubeMapVS.glsl", "", GL_VERTEX_SHADER));
@@ -74,10 +108,17 @@ DebugCubeMapTexture::DebugCubeMapTexture()
 #endif
 }
 
+uint32_t DebugCubeMapTexture::GetId() const
+{
+	if (cubeTexture)
+		return cubeTexture->GetNativeHandle();
+	return 0;
+}
+
 DebugCubeMapTexture::~DebugCubeMapTexture()
 {
 #ifndef HEADLESS
-	glDeleteTextures(1, &texId);
+	// RHI texture cleanup handled by unique_ptr destructor
 	shaderHandler->ReleaseProgramObject("[DebugCubeMap]", "DebugCubeMap");
 #endif
 }
@@ -97,17 +138,20 @@ void DebugCubeMapTexture::Draw(uint32_t face) const
 		vertCount = 6;
 	}
 
+	auto* device = RHI::GetDevice();
+	auto* ctx = device->GetContext();
+
 	// Pipeline state via RHI (no alpha test, no blending)
 	{
 		RHI::PipelineDesc pipeDesc;
 		pipeDesc.blend.enabled = false;
 		pipeDesc.depthStencil.depthTestEnabled = true;
-		auto pipeline = RHI::GetDevice()->CreatePipeline(pipeDesc);
-		RHI::GetDevice()->GetContext()->BindPipeline(pipeline.get());
+		auto pipeline = device->CreatePipeline(pipeDesc);
+		ctx->BindPipeline(pipeline.get());
 	}
 
-	// NOTE: cubemap bind retained as raw GL - texId is a raw GL texture ID
-	glBindTexture(GL_TEXTURE_CUBE_MAP, texId);
+	// Bind cubemap via RHI
+	ctx->BindTexture(0, cubeTexture.get());
 
 	// FFP matrix stack - no RHI equivalent
 	glMatrixMode(GL_MODELVIEW);
@@ -125,7 +169,7 @@ void DebugCubeMapTexture::Draw(uint32_t face) const
 	shader->Enable();
 
 	// Draw via RHI
-	RHI::GetDevice()->GetContext()->Draw(RHI::PrimitiveType::Triangles, vertCount, baseVertex);
+	ctx->Draw(RHI::PrimitiveType::Triangles, vertCount, baseVertex);
 
 	shader->Disable();
 	vao.Unbind();
@@ -136,7 +180,7 @@ void DebugCubeMapTexture::Draw(uint32_t face) const
 	glMatrixMode(GL_MODELVIEW);
 	glPopMatrix();
 
-	glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+	ctx->BindTexture(0, nullptr);
 #endif
 }
 

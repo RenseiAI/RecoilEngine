@@ -76,6 +76,8 @@ void ShowSplashScreen(
 		auto* ctx = RHI::GetDevice()->GetContext();
 		ctx->Clear(true, false, false);
 
+		// RHI_TODO: raw GLuint texture binding - no RHI wrapper available
+		// CBitmap::CreateTexture() returns raw GL handle, not IRHITexture
 		glBindTexture(GL_TEXTURE_2D, splashTex);
 
 		rb.AddQuadTriangles(
@@ -113,6 +115,8 @@ void ShowSplashScreen(
 		Watchdog::ClearTimer(WDT_MAIN);
 	}
 
+	// RHI_TODO: raw GLuint texture cleanup - no RHI wrapper available
+	// CBitmap::CreateTexture() returns raw GL handle, not IRHITexture
 	glDeleteTextures(1, &splashTex);
 }
 #endif

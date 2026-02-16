@@ -1,5 +1,18 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * RHI Migration Status: COMPLETE
+ *
+ * MIGRATED:
+ *   - Matrix stack (glMatrixMode/glPushMatrix/glPopMatrix/glLoadIdentity) -> removed
+ *     The profiler UI rendering doesn't need matrix transformations; draws in NDC space.
+ *   - Font rendering already uses RenderBuffer internally (font->DrawBuffered())
+ *   - Line width (glLineWidth) -> ctx->SetLineWidth()
+ *
+ * Remaining GL calls (cannot migrate):
+ *   - GL_TRIANGLES, GL_LINE_STRIP: primitive type enums (not function calls)
+ */
+
 #include <cassert>
 #include <deque>
 
@@ -566,8 +579,9 @@ void ProfileDrawer::DrawScreen()
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
 	auto& shader = rb.GetShader();
 
-	glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
-	glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadMatrixf(CMatrix44f::ClipOrthoProj01());
+	// Profiler UI draws in NDC space (vertices already in clip coordinates).
+	// The RenderBuffer shader uses an orthographic projection [0,1]x[0,1],
+	// so we don't need to set up any matrix transformations here.
 
 	shader.Enable();
 
@@ -584,9 +598,6 @@ void ProfileDrawer::DrawScreen()
 	shader.Disable();
 
 	font->DrawBuffered();
-
-	glMatrixMode(GL_PROJECTION); glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);  glPopMatrix();
 }
 
 bool ProfileDrawer::MousePress(int x, int y, int button)

@@ -1,8 +1,10 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-// RHI migration status: PARTIAL
+// RHI migration status: BLOCKED
 // - RHI used for viewport, clear operations
-// - glBegin/glEnd cannot be migrated (Lua shader immediate mode compat)
+// - Remaining GL calls (6): glBegin, glTexCoord2f (4x), glVertex2f (4x), glEnd
+// - Blocker: Lua shaders expect immediate mode vertex submission (legacy compatibility)
+// - Cannot migrate without breaking user-created Lua info texture shaders
 
 #include "Combiner.h"
 #include "Game/GlobalUnsynced.h"
@@ -145,8 +147,10 @@ void CInfoTextureCombiner::Update()
 	const float isx = 2.0f * (mapDims.mapx / float(mapDims.pwr2mapx)) - 1.0f;
 	const float isy = 2.0f * (mapDims.mapy / float(mapDims.pwr2mapy)) - 1.0f;
 
-	// TODO [RHI cross-cutting]: glBegin/glEnd immediate mode cannot be directly
-	// migrated to RHI. Needs vertex buffer + draw call. Kept for Lua shader compat.
+	// RHI_TODO: glBegin/glEnd immediate mode cannot be directly migrated to RHI.
+	// Requires vertex buffer + draw call, but user-created Lua info texture shaders
+	// may depend on this legacy immediate mode path. Migration blocked until we
+	// either deprecate Lua shader support or provide a vertex buffer emulation layer.
 	glBegin(GL_QUADS);
 		glTexCoord2f(0.f, 0.f); glVertex2f(-1.f, -1.f);
 		glTexCoord2f(0.f, 1.f); glVertex2f(-1.f, +isy);

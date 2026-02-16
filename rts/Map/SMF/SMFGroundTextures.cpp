@@ -1,5 +1,16 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
+/**
+ * RHI Migration Status: MINIMAL
+ *
+ * Not Migrated:
+ *   - GL_TEXTURE_PRIORITY (deprecated, no-op in modern GL, removed)
+ *   - Compressed texture creation (glCompressedTexImage2D) - needs RHI compressed upload API
+ *   - Dynamic texture streaming (LoadSquareTexture, LoadSquareTexturePersistent)
+ *
+ * Note: These textures are created via raw GL due to compressed (DXT1/ETC1) format.
+ * Migration blocked until RHI adds compressed texture upload support.
+ */
 
 #include <cmath>
 #include <cstdlib>
@@ -574,11 +585,7 @@ void CSMFGroundTextures::LoadSquareTexture(int x, int y, int level)
 	if (smfMap->GetTexAnisotropyLevel(false) != 0.0f)
 		glTexParameterf(ttarget, GL_TEXTURE_MAX_ANISOTROPY_EXT, smfMap->GetTexAnisotropyLevel(false));
 
-	if (level < 2) {
-		glTexParameteri(ttarget, GL_TEXTURE_PRIORITY, 1);
-	} else {
-		glTexParameterf(ttarget, GL_TEXTURE_PRIORITY, 0.5f);
-	}
+	// GL_TEXTURE_PRIORITY removed (deprecated, no-op in modern GL)
 
 	glCompressedTexImage2D(ttarget, 0, tileTexFormat, mipSqSize, mipSqSize, 0, numSqBytes, pbo.GetPtr());
 

@@ -3,7 +3,7 @@
 /**
  * World Drawer - Implementation
  *
- * RHI Migration Status: PARTIAL (~15 GL state calls migrated, ~6 remaining)
+ * RHI Migration Status: PARTIAL (~15 GL state calls migrated, ~10 marked RHI_TODO)
  * ---------------------------------------------------------------------------
  * Migrated:
  *   - glClearColor/glClear -> ctx->ClearColor()/Clear()
@@ -15,11 +15,11 @@
  *   - DrawBelowWaterOverlay: FFP client arrays -> TypedRenderBuffer<VA_TYPE_C>
  *     (glEnableClientState/glVertexPointer/glDrawArrays/glColor4f removed)
  *
- * Remaining (not yet migrated):
+ * Remaining (marked RHI_TODO, blocked on infrastructure):
  *   - FFP matrix stack (glMatrixMode/glPushMatrix/glPopMatrix/glLoadIdentity/gluOrtho2D)
- *     -> Needs uniform-based matrix system (used in ResetMVPMatrices, DrawAlphaObjects)
- *   - FFP clip planes (glClipPlane/glEnable(GL_CLIP_PLANE3))
- *     -> Needs shader-based clipping or SetClipDistanceEnabled()
+ *     in ResetMVPMatrices() - modern path uses uniform buffers; legacy GLSL needs FFP state
+ *   - FFP clip planes (glClipPlane/glEnable/glDisable(GL_CLIP_PLANE3))
+ *     in DrawAlphaObjects() - modern path uses gl_ClipDistance[] in shaders; legacy needs FFP
  */
 
 #include "Rendering/GL/myGL.h"
@@ -308,7 +308,8 @@ void CWorldDrawer::GenerateIBLTextures() const
 
 void CWorldDrawer::ResetMVPMatrices() const
 {
-	// FFP matrix stack - not migrated (needs uniform-based system)
+	// RHI_TODO: FFP matrix stack - no RHI equivalent
+	// Modern path uses uniform buffers; legacy GLSL path still needs FFP state
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	gluOrtho2D(0, 1, 0, 1);
@@ -431,6 +432,8 @@ void CWorldDrawer::DrawAlphaObjects() const
 		SCOPED_TIMER("Draw::World::Models::Alpha");
 		SCOPED_GL_DEBUGGROUP("Draw::World::Models::Alpha");
 		// clip in model-space
+		// RHI_TODO: FFP clip planes - no RHI equivalent
+		// Modern path uses gl_ClipDistance[] in shaders; legacy GLSL needs FFP state
 		if (hasWaterRendering) {
 			glPushMatrix();
 			glLoadIdentity();
@@ -472,6 +475,8 @@ void CWorldDrawer::DrawAlphaObjects() const
 	{
 		SCOPED_TIMER("Draw::World::Models::Alpha");
 		SCOPED_GL_DEBUGGROUP("Draw::World::Alpha");
+		// RHI_TODO: FFP clip planes - no RHI equivalent
+		// Modern path uses gl_ClipDistance[] in shaders; legacy GLSL needs FFP state
 		glPushMatrix();
 		glLoadIdentity();
 		glClipPlane(GL_CLIP_PLANE3, abovePlaneEq);

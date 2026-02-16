@@ -1,8 +1,10 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-// RHI migration status: PARTIAL
-// - RHI used for viewport, clear, draw operations
-// - glActiveTexture/glBindTexture cannot be migrated: infoTextureHandler->GetInfoTexture() returns raw GLuint
+// RHI migration status: BLOCKED
+// - RHI used for viewport, clear, draw operations via RunFullScreenPass()
+// - Remaining GL calls (2): glActiveTexture, glBindTexture for external LOS texture
+// - Blocker: CInfoTexture::GetTexture() returns raw GLuint, not IRHITexture*
+// - Requires interface change across all InfoTexture implementations
 
 #include "Radar.h"
 #include "InfoTextureHandler.h"
@@ -141,8 +143,10 @@ void CRadarTexture::Update()
 	auto state = GL::SubState(
 		Blending(GL_FALSE)
 	);
-	// TODO [RHI cross-cutting]: infoTextureHandler->GetInfoTexture() returns raw GLuint;
-	// needs RHI texture wrapper before this can be migrated to ctx->BindTexture()
+	// RHI_TODO: infoTextureHandler->GetInfoTexture("los")->GetTexture() returns raw GLuint
+	// (see CInfoTexture::GetTexture() in InfoTexture.h). Migration blocked until
+	// CInfoTexture interface is extended to return IRHITexture* instead of GLuint.
+	// Would require changing GetTexture() signature across all InfoTexture implementations.
 	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, infoTextureHandler->GetInfoTexture("los")->GetTexture());
 	RunFullScreenPass();
