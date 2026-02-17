@@ -5,19 +5,19 @@
  *
  * Migrated GL calls to RHI equivalents:
  *   - Pipeline state (blend, depth test): RHI::PipelineDesc + BindPipeline()
- *   - Viewport: ctx->SetViewport() (with explicit save/restore)
+ *   - Viewport: ctx->SetViewport() (with explicit save/restore via globalRendering)
  *   - Draw calls: ctx->Draw()
  *   - Cubemap texture creation: device->CreateTexture(TextureCube) with UploadCubeFace()
  *   - Texture mipmap generation: texture->GenerateMipmaps()
- *   - Matrix stack: RHI::MatrixStack for CPU-side transforms (flushed to FFP before draw)
+ *   - Matrix stack: RHI::MatrixStack for CPU-side transforms
+ *   - MVP uniform: shader->SetUniformMatrix4x4 (CubeMapVS reads uniform, not FFP)
+ *   - Cubemap binding: skyTex RHI wrapper Bind/Unbind (owning wrapper)
+ *   - Cubemap wrap modes: RHI texture SetWrapS/T
+ *   - Viewport query: globalRendering->viewPosX/Y, viewSizeX/Y (replaces glGetIntegerv)
  *
- * Retained GL calls (no RHI equivalent or external dependencies):
- *   - FFP matrix flush (6 calls): glMatrixMode(3), glLoadMatrixf(3). Required because
- *     CubeMapVS.glsl reads gl_ModelViewProjectionMatrix from FFP state. Matrix computation
- *     done CPU-side via RHI::MatrixStack, then flushed to FFP before draw.
- *   - FFP viewport query (1 call): glGetIntegerv(GL_VIEWPORT) for state save/restore (no RHI query API)
- *   - Framebuffer draw buffer (1 call): glDrawBuffer (no RHI equivalent)
- *   - skyTex binding (2 calls): glBindTexture(2). MapTexture stores raw GL IDs, not RHI texture objects.
+ * Retained GL calls:
+ *   - Framebuffer draw buffer (1 call): glDrawBuffer (no RHI FBO equivalent)
+ *   - 2D texture deletion (1 call): glDeleteTextures in convertToCM path (temp texture)
  */
 
 #include <vector>
@@ -25,7 +25,7 @@
 
 #include "SkyBox.h"
 #include "Rendering/GlobalRendering.h"
-#include "Rendering/GL/myGL.h"  // retained: FFP matrix flush (glMatrixMode/glLoadMatrixf), glDrawBuffer, glGetIntegerv, glBindTexture for MapTexture
+#include "Rendering/GL/myGL.h"  // retained: glDrawBuffer, glDeleteTextures (convertToCM temp 2D texture)
 #include "Rendering/GL/FBO.h"
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/RHI/RHIPipeline.h"
@@ -70,12 +70,13 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 	if (textureID == 0)
 		return;
 
+	auto* device = RHI::GetDevice();
+
 	if (convertToCM) {
 		auto generateMipMaps = configHandler->GetBool("CubeTexGenerateMipMaps");
 		// here textureID represents 2D texture
 
 		// Create cubemap texture via RHI
-		auto* device = RHI::GetDevice();
 		auto cubeTexRHI = device->CreateTexture(
 			RHI::TextureType::TextureCube,
 			RHI::TextureFormat::RGBA8,
@@ -119,9 +120,11 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 
 		valid = true;
 		{
-			// Save current viewport
-			int savedViewport[4];
-			glGetIntegerv(GL_VIEWPORT, savedViewport);
+			// Save current viewport from globalRendering (avoids glGetIntegerv)
+			const int savedViewport[4] = {
+				globalRendering->viewPosX, globalRendering->viewPosY,
+				globalRendering->viewSizeX, globalRendering->viewSizeY
+			};
 
 			// Viewport via RHI
 			auto* ctx = device->GetContext();
@@ -168,11 +171,9 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 				);
 				mvStack.LoadMatrix(viewMat);
 
-				// Flush matrices to FFP state (shader reads gl_ModelViewProjectionMatrix)
-				glMatrixMode(GL_PROJECTION);
-				glLoadMatrixf(projStack.Top());
-				glMatrixMode(GL_MODELVIEW);
-				glLoadMatrixf(mvStack.Top());
+				// CubeMapVS.glsl reads uniform mat4 modelViewProjectionMatrix (not FFP)
+				const CMatrix44f mvp = CMatrix44f(projStack.Top()) * mvStack.Top();
+				ercShader->SetUniformMatrix4x4<float>("modelViewProjectionMatrix", false, &mvp.md[0][0]);
 
 				glDrawBuffer(GL_COLOR_ATTACHMENT0);
 
@@ -201,21 +202,27 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 
 		glDeleteTextures(1, &textureID); // release 2D texture
 
-		// Transfer ownership of native texture handle to MapTexture
-		skyTex.SetRawTexID(cubeTexRHI->DisownNativeHandle());
+		// Transfer cubemap to MapTexture via RHI (owning wrapper handles lifecycle)
+		skyTex.SetRawTexID(cubeTexRHI->GetNativeHandle());
 		skyTex.SetRawSize(int2(ysize, ysize));
+		skyTex.SetRawRHITexture(std::move(cubeTexRHI));
 	}
 	else {
 		valid = true;
 
-		skyTex.SetRawTexID(textureID);
 		skyTex.SetRawSize(int2(xsize, ysize));
 
-		// Set wrap modes for non-converted cubemaps (converted path already set via RHI)
-		glBindTexture(GL_TEXTURE_CUBE_MAP, skyTex.GetID());
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+		// Wrap the pre-loaded cubemap with an owning RHI texture (handles lifecycle)
+		auto skyTexRHI = device->CreateTextureFromExisting(
+			textureID,
+			RHI::TextureType::TextureCube,
+			RHI::TextureFormat::RGBA8,
+			xsize, ysize);
+		skyTexRHI->SetWrapS(RHI::TextureWrap::ClampToEdge);
+		skyTexRHI->SetWrapT(RHI::TextureWrap::ClampToEdge);
+
+		skyTex.SetRawTexID(textureID);
+		skyTex.SetRawRHITexture(std::move(skyTexRHI));
 	}
 
 	shader = shaderHandler->CreateProgramObject("[SkyBox]", "SkyBox");
@@ -288,19 +295,17 @@ void CSkyBox::Draw()
 
 	projStack.LoadMatrix(camera->GetProjectionMatrix());
 
-	// Flush matrices to FFP state (CubeMapVS.glsl reads gl_ModelViewProjectionMatrix)
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(mvStack.Top());
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(projStack.Top());
-
-	// NOTE: cubemap bind retained as raw GL - skyTex stores a raw GL texture ID
-	// (MapTexture), not an RHI texture object
-	glBindTexture(GL_TEXTURE_CUBE_MAP, skyTex.GetID());
+	// Bind cubemap via RHI wrapper
+	if (auto* rhiTex = skyTex.GetRawRHITexture())
+		rhiTex->Bind(0);
 
 	skyVAO.Bind();
 	assert(shader->IsValid());
 	shader->Enable();
+
+	// CubeMapVS.glsl reads uniform mat4 modelViewProjectionMatrix (not FFP)
+	const CMatrix44f mvp = CMatrix44f(projStack.Top()) * mvStack.Top();
+	shader->SetUniformMatrix4x4<float>("modelViewProjectionMatrix", false, &mvp.md[0][0]);
 
 	shader->SetUniform("planeColor",
 		waterRendering->planeColor.x,
@@ -315,7 +320,9 @@ void CSkyBox::Draw()
 	shader->Disable();
 	skyVAO.Unbind();
 
-	glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+	// Unbind cubemap via RHI wrapper
+	if (auto* rhiTex = skyTex.GetRawRHITexture())
+		rhiTex->Unbind(0);
 
 	sky->SetupFog();
 #endif
