@@ -1,6 +1,7 @@
 #include "3DModelPiece.hpp"
 
 #include "3DModelVAO.hpp"
+#include "Rendering/Common/ModelDrawerHelpers.h"
 #include "Sim/Projectiles/ProjectileHandler.h"
 #include "Game/GlobalUnsynced.h"
 #include "System/Misc/TracyDefs.h"
@@ -18,12 +19,15 @@ void S3DModelPiece::DrawStaticLegacy(bool bind, bool bindPosMat) const
 	if (bind) S3DModelHelpers::BindLegacyAttrVBOs();
 
 	if (bindPosMat) {
-		glPushMatrix();
-		glMultMatrixf(bposeTransform.ToMatrix());
+		auto& mvStack = CModelDrawerHelper::GetModelViewStack();
+		mvStack.Push();
+		mvStack.MultMatrix(bposeTransform.ToMatrix());
+		CModelDrawerHelper::SyncModelMatrixUniform();
 		DrawElements();
-		glPopMatrix();
+		mvStack.Pop();
 	}
 	else {
+		CModelDrawerHelper::SyncModelMatrixUniform();
 		DrawElements();
 	}
 

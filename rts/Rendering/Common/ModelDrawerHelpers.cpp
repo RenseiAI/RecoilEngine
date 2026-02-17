@@ -1,7 +1,7 @@
 /* This file is part of the Recoil engine (GPL v2 or later), see LICENSE.html */
 
 /**
- * RHI Migration Status: TIER 4.1 - MIGRATED
+ * RHI Migration Status: TIER 4.2 - MIGRATED
  *
  * Migrated GL calls to RHI equivalents:
  *   - Pipeline state (cull mode): RHI::PipelineDesc + BindPipeline()
@@ -10,17 +10,13 @@
  *   - Shadow texture binding: IRHITexture::Bind() via shadowHandler.GetColorTexture()
  *   - Cube map texture binding: IRHITexture::Bind() via cubeMapHandler.GetEnvReflectionTexture()/GetSpecularTexture()
  *   - Texture unbinding: removed (next Bind() call overrides)
- *   - Matrix stack (14 calls): RHI::MatrixStack for CPU-side transforms
- *     [x] glMatrixMode/glPushMatrix/glPopMatrix/glLoadIdentity/glMultMatrixf -> RHI::MatrixStack
- *     [x] Static projectionStack/modelViewStack instances manage FFP state
- *     [x] FlushMatricesToFFP() syncs RHI stacks to GL FFP after each operation
+ *   - Matrix stack: CPU-side RHI::MatrixStack + explicit shader uniforms
+ *     [x] modelMatrix/viewProjMatrix/cameraPosW set via SyncModelMatrixUniform()
+ *     [x] FlushMatricesToFFP() REMOVED — model shader reads explicit uniforms
  *   - GL::SubState(DepthTest, Blending, BlendFunc) -> ctx->Set*() dynamic state
  *   - GL_CLIP_PLANE0/1 enable/disable -> ctx->SetClipDistanceEnabled()
  *
- * Retained GL calls (FFP shader dependencies or external blockers):
- *   - FFP matrix flush (3 calls): glMatrixMode(2) + glLoadMatrixf(2) in FlushMatricesToFFP().
- *     Required because ModelVertProg.glsl reads gl_ModelViewMatrix/gl_ProjectionMatrix.
- *   - FFP matrix mode query (1 call): glGetIntegerv(GL_MATRIX_MODE) in DIDCheckMatrixMode() for debug checks.
+ * Retained GL calls:
  *   - Shadow depth texture (SetupShadowTexSampler / ResetShadowTexSampler).
  */
 
@@ -43,21 +39,30 @@
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/MatrixStack.h"
 
+#include "Rendering/Common/ModelDrawerState.hpp"
+#include "Rendering/Shaders/Shader.h"
+
 #include "System/Misc/TracyDefs.h"
 
-// Static matrix stacks for FFP state manipulation
-// These stacks mirror the FFP GL_PROJECTION and GL_MODELVIEW matrix stacks.
-// After each manipulation, we flush to FFP state because model shaders read gl_ModelViewMatrix/gl_ProjectionMatrix.
+// CPU-side matrix stacks for model rendering.
+// Model shaders read explicit uniforms (modelMatrix, viewProjMatrix) set via SyncModelMatrixUniform().
 static RHI::MatrixStack projectionStack;
 static RHI::MatrixStack modelViewStack;
 
-// Flush RHI matrix stacks to FFP state (required by ModelVertProg.glsl and other model shaders)
-static void FlushMatricesToFFP()
+RHI::MatrixStack& CModelDrawerHelper::GetModelViewStack() { return modelViewStack; }
+RHI::MatrixStack& CModelDrawerHelper::GetProjectionStack() { return projectionStack; }
+
+void CModelDrawerHelper::SyncModelMatrixUniform()
 {
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(projectionStack.Top());
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(modelViewStack.Top());
+	auto* state = IModelDrawerState::modelDrawerStates[MODEL_DRAWER_GLSL];
+	if (state == nullptr)
+		return;
+
+	auto* shader = state->GetActiveShader();
+	if (shader == nullptr || !shader->IsBound())
+		return;
+
+	shader->SetUniformMatrix4x4("modelMatrix", false, modelViewStack.Top().m);
 }
 
 bool CModelDrawerHelper::ObjectVisibleReflection(const float3& objPos, const float3& camPos, float maxRadius)
@@ -113,26 +118,20 @@ void CModelDrawerHelper::DisableTexturesCommon()
 void CModelDrawerHelper::PushTransform(const CCamera* cam)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// Push matrices on RHI stacks (mirrors FFP glPushMatrix behavior)
+	// Push matrices on RHI stacks — model shader reads explicit uniforms, not FFP
 	projectionStack.Push();
 	projectionStack.MultMatrix(cam->GetViewMatrix());
 
 	modelViewStack.Push();
 	modelViewStack.LoadIdentity();
-
-	// Flush to FFP state for shaders that read gl_ModelViewMatrix/gl_ProjectionMatrix
-	FlushMatricesToFFP();
 }
 
 void CModelDrawerHelper::PopTransform()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// Pop matrices from RHI stacks (mirrors FFP glPopMatrix behavior)
+	// Pop matrices from RHI stacks
 	projectionStack.Pop();
 	modelViewStack.Pop();
-
-	// Flush to FFP state for shaders that read gl_ModelViewMatrix/gl_ProjectionMatrix
-	FlushMatricesToFFP();
 }
 
 float4 CModelDrawerHelper::GetTeamColor(int team, float alpha)
@@ -155,9 +154,6 @@ void CModelDrawerHelper::DIDResetPrevProjection(bool toScreen)
 	// Pop and re-push projection matrix (reset to previous state)
 	projectionStack.Pop();
 	projectionStack.Push();
-
-	// Flush to FFP state for shaders that read gl_ProjectionMatrix
-	FlushMatricesToFFP();
 }
 
 void CModelDrawerHelper::DIDResetPrevModelView()
@@ -166,9 +162,6 @@ void CModelDrawerHelper::DIDResetPrevModelView()
 	// Pop and re-push modelview matrix (reset to previous state)
 	modelViewStack.Pop();
 	modelViewStack.Push();
-
-	// Flush to FFP state for shaders that read gl_ModelViewMatrix
-	FlushMatricesToFFP();
 }
 
 bool CModelDrawerHelper::DIDCheckMatrixMode(int wantedMode)

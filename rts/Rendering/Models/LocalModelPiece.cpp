@@ -3,6 +3,7 @@
 #include "3DModelPiece.hpp"
 #include "LocalModel.hpp"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/Common/ModelDrawerHelpers.h"
 #include "System/Misc/TracyDefs.h"
 
 CR_BIND(LocalModelPiece, )
@@ -267,12 +268,16 @@ void LocalModelPiece::Draw() const
 
 	assert(original);
 
-	glPushMatrix();
-	glMultMatrixf(GetModelSpaceMatrix());
+	auto& mvStack = CModelDrawerHelper::GetModelViewStack();
+	mvStack.Push();
+	mvStack.MultMatrix(GetModelSpaceMatrix());
+	CModelDrawerHelper::SyncModelMatrixUniform();
+
 	S3DModelHelpers::BindLegacyAttrVBOs();
 	original->DrawElements();
 	S3DModelHelpers::UnbindLegacyAttrVBOs();
-	glPopMatrix();
+
+	mvStack.Pop();
 }
 
 void LocalModelPiece::DrawLOD(uint32_t lod) const
@@ -284,8 +289,11 @@ void LocalModelPiece::DrawLOD(uint32_t lod) const
 	if (!original->HasGeometryData())
 		return;
 
-	glPushMatrix();
-	glMultMatrixf(GetModelSpaceMatrix());
+	auto& mvStack = CModelDrawerHelper::GetModelViewStack();
+	mvStack.Push();
+	mvStack.MultMatrix(GetModelSpaceMatrix());
+	CModelDrawerHelper::SyncModelMatrixUniform();
+
 	if (const auto ldl = lodDispLists[lod]; ldl == 0) {
 		S3DModelHelpers::BindLegacyAttrVBOs();
 		original->DrawElements();
@@ -293,7 +301,8 @@ void LocalModelPiece::DrawLOD(uint32_t lod) const
 	} else {
 		glCallList(ldl);
 	}
-	glPopMatrix();
+
+	mvStack.Pop();
 }
 
 

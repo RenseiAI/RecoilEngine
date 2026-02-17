@@ -6,6 +6,9 @@
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/Common/ModelDrawerHelpers.h"
+#include "Rendering/Common/ModelDrawerState.hpp"
+#include "Rendering/Shaders/Shader.h"
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/RHI/RHIContext.h"
@@ -20,14 +23,12 @@
  *   - Matrix stack -> RHI::MatrixStack + RHI::ScopedMatrixPush (CPU-side)
  *   - GL::SubState(DepthTest, Blending, BlendFunc) -> ctx->Set*() RHI dynamic state
  *   - RenderBuffer draws use SetTransformMatrix() (bypasses FFP matrix sync)
+ *   - Model shader uniforms (modelMatrix, viewProjMatrix, colorMult) set explicitly
+ *   - FFP matrix push/pop/flush removed from Draw() and DrawModel()
+ *   - glColor4f replaced by colorMult uniform via SetColorMultiplier()
  *
- * Remaining GL calls (cannot migrate yet):
- *   - glMatrixMode/glLoadMatrixf in FlushMatrices: still needed for DrawModel
- *     (model shader reads gl_ModelViewProjectionMatrix) and DrawWeaponStates
- *     (font renderer reads FFP matrices).
- *   - glPushMatrix/glPopMatrix in Draw: save/restore outer FFP matrix state.
- *   - glColor4f in DrawModel: FFP vertex color read by model shader as gl_Color.
- *     Blocked on shader migration to uniform-based vertex color.
+ * Remaining GL calls:
+ *   - FlushMatrices in DrawWeaponStates: font renderer reads FFP matrices.
  */
 #include "Game/Camera.h"
 #include "Game/GlobalUnsynced.h"
@@ -77,9 +78,27 @@ void HUDDrawer::DrawModel(const CUnit* unit)
 		mvStack.MultMatrix(m);
 	}
 
-	FlushMatrices();
-	glColor4f(1.0f, 1.0f, 1.0f, 0.25f);
+	// Set model shader uniforms from HUD stacks
+	auto& mdMvStack = CModelDrawerHelper::GetModelViewStack();
+	mdMvStack.LoadMatrix(mvStack.Top());
+
+	auto* state = IModelDrawerState::modelDrawerStates[MODEL_DRAWER_GLSL];
+	if (state != nullptr) {
+		auto* shader = state->GetActiveShader();
+		if (shader != nullptr && shader->IsBound()) {
+			shader->SetUniformMatrix4x4("viewProjMatrix", false, projStack.Top().m);
+			state->SetColorMultiplier(1.0f, 1.0f, 1.0f, 0.25f);
+		}
+	}
+
 	unit->localModel.Draw();
+
+	// Reset colorMult
+	if (state != nullptr) {
+		auto* shader = state->GetActiveShader();
+		if (shader != nullptr && shader->IsBound())
+			state->SetColorMultiplier(1.0f);
+	}
 }
 
 void HUDDrawer::DrawUnitDirectionArrow(const CUnit* unit)
@@ -279,16 +298,9 @@ void HUDDrawer::Draw(const CUnit* unit)
 	if (unit == nullptr || !draw)
 		return;
 
-	// Save outer GL matrix state
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-
 	// Reset member stacks to identity
 	projStack.LoadIdentity();
 	mvStack.LoadIdentity();
-	FlushMatrices();
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetDepthTestEnabled(false);
@@ -311,10 +323,4 @@ void HUDDrawer::Draw(const CUnit* unit)
 	// Restore default state
 	ctx->SetDepthTestEnabled(true);
 	ctx->SetBlendEnabled(false);
-
-	// Restore outer GL matrix state
-	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
 }

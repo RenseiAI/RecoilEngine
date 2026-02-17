@@ -1,7 +1,6 @@
 // ModelVertProg.metal
 // Translated from GLSL/ModelVertProg.glsl
-// Legacy model vertex shader (GLSL 120 style)
-// Note: This shader uses legacy GL built-ins that are translated to uniform buffers
+// Legacy model vertex shader with explicit uniforms (no FFP built-ins)
 
 #include <metal_stdlib>
 using namespace metal;
@@ -25,12 +24,11 @@ struct VertexOut {
     float clipDistance [[clip_distance]] [1];
 };
 
-// Legacy GL built-in matrices - provided via uniform buffer
-struct LegacyMatrices {
-    float4x4 modelViewMatrix;       // gl_ModelViewMatrix (actually just model matrix)
-    float4x4 projectionMatrix;      // gl_ProjectionMatrix
-    float4x4 projectionMatrixInverse;
-    float3x3 normalMatrix;          // gl_NormalMatrix
+// Explicit uniforms replacing FFP built-ins
+struct ModelMatrices {
+    float4x4 modelMatrix;      // model transform only (not view)
+    float4x4 viewProjMatrix;   // view * projection combined
+    float3 cameraPosW;         // camera world position
 };
 
 struct FogParams {
@@ -49,24 +47,22 @@ struct ModelUniforms {
 
 vertex VertexOut modelVertProg(
     VertexIn in [[stage_in]],
-    constant LegacyMatrices& matrices [[buffer(0)]],
+    constant ModelMatrices& matrices [[buffer(0)]],
     constant FogParams& fog [[buffer(1)]],
     constant ModelUniforms& uniforms [[buffer(2)]])
 {
     VertexOut out;
 
-    out.normalv = matrices.normalMatrix * in.normal;
+    // mat3(modelMatrix) works as normal matrix (rotation+translation, no non-uniform scale)
+    out.normalv = float3x3(matrices.modelMatrix[0].xyz,
+                           matrices.modelMatrix[1].xyz,
+                           matrices.modelMatrix[2].xyz) * in.normal;
 
-    // gl_ClipVertex = gl_ModelViewMatrix * gl_Vertex
-    float4 clipVertex = matrices.modelViewMatrix * in.position;
-    out.position = matrices.projectionMatrix * clipVertex;
+    float4 worldPos = matrices.modelMatrix * in.position;
+    out.position = matrices.viewProjMatrix * worldPos;
 
-    out.vertexWorldPos = clipVertex;
-
-    float4 cameraPos = matrices.projectionMatrixInverse * float4(0, 0, 0, 1);
-    cameraPos.xyz /= cameraPos.w;
-
-    out.cameraDir = out.vertexWorldPos.xyz - cameraPos.xyz;
+    out.vertexWorldPos = worldPos;
+    out.cameraDir = worldPos.xyz - matrices.cameraPosW;
 
 #ifdef USE_SHADOWS
     out.shadowVertexPos = uniforms.shadowMatrix * out.vertexWorldPos;
@@ -85,7 +81,7 @@ vertex VertexOut modelVertProg(
 #endif
 
     // Clip distance for user clip planes
-    out.clipDistance[0] = clipVertex.z;
+    out.clipDistance[0] = worldPos.z;
 
     return out;
 }

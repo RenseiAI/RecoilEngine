@@ -36,6 +36,7 @@ struct ModelUniforms {
     float4 teamColor;
     float4 nanoColor;
     float4 alphaCtrl;  // default: (0.0, 0.0, 0.0, 1.0) - always pass
+    float4 colorMult;  // ghost dimming, build preview alpha; default: (1,1,1,1)
 #ifdef USE_SHADOWS
     float shadowDensity;
 #endif
@@ -145,7 +146,7 @@ fragment float4 modelFragProg(
 #ifdef DEFERRED_MODE
     GBufferOut out;
     out.normal = float4((normal + float3(1.0)) * 0.5, 1.0);
-    out.diffuse = float4(mix(diffuse.rgb, uniforms.teamColor.rgb, diffuse.a), alpha);
+    out.diffuse = uniforms.colorMult * float4(mix(diffuse.rgb, uniforms.teamColor.rgb, diffuse.a), alpha);
     out.diffuse = float4(mix(out.diffuse.rgb, uniforms.nanoColor.rgb, uniforms.nanoColor.a), alpha);
     out.specular = float4(extraColor.rgb, alpha);
     out.emissive = float4(0.0);
@@ -161,6 +162,7 @@ fragment float4 modelFragProg(
     fragColor.rgb = mix(fog.color.rgb, fragColor.rgb, in.fogFactor);
     fragColor.rgb = mix(fragColor.rgb, uniforms.nanoColor.rgb, uniforms.nanoColor.a);
     fragColor.a = alpha;
+    fragColor *= uniforms.colorMult; // ghost dimming, build preview alpha
 
     return fragColor;
 #endif

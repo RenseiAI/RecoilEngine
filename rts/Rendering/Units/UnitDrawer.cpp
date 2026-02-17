@@ -1,23 +1,20 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 /**
- * RHI Migration Status: PARTIAL
+ * RHI Migration Status: PARTIAL (Phase 4.2 complete)
  *
  * Migrated to RHI:
  *   - RHI device/context access -> RHI::GetDevice(), GetContext()
  *   - Pipeline state (depth test, polygon mode, polygon offset) -> ctx->Set*()
  *   - GL_CLIP_PLANE0/1 enable/disable -> ctx->SetClipDistanceEnabled()
  *   - GL::SubState(DepthTest, Blending, BlendFunc) -> ctx->Set*() dynamic state
+ *   [x] glActiveTexture/glBindTexture for icons -> GetAtlasRHITexture()->Bind/Unbind
+ *   [x] FFP matrix stack (glPush/Pop/Mult/Translate/Rotate) -> CPU-side RHI::MatrixStack
+ *   [x] glColor4f/glColor4fv/glGetFloatv(GL_CURRENT_COLOR) -> SetColorMultiplier uniform
  *
  * Remaining GL calls (blocked, cannot migrate yet):
  *   - glCallList: Lua display lists, no RHI equivalent. Blocked on Lua infrastructure.
- *   - glPushMatrix/glPopMatrix/glMultMatrixf/glTranslatef3/glRotatef: FFP matrix stack.
- *     GLSL shaders read gl_ModelViewProjectionMatrix. Blocked on shader migration.
- *   [x] glActiveTexture/glBindTexture for icons: migrated to GetAtlasRHITexture()->Bind/Unbind
- *   - glColor4f/glColor4fv/glGetFloatv(GL_CURRENT_COLOR): FFP vertex color.
- *     Shaders read gl_Color. Blocked on shader migration to uniform-based color.
- *   - glClipPlane: FFP clip plane equation. No RHI equivalent for the equation;
- *     the enable/disable IS migrated to ctx->SetClipDistanceEnabled().
+ *   - glClipPlane: FFP clip plane equation. Non-identity MV sites remain.
  *   - glGetIntegerv(GL_CURRENT_PROGRAM)/glUseProgram: Shader save/restore hack.
  */
 
@@ -354,13 +351,13 @@ void CUnitDrawerGLSL::DrawUnitNoTrans(const CUnit* unit, uint32_t preList, uint3
 void CUnitDrawerGLSL::DrawUnitTrans(const CUnit* unit, uint32_t preList, uint32_t postList, bool lodCall, bool noLuaCall) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: FFP matrix stack has no RHI equivalent. GL4 path uses uniform buffers.
-	glPushMatrix();
-	glMultMatrixf(unit->GetTransformMatrix());
+	auto& mvStack = CModelDrawerHelper::GetModelViewStack();
+	mvStack.Push();
+	mvStack.MultMatrix(unit->GetTransformMatrix());
 
 	DrawUnitNoTrans(unit, preList, postList, lodCall, noLuaCall);
 
-	glPopMatrix();
+	mvStack.Pop();
 }
 
 void CUnitDrawerGLSL::DrawUnitMiniMapIcon(TypedRenderBuffer<VA_TYPE_2DTC3>& rb, size_t iconIdx, const float iconScale, const float3& pos, const SColor& color) const
@@ -875,22 +872,24 @@ void CUnitDrawerGLSL::DrawGhostedBuildings(int modelType) const
 	const auto& deadGhostedBuildings = modelDrawerData->GetDeadGhostBuildings(gu->myAllyTeam, modelType);
 	const auto& liveGhostedBuildings = modelDrawerData->GetLiveGhostBuildings(gu->myAllyTeam, modelType);
 
-	// RHI_TODO: glColor4f, glPushMatrix/glPopMatrix/glTranslatef3/glRotatef are FFP.
-	// GL4 path handles ghost rendering differently (inline, no FFP).
-	glColor4f(0.6f, 0.6f, 0.6f, IModelDrawerState::alphaValues.y);
+	modelDrawerState->SetColorMultiplier(0.6f, 0.6f, 0.6f, 1.0f);
 
 	// buildings that died while ghosted
+	auto& mvStack = CModelDrawerHelper::GetModelViewStack();
 	for (GhostSolidObject* dgb : deadGhostedBuildings) {
 		if (camera->InView(dgb->pos, dgb->GetModel()->GetDrawRadius())) {
-			glPushMatrix();
-			glTranslatef3(dgb->pos);
-			glRotatef(dgb->facing * 90.0f, 0, 1, 0);
+			CMatrix44f modelMat;
+			modelMat.Translate(dgb->pos);
+			modelMat.RotateY(dgb->facing * 90.0f * math::DEG_TO_RAD);
+
+			mvStack.Push();
+			mvStack.MultMatrix(modelMat);
 
 			CModelDrawerHelper::BindModelTypeTexture(modelType, dgb->GetModel()->textureType);
 			SetTeamColor(dgb->team, IModelDrawerState::alphaValues.y);
 
 			dgb->GetModel()->DrawStatic();
-			glPopMatrix();
+			mvStack.Pop();
 		}
 	}
 
@@ -943,27 +942,33 @@ void CUnitDrawerGLSL::DrawAlphaUnit(CUnit* unit, int modelType, uint8_t thisPass
 
 		// ghosted enemy units
 		if (losStatus & LOS_CONTRADAR) {
-			glColor4f(0.9f, 0.9f, 0.9f, IModelDrawerState::alphaValues.z);
+			modelDrawerState->SetColorMultiplier(0.9f, 0.9f, 0.9f, 1.0f);
 		}
 		else {
-			glColor4f(0.6f, 0.6f, 0.6f, IModelDrawerState::alphaValues.y);
+			modelDrawerState->SetColorMultiplier(0.6f, 0.6f, 0.6f, 1.0f);
 		}
 
-		glPushMatrix();
-		glTranslatef3(unit->drawPos);
-		glRotatef(unit->buildFacing * 90.0f, 0, 1, 0);
+		{
+			CMatrix44f modelMat;
+			modelMat.Translate(unit->drawPos);
+			modelMat.RotateY(unit->buildFacing * 90.0f * math::DEG_TO_RAD);
 
-		// the units in liveGhostedBuildings[modelType] are not
-		// sorted by textureType, but we cannot merge them with
-		// alphaModelRenderers[modelType] either since they are
-		// not actually cloaked
-		CModelDrawerHelper::BindModelTypeTexture(modelType, model->textureType);
+			auto& mvStack2 = CModelDrawerHelper::GetModelViewStack();
+			mvStack2.Push();
+			mvStack2.MultMatrix(modelMat);
 
-		SetTeamColor(unit->team, (losStatus & LOS_CONTRADAR) ? IModelDrawerState::alphaValues.z : IModelDrawerState::alphaValues.y);
-		model->DrawStatic();
-		glPopMatrix();
+			// the units in liveGhostedBuildings[modelType] are not
+			// sorted by textureType, but we cannot merge them with
+			// alphaModelRenderers[modelType] either since they are
+			// not actually cloaked
+			CModelDrawerHelper::BindModelTypeTexture(modelType, model->textureType);
 
-		glColor4f(1.0f, 1.0f, 1.0f, IModelDrawerState::alphaValues.x);
+			SetTeamColor(unit->team, (losStatus & LOS_CONTRADAR) ? IModelDrawerState::alphaValues.z : IModelDrawerState::alphaValues.y);
+			model->DrawStatic();
+			mvStack2.Pop();
+		}
+
+		modelDrawerState->SetColorMultiplier(1.0f);
 		return;
 	}
 
@@ -979,9 +984,13 @@ void CUnitDrawerGLSL::DrawAlphaUnit(CUnit* unit, int modelType, uint8_t thisPass
 void CUnitDrawerGLSL::DrawOpaqueAIUnit(const CUnitDrawerData::TempDrawUnit& unit) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glPushMatrix();
-	glTranslatef3(unit.pos);
-	glRotatef(unit.rotation * math::RAD_TO_DEG, 0.0f, 1.0f, 0.0f);
+	CMatrix44f modelMat;
+	modelMat.Translate(unit.pos);
+	modelMat.RotateY(unit.rotation);
+
+	auto& mvStack = CModelDrawerHelper::GetModelViewStack();
+	mvStack.Push();
+	mvStack.MultMatrix(modelMat);
 
 	const UnitDef* def = unit.GetUnitDef();
 	const S3DModel* mdl = def->model;
@@ -992,15 +1001,19 @@ void CUnitDrawerGLSL::DrawOpaqueAIUnit(const CUnitDrawerData::TempDrawUnit& unit
 	SetTeamColor(unit.team);
 	mdl->DrawStatic();
 
-	glPopMatrix();
+	mvStack.Pop();
 }
 
 void CUnitDrawerGLSL::DrawAlphaAIUnit(const CUnitDrawerData::TempDrawUnit& unit) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glPushMatrix();
-	glTranslatef3(unit.pos);
-	glRotatef(unit.rotation * math::RAD_TO_DEG, 0.0f, 1.0f, 0.0f);
+	CMatrix44f modelMat;
+	modelMat.Translate(unit.pos);
+	modelMat.RotateY(unit.rotation);
+
+	auto& mvStack = CModelDrawerHelper::GetModelViewStack();
+	mvStack.Push();
+	mvStack.MultMatrix(modelMat);
 
 	const UnitDef* def = unit.GetUnitDef();
 	const S3DModel* mdl = def->model;
@@ -1011,7 +1024,7 @@ void CUnitDrawerGLSL::DrawAlphaAIUnit(const CUnitDrawerData::TempDrawUnit& unit)
 	SetTeamColor(unit.team, IModelDrawerState::alphaValues.x);
 	mdl->DrawStatic();
 
-	glPopMatrix();
+	mvStack.Pop();
 }
 
 void CUnitDrawerGLSL::DrawAlphaAIUnitBorder(const CUnitDrawerData::TempDrawUnit& unit) const
@@ -1051,7 +1064,7 @@ void CUnitDrawerGLSL::DrawAlphaAIUnitBorder(const CUnitDrawerData::TempDrawUnit&
 	if (progID > 0)
 		glUseProgram(progID);
 
-	glColor4f(1.0f, 1.0f, 1.0f, IModelDrawerState::alphaValues.x);
+	modelDrawerState->SetColorMultiplier(1.0f);
 }
 
 void CUnitDrawerGLSL::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLuaCall) const
@@ -1079,9 +1092,6 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLu
 		{0.0f,  0.0f, 0.0f,                                                           0.0f },
 	};
 
-	float savedColor[4];
-	glGetFloatv(GL_CURRENT_COLOR, savedColor);
-
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetClipDistanceEnabled(0, true);
 	ctx->SetClipDistanceEnabled(1, true);
@@ -1103,8 +1113,6 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLu
 		// fully-shaded, conditional
 		DrawModelFillBuildStageShadow(unit, upperPlanes[BUILDSTAGE_FILL], lowerPlanes[BUILDSTAGE_FILL], noLuaCall);
 	}
-
-	glColor4fv(savedColor);
 }
 
 void CUnitDrawerGLSL::DrawModelWireBuildStageShadow(const CUnit* unit, const double* upperPlane, const double* lowerPlane, bool noLuaCall) const
@@ -1180,9 +1188,6 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLu
 		{0.0f,  0.0f, 0.0f,                                                           0.0f },
 	};
 
-	float savedColor[4];
-	glGetFloatv(GL_CURRENT_COLOR, savedColor);
-
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetClipDistanceEnabled(0, true);
 	ctx->SetClipDistanceEnabled(1, true);
@@ -1209,7 +1214,6 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLu
 
 	SetNanoColor(float4(1.0f, 1.0f, 1.0f, 0.0f)); // turn off in any case
 	ctx->SetClipDistanceEnabled(0, false);
-	glColor4fv(savedColor);
 }
 
 void CUnitDrawerGLSL::DrawModelWireBuildStageOpaque(const CUnit* unit, const double* upperPlane, const double* lowerPlane, bool noLuaCall) const
@@ -1563,11 +1567,13 @@ void CUnitDrawerGLSL::DrawBuildIcons(const std::vector<CCursorIcons::BuildIcon>&
 	if (buildIcons.empty())
 		return;
 
-	// RHI_TODO: glColor4f and FFP matrix stack (glPushMatrix/glTranslatef3/glRotatef/glPopMatrix) are legacy.
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetDepthTestEnabled(true);
-	glColor4f(1.0f, 1.0f, 1.0f, 0.3f);
+	// Note: glColor4f(1,1,1,0.3) was dead code (shader never reads gl_Color).
+	// Build preview dimming can be restored via colorMult once DrawIndividualDefAlpha
+	// supports passing a color multiplier through to the shader.
 
+	auto& mvStack = CModelDrawerHelper::GetModelViewStack();
 	for (const auto& buildIcon : buildIcons) {
 		const auto* unitDef = unitDefHandler->GetUnitDefByID(-(buildIcon.cmd));
 		assert(unitDef);
@@ -1578,14 +1584,16 @@ void CUnitDrawerGLSL::DrawBuildIcons(const std::vector<CCursorIcons::BuildIcon>&
 		if (!camera->InView(buildIcon.pos, model->GetDrawRadius()))
 			continue;
 
-		glPushMatrix();
-		glLoadIdentity();
-		glTranslatef3(buildIcon.pos);
-		glRotatef(buildIcon.facing * 90.0f, 0.0f, 1.0f, 0.0f);
+		CMatrix44f modelMat;
+		modelMat.Translate(buildIcon.pos);
+		modelMat.RotateY(buildIcon.facing * 90.0f * math::DEG_TO_RAD);
+
+		mvStack.Push();
+		mvStack.LoadMatrix(modelMat);
 
 		unitDrawer->DrawIndividualDefAlpha(unitDef, buildIcon.team, false);
 
-		glPopMatrix();
+		mvStack.Pop();
 	}
 
 	ctx->SetDepthTestEnabled(false);

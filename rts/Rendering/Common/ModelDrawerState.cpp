@@ -184,6 +184,12 @@ CModelDrawerStateGLSL::CModelDrawerStateGLSL()
 		modelShaders[n]->SetUniform("shadowDensity", sunLighting->modelShadowDensity);
 		modelShaders[n]->SetUniformMatrix4x4("shadowMatrix", false, shadowHandler.GetShadowMatrixRaw());
 
+		// Explicit uniforms replacing FFP built-ins (modelMatrix, viewProjMatrix, cameraPosW, colorMult)
+		modelShaders[n]->SetUniformMatrix4x4("modelMatrix", false, CMatrix44f::Identity().m);
+		modelShaders[n]->SetUniformMatrix4x4("viewProjMatrix", false, CMatrix44f::Identity().m);
+		modelShaders[n]->SetUniform3v("cameraPosW", &camera->GetPos()[0]);
+		modelShaders[n]->SetUniform("colorMult", 1.0f, 1.0f, 1.0f, 1.0f);
+
 		modelShaders[n]->Disable();
 		modelShaders[n]->Validate();
 	}
@@ -239,6 +245,14 @@ void CModelDrawerStateGLSL::Enable(bool deferredPass, bool alphaPass) const
 	modelShader->SetUniform("shadowDensity", sunLighting->modelShadowDensity);
 	modelShader->SetUniformMatrix4x4("shadowMatrix", false, shadowHandler.GetShadowMatrixRaw());
 
+	// Set view-proj matrix and camera pos for the explicit shader uniforms
+	{
+		const CMatrix44f viewProjMat = camera->GetProjectionMatrix() * camera->GetViewMatrix();
+		modelShader->SetUniformMatrix4x4("viewProjMatrix", false, &viewProjMat.m[0]);
+		modelShader->SetUniform3v("cameraPosW", &camera->GetPos()[0]);
+		modelShader->SetUniform("colorMult", 1.0f, 1.0f, 1.0f, 1.0f);
+	}
+
 	// Alpha control — replaces legacy FFP glAlphaFunc/GL_ALPHA_TEST
 	float gtThreshold = mix(0.5f, 0.1f, static_cast<float>(alphaPass));
 	modelShader->SetUniform("alphaCtrl", gtThreshold, 1.0f, 0.0f, 0.0f);
@@ -263,6 +277,16 @@ void CModelDrawerStateGLSL::SetNanoColor(const float4& color) const
 	RECOIL_DETAILED_TRACY_ZONE;
 	assert(modelShader->IsBound());
 	modelShader->SetUniform4v("nanoColor", &color.x);
+}
+
+void CModelDrawerStateGLSL::SetColorMultiplier(float r, float g, float b, float a) const
+{
+	RECOIL_DETAILED_TRACY_ZONE;
+	assert(modelShader != nullptr);
+#ifndef HEADLESS
+	assert(modelShader->IsBound());
+#endif
+	modelShader->SetUniform("colorMult", r, g, b, a);
 }
 
 void CModelDrawerStateGLSL::EnableTextures() const { CModelDrawerHelper::EnableTexturesCommon(); }

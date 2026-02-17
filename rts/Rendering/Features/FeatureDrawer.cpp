@@ -1,18 +1,14 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 /**
- * RHI Migration Status: BLOCKED
+ * RHI Migration Status: PARTIAL (Phase 4.2 complete)
  *
- * Remaining GL calls (~5, all in CFeatureDrawerLegacy):
+ * Migrated:
+ *   [x] glPushMatrix/glMultMatrixf/glPopMatrix -> CPU-side RHI::MatrixStack + SyncModelMatrixUniform()
+ *
+ * Remaining GL calls (CFeatureDrawerLegacy):
  *   - glCallList(preList/postList): Lua display lists, no RHI equivalent.
- *     Blocked on Lua display list infrastructure replacement.
- *   - glPushMatrix/glMultMatrixf/glPopMatrix: FFP matrix stack in DrawFeatureTrans.
- *     GLSL shaders read gl_ModelViewProjectionMatrix from FFP state.
- *     Blocked on shader migration to uniform-based transforms (GL4 path).
- *
- * The GL4 path (CFeatureDrawerGL4) does NOT use these FFP calls — it uses
- * S3DModelVAO::Submit with uniform buffers for transforms. Once the GL4 path
- * handles all rendering, the legacy GLSL path and its FFP calls can be removed.
+ *     Blocked on Lua display list infrastructure replacement (Phase 4.3).
  */
 
 #include "FeatureDrawer.h"
@@ -182,12 +178,13 @@ void CFeatureDrawerLegacy::DrawFeatureNoTrans(const CFeature* feature, unsigned 
 void CFeatureDrawerLegacy::DrawFeatureTrans(const CFeature* feature, unsigned int preList, unsigned int postList, bool lodCall, bool noLuaCall) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glPushMatrix();
-	glMultMatrixf(feature->GetTransformMatrixRef());
+	auto& mvStack = CModelDrawerHelper::GetModelViewStack();
+	mvStack.Push();
+	mvStack.MultMatrix(feature->GetTransformMatrixRef());
 
 	DrawFeatureNoTrans(feature, preList, postList, lodCall, noLuaCall);
 
-	glPopMatrix();
+	mvStack.Pop();
 }
 
 void CFeatureDrawerLegacy::DrawIndividual(const CFeature* feature, bool noLuaCall) const

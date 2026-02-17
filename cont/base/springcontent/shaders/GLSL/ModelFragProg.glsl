@@ -23,6 +23,7 @@
 uniform vec4 teamColor;
 uniform vec4 nanoColor;
 uniform vec4 alphaCtrl = vec4(0.0, 0.0, 0.0, 1.0); //always pass
+uniform vec4 colorMult = vec4(1.0, 1.0, 1.0, 1.0); // ghost dimming, build preview alpha
 
 bool AlphaDiscard(float a) {
 	float alphaTestGT = float(a > alphaCtrl.x) * alphaCtrl.y;
@@ -126,7 +127,7 @@ void main(void)
 
 #if (DEFERRED_MODE == 1)
 	gl_FragData[GBUFFER_NORMTEX_IDX] = vec4((normal + vec3(1.0, 1.0, 1.0)) * 0.5, 1.0);
-	gl_FragData[GBUFFER_DIFFTEX_IDX] = vec4(mix(                         diffuse.rgb, teamColor.rgb,   diffuse.a), alpha);
+	gl_FragData[GBUFFER_DIFFTEX_IDX] = colorMult * vec4(mix(                         diffuse.rgb, teamColor.rgb,   diffuse.a), alpha);
 	gl_FragData[GBUFFER_DIFFTEX_IDX] = vec4(mix(gl_FragData[GBUFFER_DIFFTEX_IDX].rgb, nanoColor.rgb, nanoColor.a), alpha);
 	// do not premultiply reflection, leave it to the deferred lighting pass
 	// gl_FragData[GBUFFER_DIFFTEX_IDX] = vec4(mix(diffuse.rgb, teamColor.rgb, diffuse.a) * reflection, alpha);
@@ -138,6 +139,7 @@ void main(void)
 	gl_FragColor.rgb = mix(gl_Fog.color.rgb, gl_FragColor.rgb, fogFactor); // fog
 	gl_FragColor.rgb = mix(gl_FragColor.rgb, nanoColor.rgb, nanoColor.a); // wireframe or polygon color
 	gl_FragColor.a   = alpha;
+	gl_FragColor    *= colorMult; // ghost dimming, build preview alpha
 #endif
 }
 

@@ -3,6 +3,7 @@
 #include "System/float4.h"
 #include "Rendering/Textures/S3OTextureHandler.h" //can't fwd-declare nested class
 #include "Rendering/Models/3DModelDefs.hpp"
+#include "Rendering/RHI/MatrixStack.h"
 
 
 class float3;
@@ -46,6 +47,13 @@ public:
 	static void DIDResetPrevProjection(bool toScreen);
 	static void DIDResetPrevModelView();
 	static bool DIDCheckMatrixMode(int wantedMode);
+
+	// Access to CPU-side matrix stacks for uniform-based model rendering
+	static RHI::MatrixStack& GetModelViewStack();
+	static RHI::MatrixStack& GetProjectionStack();
+
+	// Set modelMatrix uniform on the active GLSL model shader from modelViewStack.Top()
+	static void SyncModelMatrixUniform();
 public:
 	template<typename T>
 	static const CModelDrawerHelper* GetInstance() {

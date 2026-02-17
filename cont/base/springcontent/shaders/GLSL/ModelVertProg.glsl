@@ -1,7 +1,11 @@
 #version 120
 
-// note: gl_ModelViewMatrix actually only contains the
-// model matrix, view matrix is on the projection stack
+// Explicit uniforms replacing FFP built-ins
+// Note: modelMatrix contains the MODEL matrix only (not view).
+//       viewProjMatrix contains VIEW * PROJECTION.
+uniform mat4 modelMatrix;
+uniform mat4 viewProjMatrix;
+uniform vec3 cameraPosW;
 
 varying vec4 vertexWorldPos;
 varying vec3 cameraDir;
@@ -15,16 +19,17 @@ varying vec3 normalv;
 
 void main(void)
 {
-	normalv = gl_NormalMatrix * gl_Normal;
+	// mat3(modelMatrix) works as normal matrix because unit transforms are
+	// rotation+translation only (no non-uniform scale). The normals are
+	// normalize()'d in the fragment shader, so uniform scale cancels out.
+	normalv = mat3(modelMatrix) * gl_Normal;
 
-	gl_ClipVertex  = gl_ModelViewMatrix * gl_Vertex; // M (!)
-	gl_Position    = gl_ProjectionMatrix * gl_ClipVertex;
+	vec4 worldPos  = modelMatrix * gl_Vertex;
+	gl_ClipVertex  = worldPos;                    // world space (same as before)
+	gl_Position    = viewProjMatrix * worldPos;
 
-	vertexWorldPos = gl_ClipVertex;
-
-	vec4 cameraPos = gl_ProjectionMatrixInverse * vec4(0, 0, 0, 1); cameraPos.xyz /= cameraPos.w;
-
-	cameraDir      = vertexWorldPos.xyz - cameraPos.xyz;
+	vertexWorldPos = worldPos;
+	cameraDir      = worldPos.xyz - cameraPosW;
 
 #if (USE_SHADOWS == 1)
 	shadowVertexPos = shadowMatrix * vertexWorldPos;

@@ -113,6 +113,7 @@ public:
 		modelShader = modelShaders[shadowed + deferred * 2];
 	}
 	Shader::IProgramObject* ActiveShader() { return modelShader; }
+	Shader::IProgramObject* GetActiveShader() const { return modelShader; }
 public:
 	void SetupOpaqueDrawing(bool deferredPass) const;
 	void ResetOpaqueDrawing(bool deferredPass) const;
@@ -159,6 +160,8 @@ public:
 
 	void Enable(bool deferredPass, bool alphaPass) const override;
 	void Disable(bool deferredPass) const override;
+
+	void SetColorMultiplier(float r, float g, float b, float a) const override;
 private:
 	void SetNanoColor(const float4& color) const override;
 

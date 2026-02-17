@@ -37,6 +37,7 @@
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/IconHandler.h"
 #include "Rendering/Units/UnitDrawer.h"
+#include "Rendering/Common/ModelDrawerHelpers.h"
 #include "Rendering/GL/glExtra.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
@@ -3985,11 +3986,10 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap, const CMatrix44f* transform)
 						}
 					}
 
-					if (unitDrawer->ShowUnitBuildSquare(bi, buildCommands)) {
-						glColor4f(0.7f, 1.0f, 1.0f, 0.4f);
-					} else {
-						glColor4f(1.0f, 0.5f, 0.5f, 0.4f);
-					}
+					// Note: glColor4f was dead code (shader never reads gl_Color).
+					// Build preview tinting can be restored via colorMult once
+					// DrawIndividualDefAlpha supports color multiplier pass-through.
+					unitDrawer->ShowUnitBuildSquare(bi, buildCommands);
 
 					if (!onMiniMap) {
 						ScopedModelDrawerImpl<CUnitDrawer> legacy(true, false);
@@ -3999,12 +3999,17 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap, const CMatrix44f* transform)
 						buildTransform.Translate(buildPos);
 						buildTransform.RotateY(bi.buildFacing * 90.0f * math::DEG_TO_RAD);
 
+						auto& mvStack = CModelDrawerHelper::GetModelViewStack();
+						mvStack.Push();
+						mvStack.LoadMatrix(buildTransform);
+
 						glPushMatrix();
 						glLoadMatrixf(buildTransform);
 
 						unitDrawer->DrawIndividualDefAlpha(bi.def, gu->myTeam, false);
 
 						glPopMatrix();
+						mvStack.Pop();
 						ctx->SetBlendFunc((RHI::BlendFactor)cmdColors.SelectedBlendSrc(), (RHI::BlendFactor)cmdColors.SelectedBlendDst());
 					}
 				}
