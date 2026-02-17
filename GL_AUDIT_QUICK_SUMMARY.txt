@@ -1,0 +1,127 @@
+================================================================================
+RecoilEngine GL Audit - Quick Summary
+Date: 2026-02-16
+================================================================================
+
+TOTAL GL FUNCTION CALLS: 2,147
+  Compiled from 180+ .cpp and .h files in rts/ (excluding deprecated water)
+
+BREAKDOWN BY DOMAIN:
+  Lua GL                 679 (31.6%) - LuaOpenGL, LuaShaders, LuaFBOs, LuaTextures
+  GL Utility             486 (22.6%) - VertexArray, FBO, VBO, myGL (intentional)
+  UI                     172 (8.0%)  - GuiHandler, MiniMap, ProfileDrawer
+  Units/Models           126 (5.9%)  - UnitDrawer, 3DModelVAO, FeatureDrawer
+  Textures               125 (5.8%)  - nv_dds, Bitmap, TextureRenderAtlas
+  Environment            120 (5.6%)  - GrassDrawer, Water, SkyBox
+  Other/Core             107 (5.0%)  - GlobalRendering, WorldDrawer
+  Map/Terrain            102 (4.8%)  - SMF, ROAM, terrain rendering
+  Core Rendering          99 (4.6%)  - LineDrawer, CommandDrawer, QTPFSPath
+  Font                    44 (2.0%)  - glFont, glFontRenderer
+  Game                    39 (1.8%)  - Camera, Game, PreGame
+  RHI Infrastructure      20 (0.9%)  - Header includes
+  Info Textures           20 (0.9%)  - Combiner, Radar, Height
+  System                   8 (0.4%)  - SplashScreen, Screenshot
+
+INTENTIONAL GL CALLS (650): Files that ARE the GL layer
+  - GL RHI Backend       206 - GLContext, GLTexture, GLDevice, GLPipeline
+  - GL Shader Backend    151 - Shader.cpp, GLSLCopyState.cpp
+  - GL Texture Backend    37 - Texture.cpp
+  - GL Utility Wrappers  300 - VertexArray, FBO, VBO, myGL, glExtra, etc.
+  - Platform Boundaries   50+ - GlobalRendering SDL/debug/config calls
+  - Deprecated Water     534 - Already excluded from build (DynWater, etc.)
+
+MIGRATEABLE GL CALLS (~1,460): Need RHI equivalents
+  - Lua GL               500+ - High priority, infrastructure needed
+  - Render state         150+ - Simple mapping (scissor, viewport, clear)
+  - Texture binding      200+ - Mostly done, some remain
+  - FFP matrix stack     200+ - BLOCKED on shader migration
+  - FFP vertex color      100 - BLOCKED on shader migration
+  - Framebuffer ops       80+ - Mostly done
+  - Immediate mode        50+ - Lua API redesign needed
+  - Display lists         20+ - No RHI equivalent, requires Lua change
+  - Font rendering        40+ - VAO + texture binding
+  - Other state/binding  120+ - Various smaller migrations
+
+TOP 20 FILES BY GL CALLS:
+  1. LuaOpenGL.cpp              419  (Lua GL - NOT STARTED)
+  2. VertexArray.cpp             85  (GL Utility - INTENTIONAL)
+  3. FBO.cpp                     84  (GL Utility - INTENTIONAL)
+  4. LuaShaders.cpp              78  (Lua GL - NOT STARTED)
+  5. UnitDrawer.cpp              67  (Units - BLOCKED on FFP)
+  6. LuaFBOs.cpp                 59  (Lua GL - NOT STARTED)
+  7. GuiHandler.cpp              54  (UI - PARTIAL ~70%)
+  8. GlobalRendering.cpp         50  (Core - MOSTLY DONE ~95%)
+  9. LuaTextures.cpp             48  (Lua GL - NOT STARTED)
+ 10. nv_dds.cpp                  42  (Textures - PARTIAL)
+ 11. myGL.cpp                    37  (GL Utility - INTENTIONAL)
+ 12. Texture.cpp                 37  (Textures - PARTIAL)
+ 13. 3DModelVAO.cpp              37  (Units - PARTIAL ~50%)
+ 14. LightHandler.cpp            34  (GL Utility - INTENTIONAL)
+ 15. GrassDrawer.cpp             31  (Environment - PARTIAL ~65%)
+ 16. glStateDebug.h              30  (GL Utility - INTENTIONAL)
+ 17. GeometryBuffer.cpp          30  (GL Utility - INTENTIONAL)
+ 18. glExtra.cpp                 28  (GL Utility - INTENTIONAL)
+ 19. VBO.cpp                     28  (GL Utility - INTENTIONAL)
+ 20. SMFGroundTextures.cpp       28  (Map/Terrain - PARTIAL)
+
+FILES WITH MIGRATION STATUS HEADERS: 61 documented
+  - GlobalRendering.cpp          ~95% complete
+  - GuiHandler.cpp               ~70% complete
+  - SMFReadMap.cpp               ~75% complete
+  - GrassDrawer.cpp              ~65% complete (blocked on FlushMatrices)
+  - UnitDrawer.cpp               ~30% complete (blocked on FFP)
+  - Most others: 40-60% complete
+
+BLOCKER #1: FFP Matrix Stack (200 calls)
+  Blocked by: Shader migration for UnitDrawer, GrassDrawer, MiniMap
+  Action: Port shaders to use explicit matrix uniforms (pattern from commit 26f75e7)
+  Impact: Unblocks ~200 calls across multiple files
+
+BLOCKER #2: FFP Vertex Color (100 calls)
+  Blocked by: Shader migration for UnitDrawer, GuiHandler, etc.
+  Action: Port shaders to use gl_Color as uniform instead of FFP builtin
+  Impact: Unblocks ~100 calls
+
+BLOCKER #3: Lua Display Lists (20 calls)
+  No RHI equivalent. Options:
+    a) Error with migration guidance (breaks Lua compatibility)
+    b) Implement VAO caching layer (complex, may not be worth it)
+  Decision pending.
+
+BLOCKER #4: Lua Immediate Mode (50 calls)
+  Requires infrastructure: Lua VAO/VBO API redesign
+  Related to display lists in terms of Lua compatibility impact
+  Decision pending: Require script changes or implement wrapper?
+
+MIGRATION SEQUENCE:
+  Phase 1 (2 weeks):  Simple state setters, texture binding, FBO ops
+  Phase 2 (1 week):   Font, paths, particles (low-risk)
+  Phase 3 (4-6 wks):  Lua infrastructure, shader migration
+  Phase 4 (1 week):   Validation, final audit
+
+RISK FACTORS:
+  HIGH:   FFP matrix stack (visual changes if not careful)
+          Immediate mode refactor (Lua compatibility)
+          Display list removal (Lua compatibility break)
+  MEDIUM: Font rendering (requires testing)
+          State manager refactor
+  LOW:    Scissor/viewport state (mechanical)
+          Framebuffer binding (mostly done)
+          Basic texture binding (mostly done)
+
+COMPARISON TO PREVIOUS AUDIT (2026-02-16 MEMORY.md):
+  Previous: ~2,857 effective calls (2,335 + 522 deprecated water)
+  Current:  ~2,147 total (including recent migrations)
+  
+  Difference: ~690 calls fewer
+  Reason: Texture binding migrations (abf34bc), non-owning wrappers (29d73b6),
+          clip plane infrastructure (19b2abc), sky shader updates (26f75e7)
+
+CONCLUSION:
+  - Clear picture of remaining work: 1,460 calls need migration
+  - Intentional GL: 650 calls (backend, wrappers, boundaries)
+  - Major blockers identified: FFP matrix/color, Lua infrastructure
+  - Low-risk migration pathway available (400-500 calls)
+  - High-risk work items clearly scoped (200-300 calls)
+
+For detailed breakdown, see GL_AUDIT_REPORT_2026_02_16_COMPREHENSIVE.md
