@@ -7,7 +7,7 @@
 
 #include "CommandColors.h"
 #include "Rendering/GlobalRendering.h"
-#include "Rendering/GL/myGL.h"
+#include "Rendering/GL/myGL.h" // retained: glBindTexture, glDeleteTextures (ImageData raw GL texture)
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/GL/RenderBuffers.h"
@@ -340,13 +340,8 @@ void CMouseCursor::Draw(int x, int y, float scale) const
 
 	rb.AddQuadTriangles(CURSOR_VERTS);
 
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	glLoadMatrixf(cursorMat);
-
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadMatrixf(CMatrix44f::ClipOrthoProj01(RHI::GetDevice()->SupportClipSpaceControl() * 1.0f));
+	const CMatrix44f orthoProj = CMatrix44f::ClipOrthoProj01(RHI::GetDevice()->SupportClipSpaceControl() * 1.0f);
+	rb.SetTransformMatrix(orthoProj * cursorMat);
 
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetBlendEnabled(true);
@@ -361,10 +356,6 @@ void CMouseCursor::Draw(int x, int y, float scale) const
 
 	sh.SetUniform("alphaCtrl", 0.0f, 0.0f, 0.0f, 1.0f); // no test
 	sh.Disable();
-
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
 
 	ctx->SetBlendEnabled(false);
 }
