@@ -1,0 +1,203 @@
+================================================================================
+RECOILENGINE GL CALL AUDIT - QUICK REFERENCE
+Audit Date: 2026-02-17
+================================================================================
+
+TOTAL: 1,117 GL calls across 227 files
+Previous: 1,198 calls (-81 since last audit)
+
+================================================================================
+BREAKDOWN BY CATEGORY
+================================================================================
+
+1. RHI GL BACKEND (229 calls) - DO NOT MIGRATE
+   ✓ Shader.cpp (93) - GL shader compilation/linking
+   ✓ GLTexture.cpp (36) - GL texture backend
+   ✓ GLContext.cpp (40) - GL state (blend, depth, etc)
+   ✓ Texture.cpp (23) - GL texture creation
+   ✓ GLSLCopyState.cpp (18) - GL shader introspection
+   ✓ GLPipeline.cpp (11) - GL pipeline state
+   ✓ GLDevice.cpp (4) - GL device init
+   ✓ GLBuffer.cpp (2) - GL buffer management
+   ✓ GLFramebuffer.cpp (2) - GL FBO operations
+
+2. LUA GL SCRIPTING (340 calls) - EXTERNAL INTERFACE
+   • LuaOpenGL.cpp (177) - Direct GL from Lua
+   • LuaShaders.cpp (65) - Shader manipulation via Lua
+   • LuaFBOs.cpp (31) - FBO operations via Lua
+   • LuaTextures.cpp (27) - Texture ops via Lua
+   • LuaVAOImpl.cpp (20) - Vertex array via Lua
+   • LuaMaterial.cpp (12) - Material properties via Lua
+   • LuaRBOs.cpp (8) - Renderbuffer ops via Lua
+
+3. GL UTILITY LAYER (200 calls) - INFRASTRUCTURE
+   • GeometryBuffer.cpp (25) - Immediate-mode buffer
+   • glExtra.cpp (23) - GL state helpers
+   • myGL.h (21) - Helper macros
+   • StreamBuffer.cpp (16) - Persistent mapped buffer
+   • VBO.cpp (16) - Vertex buffer objects
+   • FBO.cpp (14) - FBO wrapper
+   • myGL.cpp (13) - Helper functions
+   • glStateDebug (20) - GL state debugging
+   • glHelpers.h (11) - Inline helpers
+   • VertexArray.cpp (10) - VAO wrapper
+   • LightHandler (10) - GL lighting state
+   • glExtra.h (7) - Inline helpers
+
+4. MIGRATEABLE CALLERS (348 calls) - TIER 4.1 FOCUS
+   Top 10:
+   1. UnitDrawer.cpp (35) - BLOCKED: display lists, FFP color
+   2. GuiHandler.cpp (34) - BLOCKED: FFP matrix, immediate geom
+   3. GlobalRendering.cpp (15) - Debug/capability queries
+   4. SMFGroundTextures.cpp (14) - Texture binding
+   5. RmlUi_Renderer_GL3_Recoil.cpp (14) - External RmlUI renderer
+   6. RoamMeshDrawer.cpp (12) - Shader/texture binding
+   7. CommandDrawer.cpp (11) - FFP matrix state
+   8. HAPFSPathDrawer.cpp (10) - FFP matrix + geometry
+   9. glFont.cpp (10) - Font texture binding
+   10. Patch.cpp (9) - Shader/texture binding
+   
+   Remaining 58 files: 253 calls (mostly 1-7 calls each)
+
+================================================================================
+CRITICAL BLOCKERS (BLOCKING ~100+ CALLS)
+================================================================================
+
+BLOCKER #1: FFP MATRIX STACK (45+ calls)
+  Status: MOSTLY RESOLVED via SetTransformMatrix
+  Remaining: 8-10 calls (UnitDrawer display lists, MiniMap clip planes)
+
+BLOCKER #2: FFP COLOR STATE (14+ calls)
+  Status: BLOCKED - needs model shader color uniform
+  Solution: Add color uniform to model shaders
+
+BLOCKER #3: DISPLAY LISTS (8+ calls)
+  Status: BLOCKED - no RHI equivalent yet
+  Solution: Lua display list recorder or pre-compile
+
+BLOCKER #4: IMMEDIATE-MODE GEOMETRY (15-20 calls)
+  Status: PARTIAL - RenderBuffer exists, need geometry helpers
+  Solution: Implement glSurfaceCircle, glDrawVolume replacements
+
+BLOCKER #5: INSTANCED VERTEX ATTRIBUTES (27 calls)
+  Status: BLOCKED - RHI lacks vertex layout API
+  Solution: Add RHI::VertexLayout interface
+
+BLOCKER #6: CLIP PLANES (4-6 calls)
+  Status: PARTIAL - identity-MV done, non-identity blocked
+  Solution: Handle non-identity transform in clip plane setup
+
+BLOCKER #7: EXTERNAL TEXTURES (4-5 calls)
+  Status: MOSTLY RESOLVED - WrapExistingTexture infrastructure done
+  Solution: Use WrapExistingTexture for external GL textures
+
+================================================================================
+TIER 4.1 PRIORITY (Can use existing RHI - 90+ calls)
+================================================================================
+
+Priority 1 - Use Existing RHI Infrastructure:
+  ✓ SMFGroundTextures.cpp (14) - RHI texture binding
+  ✓ RoamMeshDrawer.cpp (12) - Shader/texture binding
+  ✓ Patch.cpp (9) - Texture binding
+  ✓ GrassDrawer.cpp (9) - Texture binding + clip planes
+  ✓ GroundDecalHandler.cpp (8) - Depth texture binding
+  ✓ CommandDrawer.cpp (11) - SetTransformMatrix pattern
+  ✓ HAPFSPathDrawer.cpp (10) - SetTransformMatrix + geometry
+  ✓ Various smaller files (15) - Texture + matrix patterns
+  
+  Est: 30-40 calls eliminated in 2-3 days
+
+Priority 2 - Minor RHI Additions Needed:
+  • GuiHandler.cpp (34) - RenderBuffer geometry
+  • Path drawers (20+) - Line/circle geometry
+  • Font rendering (10) - Texture binding
+  
+  Est: 20% of migrateable in 2-3 days
+
+Priority 3 - RHI Extension APIs Needed:
+  • Instanced rendering: RHI::VertexLayout (27 calls)
+  • Model shaders: color uniform (15 calls)
+  • Display lists: Lua recorder (8 calls)
+  • Non-identity clip planes (4-6 calls)
+  
+  Est: 30-40% of migrateable in 3-5 days
+
+Priority 4 - Lua RHI Binding (Future):
+  • LuaOpenGL.cpp (177)
+  • LuaFBOs.cpp (31)
+  • LuaShaders.cpp (65)
+  • Other Lua files (67)
+  
+  Est: 20% of migrateable, deferred to Tier 4.3
+
+================================================================================
+MIGRATION SUCCESS TARGETS
+================================================================================
+
+Current (2026-02-17):
+  • 1,117 total GL calls
+  • 348 migrateable (31.2%)
+  • 229 RHI backend (intentional - 20.5%)
+  • 340 Lua/scripting (external - 30.4%)
+  • 200 utilities (infrastructure - 17.9%)
+
+Tier 4.1 Target (5-7 days):
+  • 900-950 calls remaining
+  • Save 150-200 calls
+  • Focus: texture binding + SetTransformMatrix patterns
+
+Tier 4.2 Target (3-5 days after 4.1):
+  • 700-750 calls remaining
+  • Save 200 calls
+  • Focus: RHI extensions (VertexLayout, display lists)
+
+Tier 4.3+ Target (Future):
+  • 350-400 calls remaining
+  • Lua RHI binding layer
+  • Keep: Core engine (229) + utilities (540)
+
+Final Target:
+  • 769 calls minimum (Backend 229 + Infrastructure 540)
+  • Engine core fully RHI-based
+  • Lua as optional scripting layer
+
+================================================================================
+KEY FILES TO FOCUS ON (TOP 10 MIGRATEABLE)
+================================================================================
+
+/Volumes/Supaku/personal/supaku-org/lib/RecoilEngine/rts/Rendering/Units/UnitDrawer.cpp (35)
+/Volumes/Supaku/personal/supaku-org/lib/RecoilEngine/rts/Game/UI/GuiHandler.cpp (34)
+/Volumes/Supaku/personal/supaku-org/lib/RecoilEngine/rts/Rendering/GlobalRendering.cpp (15)
+/Volumes/Supaku/personal/supaku-org/lib/RecoilEngine/rts/Map/SMF/SMFGroundTextures.cpp (14)
+/Volumes/Supaku/personal/supaku-org/lib/RecoilEngine/rts/Rml/Backends/RmlUi_Renderer_GL3_Recoil.cpp (14)
+/Volumes/Supaku/personal/supaku-org/lib/RecoilEngine/rts/Map/SMF/ROAM/RoamMeshDrawer.cpp (12)
+/Volumes/Supaku/personal/supaku-org/lib/RecoilEngine/rts/Rendering/CommandDrawer.cpp (11)
+/Volumes/Supaku/personal/supaku-org/lib/RecoilEngine/rts/Rendering/HAPFSPathDrawer.cpp (10)
+/Volumes/Supaku/personal/supaku-org/lib/RecoilEngine/rts/Rendering/Fonts/glFont.cpp (10)
+/Volumes/Supaku/personal/supaku-org/lib/RecoilEngine/rts/Map/SMF/ROAM/Patch.cpp (9)
+
+================================================================================
+KEY INSIGHT
+================================================================================
+
+The RHI migration is well-structured with clear remaining work:
+
+1. INFRASTRUCTURE COMPLETE
+   - 8 RHI interfaces, 180+ methods
+   - OpenGL backend 100% complete (229 calls)
+   - Metal backend 100% complete
+   - Shader pipeline working (41/41 shaders)
+
+2. RECENT PROGRESS (-81 calls)
+   - Texture binding infrastructure (WrapExistingTexture)
+   - Clip plane support (SetClipPlaneEquation)
+   - External texture wrapping done
+   - Non-owning texture wrappers working
+
+3. REMAINING WORK (348 migrateable calls)
+   - 50% can use existing RHI (texture + matrix patterns)
+   - 20% need minor RHI extensions (geometry, queries)
+   - 30% need major RHI additions (vertex layout, display lists)
+   - Strategic: Keep Lua/scripting as external interface
+
+================================================================================
