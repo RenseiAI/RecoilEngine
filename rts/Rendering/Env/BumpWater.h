@@ -110,7 +110,8 @@ private:
 	std::unique_ptr<RHI::IRHITexture> normalTexture;  ///< final used
 	std::unique_ptr<RHI::IRHITexture> normalTexture2; ///< updates normalTexture with dynamic waves turned on
 	std::unique_ptr<RHI::IRHITexture> coastTexture;
-	GLuint coastUpdateTexture; ///< Managed by CTextureAtlas, keep as GLuint
+	GLuint coastUpdateTextureGL = 0; ///< Raw GL ID for cleanup (atlas-owned lifecycle)
+	std::unique_ptr<RHI::IRHITexture> coastUpdateTexture; ///< Non-owning RHI wrapper for binding
 	std::vector<std::unique_ptr<RHI::IRHITexture>> caustTextures;
 
 	Shader::IProgramObject* waterShader;

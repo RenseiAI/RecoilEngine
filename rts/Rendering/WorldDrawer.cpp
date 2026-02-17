@@ -26,6 +26,7 @@
 #include "Rendering/GL/myGL.h"
 
 #include "WorldDrawer.h"
+#include "System/Matrix44f.h"
 #include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/RHI/RHIFactory.h"
@@ -615,7 +616,17 @@ void CWorldDrawer::DrawBelowWaterOverlay() const
 
 	{
 		// draw water-coloration quad in raw screenspace
-		ResetMVPMatrices();
+		auto* device = RHI::GetDevice();
+		auto* ctx2 = device->GetContext();
+
+		ctx2->SetBlendEnabled(true);
+		ctx2->SetDepthTestEnabled(false);
+		ctx2->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+
+		// Ortho [0,1]x[0,1] with z=[-1,1] — same as gluOrtho2D(0,1,0,1)
+		const CMatrix44f orthoMVP = CMatrix44f::ClipOrthoProj(
+			0.0f, 1.0f, 0.0f, 1.0f, -1.0f, 1.0f,
+			globalRendering->supportClipSpaceControl);
 
 		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
 		auto& sh = rb.GetShader();
@@ -637,6 +648,7 @@ void CWorldDrawer::DrawBelowWaterOverlay() const
 			{ verts[3], color }
 		);
 
+		rb.SetTransformMatrix(orthoMVP);
 		rb.DrawElements(GL_TRIANGLES);
 		sh.Disable();
 	}

@@ -5,7 +5,6 @@
 #include "Rendering/DebugDrawerAI.h"
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GlobalRendering.h"
-#include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/RHI/RHIDevice.h"
@@ -29,9 +28,8 @@
 //   glTexSubImage2D -> IRHITexture::Upload (sub-region)
 //   glBindTexture(GL_TEXTURE_2D, id) -> texture->Bind(unit)
 //   TexSet::Texture: raw GLuint -> std::unique_ptr<RHI::IRHITexture>
-// PARTIALLY MIGRATED (matrix stack):
-//   glPushMatrix/glPopMatrix/glLoadIdentity -> save/restore via glGetFloatv + glLoadMatrixf
-//   glMatrixMode still used for GL flush (RenderBuffer shaders read gl_ModelViewProjectionMatrix)
+// FULLY MIGRATED:
+//   FFP matrix save/restore -> SetTransformMatrix(Identity) before each draw call
 
 static constexpr float3 GRAPH_MIN_SCALE( 1e9,  1e9, 0.0f);
 static constexpr float3 GRAPH_MAX_SCALE(-1e9, -1e9, 0.0f);
@@ -68,32 +66,17 @@ void DebugDrawerAI::Draw() {
 	if (skirmishAIHandler.GetSkirmishAIsInTeam(gu->myTeam).empty())
 		return;
 
-	// Save current matrices, set identity for 2D overlay drawing
-	CMatrix44f savedProj, savedMV;
-	glGetFloatv(GL_PROJECTION_MATRIX, &savedProj.md[0][0]);
-	glGetFloatv(GL_MODELVIEW_MATRIX, &savedMV.md[0][0]);
-
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(CMatrix44f::Identity());
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(CMatrix44f::Identity());
-
 	auto* ctx = RHI::GetDevice()->GetContext();
 
 	ctx->SetDepthTestEnabled(false);
 
 	// draw data for the (AI) team being spectated
+	// Identity MVP: positions are in NDC [-1,1], SetTransformMatrix applied before each draw
 	graphs[gu->myTeam].Draw();
 	texsets[gu->myTeam].Draw();
 
 	// Restore state explicitly
 	ctx->SetDepthTestEnabled(true);
-
-	// Restore previous matrices
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(savedProj);
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(savedMV);
 }
 
 
@@ -295,6 +278,7 @@ void DebugDrawerAI::Graph::Draw()
 		rb.AddVertex({ pos + float3(                                              0.0f,  size.y, 0.0f)               , color });
 
 		sh.Enable();
+		rb.SetTransformMatrix(CMatrix44f::Identity());
 		rb.DrawArrays(GL_LINE_STRIP);
 		sh.Disable();
 
@@ -308,6 +292,7 @@ void DebugDrawerAI::Graph::Draw()
 				rb.AddVertex({ pos + float3(size.x, (s / scale.y) * size.y, 0.0f), color });
 
 				sh.Enable();
+				rb.SetTransformMatrix(CMatrix44f::Identity());
 				rb.DrawArrays(GL_LINES);
 				sh.Disable();
 
@@ -323,6 +308,7 @@ void DebugDrawerAI::Graph::Draw()
 				rb.AddVertex({ pos + float3((s / scale.x) * size.x, size.y, 0.0f), color });
 
 				sh.Enable();
+				rb.SetTransformMatrix(CMatrix44f::Identity());
 				rb.DrawArrays(GL_LINES);
 				sh.Disable();
 
@@ -382,6 +368,7 @@ void DebugDrawerAI::Graph::Draw()
 				}
 
 				sh.Enable();
+				rb.SetTransformMatrix(CMatrix44f::Identity());
 				rb.DrawArrays(GL_LINE_STRIP);
 				sh.Disable();
 
@@ -485,6 +472,7 @@ void DebugDrawerAI::TexSet::Draw() {
 		);
 
 		sh.Enable();
+		rb.SetTransformMatrix(CMatrix44f::Identity());
 		rb.DrawElements(GL_TRIANGLES);
 		sh.Disable();
 

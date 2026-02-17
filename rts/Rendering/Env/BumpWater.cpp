@@ -20,8 +20,10 @@
 // 9. Refraction copy - BlitFramebuffer replaces glCopyTexSubImage2D (color)
 // 10. Fog state - Removed legacy FFP glPushAttrib(GL_FOG_BIT)/glDisable(GL_FOG)
 //
+// 11. coastUpdateTexture - Wrapped as non-owning RHI texture for binding/FBO attach
+//
 // Remaining GL calls (intentional):
-// - coastUpdateTexture: Managed by CTextureAtlas, kept as GLuint
+// - coastUpdateTextureGL: Raw GLuint for lifecycle (glDeleteTextures only)
 // - Shadow depth texture (SetupShadowTexSampler / ResetShadowTexSamplerRaw)
 // - glCopyTexSubImage2D: Depth copy only (depth texture not in FBO, can't blit)
 // - Shader creation: GL_VERTEX_SHADER/GL_FRAGMENT_SHADER via shaderHandler API
@@ -205,7 +207,7 @@ CBumpWater::CBumpWater()
 	: CEventClient("[CBumpWater]", 271923, false)
 	, screenTextureX(globalRendering->viewSizeX)
 	, screenTextureY(globalRendering->viewSizeY)
-	, coastUpdateTexture(0)
+	, coastUpdateTextureGL(0)
 {
 	eventHandler.AddClient(this);
 }
@@ -569,10 +571,11 @@ void CBumpWater::FreeResources()
 	coastFBO.reset();
 	dynWavesFBO.reset();
 
-	// coastUpdateTexture is managed by CTextureAtlas, delete if still valid
-	if (coastUpdateTexture > 0) {
-		glDeleteTextures(1, &coastUpdateTexture);
-		coastUpdateTexture = 0;
+	// coastUpdateTexture: clear RHI wrapper first (non-owning), then delete raw GL texture
+	coastUpdateTexture.reset();
+	if (coastUpdateTextureGL > 0) {
+		glDeleteTextures(1, &coastUpdateTextureGL);
+		coastUpdateTextureGL = 0;
 	}
 
 	tileOffsets.clear();
@@ -717,9 +720,14 @@ void CBumpWater::UploadCoastline(const bool forceFull)
 	// must happen after atlas.Finalize()
 	atlas.DisOwnTexture();
 
-	coastUpdateTexture = atlas.GetTexID();
+	coastUpdateTextureGL = atlas.GetTexID();
 	atlasX = (atlas.GetSize()).x;
 	atlasY = (atlas.GetSize()).y;
+
+	// Wrap the atlas GLuint as a non-owning RHI texture for binding/FBO attach
+	coastUpdateTexture = GetRHIDevice()->WrapExistingTexture(
+		coastUpdateTextureGL, RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
+		atlasX, atlasY);
 
 	// save the area positions in the texture atlas
 	for (size_t i = 0; i < coastmapAtlasRects.size(); i++) {
@@ -749,12 +757,10 @@ void CBumpWater::UpdateCoastmap(const bool initialize)
 	// Bind FBO
 	coastFBO->Bind();
 
-	// Bind textures using RHI
-	// coastUpdateTexture is still GLuint (from CTextureAtlas), bind directly
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, coastUpdateTexture);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	// Bind coastUpdateTexture via RHI wrapper
+	coastUpdateTexture->Bind(1);
+	coastUpdateTexture->SetMagFilter(RHI::TextureFilter::Nearest);
+	coastUpdateTexture->SetMinFilter(RHI::TextureFilter::Nearest);
 
 	// Bind coastTexture using RHI
 	coastTexture->Bind(0);
@@ -791,9 +797,8 @@ void CBumpWater::UpdateCoastmap(const bool initialize)
 
 	if (numCoastRects > 0 && atlasX > 0 && atlasY > 0) {
 		for (int i = 0; i < 5; ++i) {
-			// Render to coastUpdateTexture (still GLuint, use legacy attach)
-			glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT,
-			                          GL_TEXTURE_2D, coastUpdateTexture, 0);
+			// Render to coastUpdateTexture via RHI FBO attach
+			coastFBO->AttachColor(coastUpdateTexture.get(), 0);
 			ctx->SetViewport({0, 0, (float)atlasX, (float)atlasY});
 			blurShader->SetUniform("args", 1, i * 2 + 1);
 
@@ -839,13 +844,13 @@ void CBumpWater::UpdateCoastmap(const bool initialize)
 	coastTexture->SetMinFilter(RHI::TextureFilter::LinearMipmapNearest);
 	coastTexture->GenerateMipmaps();
 
-	// Delete UpdateAtlas texture
-	glDeleteTextures(1, &coastUpdateTexture);
-	coastUpdateTexture = 0;
+	// Delete UpdateAtlas texture: clear RHI wrapper first, then raw GL ID
+	coastUpdateTexture.reset();
+	glDeleteTextures(1, &coastUpdateTextureGL);
+	coastUpdateTextureGL = 0;
 	coastmapAtlasRects.clear();
 
 	globalRendering->LoadViewport();
-	glActiveTexture(GL_TEXTURE0);
 }
 
 
