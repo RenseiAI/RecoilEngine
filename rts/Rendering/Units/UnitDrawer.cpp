@@ -13,8 +13,7 @@
  *   - glCallList: Lua display lists, no RHI equivalent. Blocked on Lua infrastructure.
  *   - glPushMatrix/glPopMatrix/glMultMatrixf/glTranslatef3/glRotatef: FFP matrix stack.
  *     GLSL shaders read gl_ModelViewProjectionMatrix. Blocked on shader migration.
- *   - glActiveTexture/glBindTexture for icons: IconHandler returns raw GLuint.
- *     Blocked on IconHandler returning IRHITexture*.
+ *   [x] glActiveTexture/glBindTexture for icons: migrated to GetAtlasRHITexture()->Bind/Unbind
  *   - glColor4f/glColor4fv/glGetFloatv(GL_CURRENT_COLOR): FFP vertex color.
  *     Shaders read gl_Color. Blocked on shader migration to uniform-based color.
  *   - glClipPlane: FFP clip plane equation. No RHI equivalent for the equation;
@@ -508,11 +507,8 @@ void CUnitDrawerGLSL::DrawUnitMiniMapIcons() const
 	if (!rb.ShouldSubmit())
 		return;
 
-	const auto& atlasTexIDs = icon::iconHandler.GetAtlasTextureIDs();
-	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexIDs[0]);
-	if (atlasTexIDs[1]) {
-		glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, atlasTexIDs[1]);
-	}
+	if (auto* t0 = icon::iconHandler.GetAtlasRHITexture(0)) t0->Bind(0);
+	if (auto* t1 = icon::iconHandler.GetAtlasRHITexture(1)) t1->Bind(1);
 
 	icons2DShader->Enable();
 	icons2DShader->SetUniform("alphaCtrl", 0.0f, 1.0f, 0.0f, 0.0f); // GL_GREATER > 0.0
@@ -522,10 +518,8 @@ void CUnitDrawerGLSL::DrawUnitMiniMapIcons() const
 	icons2DShader->SetUniform("alphaCtrl", 0.0f, 0.0f, 0.0f, 1.0f);
 	icons2DShader->Disable();
 
-	if (atlasTexIDs[1])
-		glBindTexture(GL_TEXTURE_2D, 0);
-
-	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, 0);
+	if (auto* t1 = icon::iconHandler.GetAtlasRHITexture(1)) t1->Unbind(1);
+	if (auto* t0 = icon::iconHandler.GetAtlasRHITexture(0)) t0->Unbind(0);
 }
 
 float CUnitDrawerGLSL::DrawUnitIcon(TypedRenderBuffer<VA_TYPE_TC3>& rb, size_t iconIdx, const float iconRadius, const float unitRadius, float3 pos, const SColor& color) const
@@ -614,13 +608,8 @@ void CUnitDrawerGLSL::DrawUnitIcons() const
 	ctx->SetDepthTestEnabled(false);
 	ctx->SetBlendEnabled(false);
 
-	// RHI_TODO: icon atlas textures use raw GLuint from iconHandler.
-	// Blocked on IconHandler returning IRHITexture*.
-	const auto& atlasTexIDs = icon::iconHandler.GetAtlasTextureIDs();
-	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexIDs[0]);
-	if (atlasTexIDs[1]) {
-		glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, atlasTexIDs[1]);
-	}
+	if (auto* t0 = icon::iconHandler.GetAtlasRHITexture(0)) t0->Bind(0);
+	if (auto* t1 = icon::iconHandler.GetAtlasRHITexture(1)) t1->Bind(1);
 
 	icons3DShader->Enable();
 	icons3DShader->SetUniform("alphaCtrl", 0.05f, 1.0f, 0.0f, 0.0f); // GL_GREATER > 0.05
@@ -630,10 +619,8 @@ void CUnitDrawerGLSL::DrawUnitIcons() const
 	icons3DShader->SetUniform("alphaCtrl", 0.0f, 0.0f, 0.0f, 1.0f);
 	icons3DShader->Disable();
 
-	if (atlasTexIDs[1])
-		glBindTexture(GL_TEXTURE_2D, 0);
-
-	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, 0);
+	if (auto* t1 = icon::iconHandler.GetAtlasRHITexture(1)) t1->Unbind(1);
+	if (auto* t0 = icon::iconHandler.GetAtlasRHITexture(0)) t0->Unbind(0);
 
 	// Restore default state
 	ctx->SetDepthTestEnabled(true);
@@ -768,12 +755,8 @@ void CUnitDrawerGLSL::DrawUnitIconsScreen() const
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
-	// RHI_TODO: icon atlas textures use raw GLuint from iconHandler.
-	const auto& atlasTexIDs = icon::iconHandler.GetAtlasTextureIDs();
-	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, atlasTexIDs[0]);
-	if (atlasTexIDs[1]) {
-		glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, atlasTexIDs[1]);
-	}
+	if (auto* t0 = icon::iconHandler.GetAtlasRHITexture(0)) t0->Bind(0);
+	if (auto* t1 = icon::iconHandler.GetAtlasRHITexture(1)) t1->Bind(1);
 
 	icons3DShader->Enable();
 	icons3DShader->SetUniform("alphaCtrl", 0.05f, 1.0f, 0.0f, 0.0f); // GL_GREATER > 0.05
@@ -783,10 +766,8 @@ void CUnitDrawerGLSL::DrawUnitIconsScreen() const
 	icons3DShader->SetUniform("alphaCtrl", 0.0f, 0.0f, 0.0f, 1.0f);
 	icons3DShader->Disable();
 
-	if (atlasTexIDs[1])
-		glBindTexture(GL_TEXTURE_2D, 0);
-
-	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, 0);
+	if (auto* t1 = icon::iconHandler.GetAtlasRHITexture(1)) t1->Unbind(1);
+	if (auto* t0 = icon::iconHandler.GetAtlasRHITexture(0)) t0->Unbind(0);
 
 	// Restore default state
 	ctx->SetDepthTestEnabled(true);

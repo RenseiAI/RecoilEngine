@@ -50,7 +50,7 @@
 //   [x] UpdatePerlin: glBindTexture -> IRHITexture::Bind()
 //   [x] GenerateNoiseTex: glBindTexture + glTexSubImage2D -> IRHITexture::Upload()
 //   Changed perlinBlendTex from GLuint[8] to unique_ptr<IRHITexture>[8]
-// - GL_PROGRAM_POINT_SIZE: glIsEnabled/glDisable/glEnable -> ctx->SetProgramPointSizeEnabled()
+// - [x] GL_PROGRAM_POINT_SIZE: glIsEnabled query eliminated, unconditional disable/enable via RHI
 // - Texture binding:
 //   [x] textureAtlas: glActiveTexture + glBindTexture -> textureAtlas->GetRHITexture()->Bind(unit)
 //   [x] groundFXAtlas: glActiveTexture + glBindTexture -> groundFXAtlas->GetRHITexture()->Bind(unit)
@@ -666,10 +666,8 @@ void CProjectileDrawer::DrawProjectilesMiniMap(const CMatrix44f* transform)
 
 	// Note: glPointSize(1.0f); doesn't work here on AMD drivers.
 	// AMD drivers draw huge circles instead of small point for some reason
-	// so disable GL_PROGRAM_POINT_SIZE
-	const bool pntsz = glIsEnabled(GL_PROGRAM_POINT_SIZE);
-	if (pntsz)
-		ctx->SetProgramPointSizeEnabled(false);
+	// so disable GL_PROGRAM_POINT_SIZE unconditionally for this draw
+	ctx->SetProgramPointSizeEnabled(false);
 
 	sh.Enable();
 	{
@@ -686,8 +684,7 @@ void CProjectileDrawer::DrawProjectilesMiniMap(const CMatrix44f* transform)
 	}
 	sh.Disable();
 
-	if (pntsz)
-		ctx->SetProgramPointSizeEnabled(true);
+	ctx->SetProgramPointSizeEnabled(true);
 }
 
 void CProjectileDrawer::DrawFlyingPieces(int modelType) const

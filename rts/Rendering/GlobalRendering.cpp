@@ -973,53 +973,26 @@ void CGlobalRendering::SetGLSupportFlags()
 
 void CGlobalRendering::QueryGLMaxVals()
 {
+	// RHI device is always initialized before PostInit() (see SpringApp.cpp)
 	auto* device = RHI::GetDevice();
-	if (device) {
-		maxTextureSize  = device->GetMaxTextureSize();
-		maxTexSlots     = device->GetMaxTextureSlots();
-		maxFragShSlots  = device->GetMaxFragmentTextureSlots();
-		maxCombShSlots  = device->GetMaxCombinedTextureSlots();
-		maxTexAnisoLvl  = device->GetMaxTexAnisotropy();
+	assert(device);
 
-		glslMaxUniformBufferBindings  = device->GetMaxUniformBufferBindings();
-		glslMaxUniformBufferSize      = device->GetMaxUniformBufferSize();
-		glslMaxStorageBufferBindings  = device->GetMaxStorageBufferBindings();
-		glslMaxStorageBufferSize      = device->GetMaxStorageBufferSize();
+	maxTextureSize  = device->GetMaxTextureSize();
+	maxTexSlots     = device->GetMaxTextureSlots();
+	maxFragShSlots  = device->GetMaxFragmentTextureSlots();
+	maxCombShSlots  = device->GetMaxCombinedTextureSlots();
+	maxTexAnisoLvl  = device->GetMaxTexAnisotropy();
 
-		glslMaxVaryings              = device->GetMaxVaryings();
-		glslMaxAttributes            = device->GetMaxVertexAttributes();
-		glslMaxDrawBuffers           = device->GetMaxDrawBuffers();
-		glslMaxRecommendedIndices    = device->GetMaxRecommendedIndices();
-		glslMaxRecommendedVertices   = device->GetMaxRecommendedVertices();
-	} else {
-		// Fallback: direct GL queries (pre-RHI init or headless)
-		glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
-		glGetIntegerv(GL_MAX_TEXTURE_COORDS, &maxTexSlots);
-		glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &maxFragShSlots);
-		glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &maxCombShSlots);
+	glslMaxUniformBufferBindings  = device->GetMaxUniformBufferBindings();
+	glslMaxUniformBufferSize      = device->GetMaxUniformBufferSize();
+	glslMaxStorageBufferBindings  = device->GetMaxStorageBufferBindings();
+	glslMaxStorageBufferSize      = device->GetMaxStorageBufferSize();
 
-		if (GLAD_GL_EXT_texture_filter_anisotropic)
-			glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxTexAnisoLvl);
-
-		if (GLAD_GL_ARB_uniform_buffer_object) {
-			glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &glslMaxUniformBufferBindings);
-			glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE,      &glslMaxUniformBufferSize);
-		}
-
-		if (GLAD_GL_ARB_shader_storage_buffer_object) {
-			glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &glslMaxStorageBufferBindings);
-			glGetIntegerv(GL_MAX_SHADER_STORAGE_BLOCK_SIZE,      &glslMaxStorageBufferSize);
-		}
-
-		glGetIntegerv(GL_MAX_VARYING_FLOATS,                 &glslMaxVaryings);
-		glGetIntegerv(GL_MAX_VERTEX_ATTRIBS,                 &glslMaxAttributes);
-		glGetIntegerv(GL_MAX_DRAW_BUFFERS,                   &glslMaxDrawBuffers);
-		glGetIntegerv(GL_MAX_ELEMENTS_INDICES,               &glslMaxRecommendedIndices);
-		glGetIntegerv(GL_MAX_ELEMENTS_VERTICES,              &glslMaxRecommendedVertices);
-
-		// GL_MAX_VARYING_FLOATS is the maximum number of floats, we count float4's
-		glslMaxVaryings /= 4;
-	}
+	glslMaxVaryings              = device->GetMaxVaryings();
+	glslMaxAttributes            = device->GetMaxVertexAttributes();
+	glslMaxDrawBuffers           = device->GetMaxDrawBuffers();
+	glslMaxRecommendedIndices    = device->GetMaxRecommendedIndices();
+	glslMaxRecommendedVertices   = device->GetMaxRecommendedVertices();
 }
 
 void CGlobalRendering::QueryVersionInfo(char (&sdlVersionStr)[64], char (&glVidMemStr)[64])
