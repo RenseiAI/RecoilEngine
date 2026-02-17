@@ -411,6 +411,20 @@ void MTLTexture::SetLodBias(float bias) {
 	}
 }
 
+void MTLTexture::SetMinLOD(float minLod) {
+	if (lodMinClamp != minLod) {
+		lodMinClamp = minLod;
+		samplerDirty = true;
+	}
+}
+
+void MTLTexture::SetMaxLOD(float maxLod) {
+	if (lodMaxClamp != maxLod) {
+		lodMaxClamp = maxLod;
+		samplerDirty = true;
+	}
+}
+
 void MTLTexture::GenerateMipmaps() {
 	if (!mtlTexture || !device || !device->IsValid()) {
 		return;
@@ -440,8 +454,8 @@ void MTLTexture::UpdateSamplerState() {
 	desc.tAddressMode = ToMTLAddressMode(wrapT);
 	desc.rAddressMode = ToMTLAddressMode(wrapR);
 	desc.maxAnisotropy = static_cast<NSUInteger>(std::max(1.0f, anisotropy));
-	desc.lodMinClamp = 0.0f;
-	desc.lodMaxClamp = FLT_MAX;
+	desc.lodMinClamp = lodMinClamp;
+	desc.lodMaxClamp = lodMaxClamp;
 
 	if (compareEnabled) {
 		desc.compareFunction = ToMTLCompareFunction(compareFunc);

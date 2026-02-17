@@ -310,7 +310,7 @@ namespace CNamedTextures {
 
 		texInfo.id    = texID;
 		texInfo.xsize = bitmap.xsize;
-		texInfo.ysize = bitmap.ysize;	
+		texInfo.ysize = bitmap.ysize;
 
 		#ifndef HEADLESS
 			switch (bitmap.textype) {
@@ -318,8 +318,25 @@ namespace CNamedTextures {
 				case GL_TEXTURE_3D:        { texInfo.texType = GL_TEXTURE_3D;       } break;
 				case GL_TEXTURE_CUBE_MAP:  { texInfo.texType = GL_TEXTURE_CUBE_MAP; } break;
 				default:                   { texInfo.texType = GL_TEXTURE_2D;       } break;
-			}	
+			}
 		#endif
+
+		// Wrap the raw GL texture with a non-owning RHI handle for Bind() to use
+		if (texID != 0) {
+			auto* device = RHI::GetDevice();
+			RHI::TextureType rhiType = RHI::TextureType::Texture2D;
+			#ifndef HEADLESS
+			switch (bitmap.textype) {
+				case GL_TEXTURE_2D_ARRAY: rhiType = RHI::TextureType::Texture2DArray; break;
+				case GL_TEXTURE_3D:       rhiType = RHI::TextureType::Texture3D;      break;
+				case GL_TEXTURE_CUBE_MAP: rhiType = RHI::TextureType::TextureCube;     break;
+				default: break;
+			}
+			#endif
+			texInfo.rhiTexture = device->WrapExistingTexture(
+				texID, rhiType, RHI::TextureFormat::RGBA8,
+				bitmap.xsize, bitmap.ysize);
+		}
 
 		if (genInsert)
 			GenInsertTex(texName, texInfo, false, false, true, false);

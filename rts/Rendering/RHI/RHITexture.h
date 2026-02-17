@@ -92,6 +92,11 @@ public:
 	/// Set LOD bias for mipmap selection (maps GL_TEXTURE_LOD_BIAS)
 	virtual void SetLodBias(float bias) = 0;
 
+	/// Set minimum LOD clamp (maps GL_TEXTURE_MIN_LOD)
+	virtual void SetMinLOD(float minLod) = 0;
+	/// Set maximum LOD clamp (maps GL_TEXTURE_MAX_LOD)
+	virtual void SetMaxLOD(float maxLod) = 0;
+
 	// --- Mipmap ---
 	virtual void GenerateMipmaps() = 0;
 

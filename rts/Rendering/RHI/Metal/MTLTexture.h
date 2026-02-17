@@ -25,6 +25,8 @@
 
 #include "Rendering/RHI/RHITexture.h"
 
+#include <cfloat>
+
 #ifdef __OBJC__
 #import <Metal/Metal.h>
 #endif
@@ -84,6 +86,8 @@ public:
 	void SetSwizzle(uint8_t r, uint8_t g, uint8_t b, uint8_t a) override;
 	void SetBorderColor(float r, float g, float b, float a) override;
 	void SetLodBias(float bias) override;
+	void SetMinLOD(float minLod) override;
+	void SetMaxLOD(float maxLod) override;
 
 	// --- Mipmap ---
 	void GenerateMipmaps() override;
@@ -143,6 +147,8 @@ private:
 	bool          compareEnabled = false;
 	CompareFunc   compareFunc  = CompareFunc::LessEqual;
 	float         lodBias      = 0.0f;
+	float         lodMinClamp  = 0.0f;
+	float         lodMaxClamp  = FLT_MAX;
 	bool          samplerDirty = true;
 };
 

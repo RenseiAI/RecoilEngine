@@ -960,8 +960,10 @@ void CGrassDrawer::CreateFarTex()
 			if (farTex) {
 				fboTex.AttachTexture(farTex->GetNativeHandle(), GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0_EXT, mipLevel);
 			}
-			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_LOD, mipLevel + 1.f);
-			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_LOD, mipLevel + 1.f);
+			if (farTex) {
+				farTex->SetMinLOD(mipLevel + 1.f);
+				farTex->SetMaxLOD(mipLevel + 1.f);
+			}
 			ctx->SetViewport(RHI::Viewport{0.0f, 0.0f, static_cast<float>(texSizeX >> mipLevel), static_cast<float>(texSizeY >> mipLevel)});
 
 			CVertexArray* va = GetVertexArray();
@@ -976,8 +978,10 @@ void CGrassDrawer::CreateFarTex()
 		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
 		// recreate mipmaps from now blurred base level
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_LOD, -1000.f);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_LOD,  1000.f);
+		if (farTex) {
+			farTex->SetMinLOD(-1000.f);
+			farTex->SetMaxLOD( 1000.f);
+		}
 		if (farTex) {
 			farTex->GenerateMipmaps();
 		}

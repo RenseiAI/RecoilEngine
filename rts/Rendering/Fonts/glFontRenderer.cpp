@@ -1,8 +1,8 @@
-// RHI MIGRATION STATUS: Mostly migrated
+// RHI MIGRATION STATUS: FULLY MIGRATED
 // - Dynamic state calls (blend, depth test) migrated to RHI context methods
 // - Legacy CglNoShaderFontRenderer removed (display lists, FFP client state, matrix stack)
 // - Shader path uses TypedRenderBuffer with VBOs
-// - Remaining raw GL: glGetIntegerv(GL_CURRENT_PROGRAM), glUseProgram (shader save/restore)
+// - Shader save/restore uses shaderHandler tracking (no GL queries)
 
 #include "glFontRenderer.h"
 
@@ -13,6 +13,7 @@
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/Shaders/Shader.h"
+#include "Rendering/Shaders/ShaderHandler.h"
 #include "System/Log/ILog.h"
 #include "System/SafeUtil.h"
 
@@ -253,7 +254,9 @@ void CglShaderFontRenderer::PushGLState(const CglFont& fnt)
 	if (auto* tex = fnt.GetAtlasTexture())
 		tex->Bind(0);
 
-	glGetIntegerv(GL_CURRENT_PROGRAM, &currProgID);
+	prevBoundProgram = shaderHandler->GetCurrentlyBoundProgram();
+	if (prevBoundProgram)
+		prevBoundProgram->Disable();
 
 	if (fnt.HasColor()) {
 		fontShaderColor->Enable();
@@ -270,8 +273,8 @@ void CglShaderFontRenderer::PopGLState(const CglFont& fnt)
 	else
 		fontShader->Disable();
 
-	if (currProgID > 0)
-		glUseProgram(currProgID);
+	if (prevBoundProgram)
+		prevBoundProgram->Enable();
 
 	// Unbind font atlas texture via RHI
 	if (auto* tex = fnt.GetAtlasTexture())

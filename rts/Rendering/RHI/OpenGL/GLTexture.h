@@ -38,6 +38,8 @@ public:
 	void SetSwizzle(uint8_t r, uint8_t g, uint8_t b, uint8_t a) override;
 	void SetBorderColor(float r, float g, float b, float a) override;
 	void SetLodBias(float bias) override;
+	void SetMinLOD(float minLod) override;
+	void SetMaxLOD(float maxLod) override;
 
 	void GenerateMipmaps() override;
 

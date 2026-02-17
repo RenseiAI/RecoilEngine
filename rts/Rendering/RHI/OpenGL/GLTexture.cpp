@@ -314,6 +314,16 @@ void GLTexture::SetLodBias(float bias) {
 	glTexParameterf(glTarget, GL_TEXTURE_LOD_BIAS, bias);
 }
 
+void GLTexture::SetMinLOD(float minLod) {
+	glBindTexture(glTarget, texId);
+	glTexParameterf(glTarget, GL_TEXTURE_MIN_LOD, minLod);
+}
+
+void GLTexture::SetMaxLOD(float maxLod) {
+	glBindTexture(glTarget, texId);
+	glTexParameterf(glTarget, GL_TEXTURE_MAX_LOD, maxLod);
+}
+
 void GLTexture::GenerateMipmaps() {
 	glBindTexture(glTarget, texId);
 	glGenerateMipmap(glTarget);

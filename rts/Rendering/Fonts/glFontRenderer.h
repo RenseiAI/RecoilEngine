@@ -9,6 +9,7 @@
 
 class CglFont;
 class CFontTexture;
+namespace Shader { struct IProgramObject; }
 class CglFontRenderer {
 public:
 	virtual ~CglFontRenderer() = default;
@@ -30,7 +31,7 @@ public:
 	static std::unique_ptr<CglFontRenderer> CreateInstance();
 	static void DeleteInstance(std::unique_ptr<CglFontRenderer>& instance);
 protected:
-	GLint currProgID = 0;
+	Shader::IProgramObject* prevBoundProgram = nullptr;
 	bool userDefinedBlending = false;
 
 	// should be enough to hold all data for a given frame
@@ -39,9 +40,6 @@ protected:
 	static constexpr size_t NUM_TRI_BUFFER_ELEMS = (6 * NUM_BUFFER_ELEMS);
 };
 
-namespace Shader {
-	struct IProgramObject;
-};
 class CglShaderFontRenderer final: public CglFontRenderer {
 public:
 	CglShaderFontRenderer();
