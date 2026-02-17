@@ -21,8 +21,7 @@
  *   - FFP matrix flush (3 calls): glMatrixMode(2) + glLoadMatrixf(2) in FlushMatricesToFFP().
  *     Required because ModelVertProg.glsl reads gl_ModelViewMatrix/gl_ProjectionMatrix.
  *   - FFP matrix mode query (1 call): glGetIntegerv(GL_MATRIX_MODE) in DIDCheckMatrixMode() for debug checks.
- *   - Shadow color texture fallback (2 calls): glActiveTexture + glBindTexture when GetColorTexture() returns nullptr.
- *     Blocked: shadowHandler.GetColorTexture() doesn't always return RHI texture.
+ *   - Shadow depth texture (SetupShadowTexSampler / ResetShadowTexSampler).
  */
 
 #include "ModelDrawerHelpers.h"
@@ -91,13 +90,8 @@ void CModelDrawerHelper::EnableTexturesCommon()
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (shadowHandler.ShadowsLoaded()) {
 		shadowHandler.SetupShadowTexSampler(GL_TEXTURE2, true);
-		// Shadow color texture - bind via RHI if available, else GL fallback
-		if (auto* colorTex = shadowHandler.GetColorTexture()) {
+		if (auto* colorTex = shadowHandler.GetColorTexture())
 			colorTex->Bind(3);
-		} else {
-			// RHI_TODO: shadowHandler.GetColorTexture() returns nullptr (raw GLuint fallback)
-			glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, shadowHandler.GetColorTextureID());
-		}
 	}
 
 	// Cube map textures - bind via RHI

@@ -7,10 +7,11 @@
  *   - Removed dead FFP matrix stack calls (glLoadIdentity, glMultMatrixf)
  *   - Map texture binding migrated to RHI via readMap->GetRHITexture()
  *   - InfoTexture binding migrated to RHI via GetCurrentInfoRHITexture()
+ *   - Shadow color texture binding migrated to RHI via shadowHandler.GetColorTexture()
+ *   - CubeMap sky reflection binding migrated to RHI via cubeMapHandler.GetSkyReflectionTexture()
  *
  * Remaining:
- *   - Shadow handler textures (GetColorTextureID, SetupShadowTexSampler)
- *   - CubeMap handler textures (GetSkyReflectionTextureID)
+ *   - Shadow depth texture (SetupShadowTexSampler / ResetShadowTexSampler)
  */
 
 #include "SMFRenderState.h"
@@ -232,10 +233,10 @@ void SMFRenderStateGLSL::Enable(const CSMFGroundDrawer* smfGroundDrawer, const D
 
 	const CSMFReadMap* smfMap = smfGroundDrawer->GetReadMap();
 
-	// Shadow textures (not yet wrapped — keep GL)
 	if (isAdv && shadowHandler.ShadowsLoaded()) {
 		shadowHandler.SetupShadowTexSampler(GL_TEXTURE4, true);
-		glActiveTexture(GL_TEXTURE19); glBindTexture(GL_TEXTURE_2D, shadowHandler.GetColorTextureID());
+		if (auto* colorTex = shadowHandler.GetColorTexture())
+			colorTex->Bind(19);
 	}
 
 	// Map textures via RHI wrappers
@@ -249,8 +250,8 @@ void SMFRenderStateGLSL::Enable(const CSMFGroundDrawer* smfGroundDrawer, const D
 		smfMap->GetRHITexture(MAP_SSMF_SPECULAR_TEX)->Bind(6);
 		smfMap->GetRHITexture(MAP_SSMF_SPLAT_DETAIL_TEX)->Bind(7);
 		smfMap->GetRHITexture(MAP_SSMF_SPLAT_DISTRIB_TEX)->Bind(8);
-		// Cubemap not wrapped yet — keep GL
-		glActiveTexture(GL_TEXTURE9); glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, cubeMapHandler.GetSkyReflectionTextureID());
+		if (auto* skyTex = cubeMapHandler.GetSkyReflectionTexture())
+			skyTex->Bind(9);
 		smfMap->GetRHITexture(MAP_SSMF_SKY_REFLECTION_TEX)->Bind(10);
 		smfMap->GetRHITexture(MAP_SSMF_NORMALS_TEX)->Bind(11);
 		smfMap->GetRHITexture(MAP_SSMF_LIGHT_EMISSION_TEX)->Bind(12);
@@ -264,8 +265,6 @@ void SMFRenderStateGLSL::Enable(const CSMFGroundDrawer* smfGroundDrawer, const D
 	else {
 		smfMap->GetRHITexture(MAP_BASE_SHADING_TEX)->Bind(3);
 	}
-
-	glActiveTexture(GL_TEXTURE0);
 
 	if (isAdv)
 		currShader->SetFlag("HAVE_SHADOWS", shadowHandler.ShadowsLoaded());
@@ -300,7 +299,8 @@ void SMFRenderStateGLSL::Disable(const CSMFGroundDrawer* smfGroundDrawer, const 
 
 	if (isAdv && shadowHandler.ShadowsLoaded()) {
 		shadowHandler.ResetShadowTexSampler(GL_TEXTURE4, true);
-		glActiveTexture(GL_TEXTURE19); glBindTexture(GL_TEXTURE_2D, 0);
+		if (auto* colorTex = shadowHandler.GetColorTexture())
+			colorTex->Unbind(19);
 	}
 
 	// Unbind map textures via RHI
@@ -314,8 +314,8 @@ void SMFRenderStateGLSL::Disable(const CSMFGroundDrawer* smfGroundDrawer, const 
 		smfMap->GetRHITexture(MAP_SSMF_SPECULAR_TEX)->Unbind(6);
 		smfMap->GetRHITexture(MAP_SSMF_SPLAT_DETAIL_TEX)->Unbind(7);
 		smfMap->GetRHITexture(MAP_SSMF_SPLAT_DISTRIB_TEX)->Unbind(8);
-		// Cubemap not wrapped yet — keep GL
-		glActiveTexture(GL_TEXTURE9); glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, 0);
+		if (auto* skyTex = cubeMapHandler.GetSkyReflectionTexture())
+			skyTex->Unbind(9);
 		smfMap->GetRHITexture(MAP_SSMF_SKY_REFLECTION_TEX)->Unbind(10);
 		smfMap->GetRHITexture(MAP_SSMF_NORMALS_TEX)->Unbind(11);
 		smfMap->GetRHITexture(MAP_SSMF_LIGHT_EMISSION_TEX)->Unbind(12);
@@ -329,8 +329,6 @@ void SMFRenderStateGLSL::Disable(const CSMFGroundDrawer* smfGroundDrawer, const 
 	else {
 		smfMap->GetRHITexture(MAP_BASE_SHADING_TEX)->Unbind(3);
 	}
-
-	glActiveTexture(GL_TEXTURE0);
 }
 
 void SMFRenderStateGLSL::SetSquareTexGen(const int sqx, const int sqy) const {

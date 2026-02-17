@@ -22,9 +22,8 @@
 //
 // Remaining GL calls (intentional):
 // - coastUpdateTexture: Managed by CTextureAtlas, kept as GLuint
-// - External textures (readMap, shadowHandler, infoTextureHandler): Not yet RHI-migrated
+// - Shadow depth texture (SetupShadowTexSampler / ResetShadowTexSamplerRaw)
 // - glCopyTexSubImage2D: Depth copy only (depth texture not in FBO, can't blit)
-// - Some glActiveTexture/glBindTexture for external system integration
 // - Shader creation: GL_VERTEX_SHADER/GL_FRAGMENT_SHADER via shaderHandler API
 // - GLAD_GL_ARB_imaging: Feature detection constant
 //
@@ -988,14 +987,15 @@ void CBumpWater::Draw()
 		waterShader->SetUniformMatrix4x4("shadowMatrix", false, shadowHandler.GetShadowMatrixRaw());
 
 		shadowHandler.SetupShadowTexSampler(GL_TEXTURE9);
-		glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, shadowHandler.GetColorTextureID());
+		if (auto* colorTex = shadowHandler.GetColorTexture())
+			colorTex->Bind(11);
 	}
 
-	// Bind textures using RHI where possible, fall back to GL for external textures
+	// Bind textures
 	const int causticTexNum = (gs->frameNum % caustTextures.size());
 
-	// External textures (not yet RHI-migrated) - use GL binding
-	glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, readMap->GetShadingTexture());
+	if (auto* shadeTex = readMap->GetRHITexture(MAP_BASE_SHADING_TEX))
+		shadeTex->Bind(1);
 
 	// RHI textures
 	if (caustTextures[causticTexNum]) caustTextures[causticTexNum]->Bind(2);
@@ -1006,8 +1006,8 @@ void CBumpWater::Draw()
 	if (depthTexture) depthTexture->Bind(7);
 	if (waveRandTexture) waveRandTexture->Bind(8);
 
-	// External texture - use GL binding
-	glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, infoTextureHandler->GetCurrentInfoTexture());
+	if (auto* infoTex = infoTextureHandler->GetCurrentInfoRHITexture())
+		infoTex->Bind(10);
 
 	// Bind normalTexture last at unit 0
 	if (normalTexture) normalTexture->Bind(0);

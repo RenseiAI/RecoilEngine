@@ -18,10 +18,13 @@
  *   Remaining GL: glLoadMatrixf flush calls before draws (grass shader
  *   reads gl_ModelViewProjectionMatrix from FFP state)
  *
+ * - Texture binding: specular cubemap via cubeMapHandler.GetSpecularTexture()->Bind()
+ * - Texture binding: shadow color via shadowHandler.GetColorTexture()->Bind()
+ *
  * REMAINING (NOT MIGRATED):
  * - FFP deprecated: GL_ALPHA_TEST, GL_FOG, GL_CLIP_PLANE0, glColor4f
  * - Display lists: glGenLists, glNewList, glCallList (no RHI equivalent, requires vertex buffer)
- * - Texture binding: glBindTexture, glActiveTexture (depends on external raw GLuint textures)
+ * - Shadow depth texture (SetupShadowTexSampler / ResetShadowTexSamplerRaw)
  * - FBO operations: glBindFramebufferEXT, glBlitFramebufferEXT
  * - Texture parameters: glTexParameteri, glTexEnvi
  */
@@ -655,9 +658,8 @@ void CGrassDrawer::SetupGlStateNear()
 			shadeTex->Bind(2);
 		if (auto* infoTex = infoTextureHandler->GetCurrentInfoRHITexture())
 			infoTex->Bind(3);
-		// Cubemap not wrapped yet — keep GL
-		glActiveTextureARB(GL_TEXTURE5_ARB);
-			glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, cubeMapHandler.GetSpecularTextureID());
+		if (auto* specTex = cubeMapHandler.GetSpecularTexture())
+			specTex->Bind(5);
 	}
 
 	// bind shader
@@ -665,7 +667,8 @@ void CGrassDrawer::SetupGlStateNear()
 
 	if (shadowHandler.ShadowsLoaded()) {
 		shadowHandler.SetupShadowTexSampler(GL_TEXTURE4);
-		glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D, shadowHandler.GetColorTextureID());
+		if (auto* colorTex = shadowHandler.GetColorTexture())
+			colorTex->Bind(6);
 	}
 
 	projStack.Push()
@@ -734,7 +737,8 @@ void CGrassDrawer::SetupGlStateFar()
 
 	if (shadowHandler.ShadowsLoaded()) {
 		shadowHandler.SetupShadowTexSampler(GL_TEXTURE4);
-		glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D, shadowHandler.GetColorTextureID());
+		if (auto* colorTex = shadowHandler.GetColorTexture())
+			colorTex->Bind(6);
 	}
 }
 

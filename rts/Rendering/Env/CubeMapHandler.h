@@ -25,6 +25,7 @@ public:
 
 	// RHI texture accessors (for migration from raw GL binding)
 	RHI::IRHITexture* GetEnvReflectionTexture() const { return envReflectionTex.get(); }
+	RHI::IRHITexture* GetSkyReflectionTexture() const { return skyReflectionTex.get(); }
 	RHI::IRHITexture* GetSpecularTexture() const { return specularTex.get(); }
 
 private:

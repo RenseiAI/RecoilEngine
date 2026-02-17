@@ -1,5 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
-// RHI migration status: Partial (atlasTex binding migrated to RHI; raw GLuint textures remain blocked by external dependencies)
+// RHI migration status: Partial (atlasTex, depth buffer, shadow color bindings migrated to RHI)
 
 #include <algorithm>
 #include <cctype>
@@ -518,24 +518,20 @@ void CGroundDecalHandler::BindTextures()
 	smfMap->GetRHITexture(MAP_BASE_MINIMAP_TEX)->Bind(2);
 	smfMap->GetHeightMapTextureObj().GetRHITexture()->Bind(3);
 
-	// Depth buffer not wrapped yet — keep GL
-	glActiveTexture(GL_TEXTURE4);
-	glBindTexture(GetDepthBufferTextureTarget(), depthBufferCopy->GetDepthBufferTexture(highQuality));
+	if (auto* depthTex = depthBufferCopy->GetDepthBufferRHITexture(highQuality))
+		depthTex->Bind(4);
 
 	smfMap->GetRHITexture(MAP_BASE_NORMALS_TEX)->Bind(5);
 
-	// Shadow textures not wrapped yet — keep GL
 	if (shadowHandler.ShadowsLoaded()) {
 		shadowHandler.SetupShadowTexSampler(GL_TEXTURE6, true);
 
-		glActiveTexture(GL_TEXTURE7);
-		glBindTexture(GL_TEXTURE_2D, shadowHandler.GetColorTextureID());
+		if (auto* colorTex = shadowHandler.GetColorTexture())
+			colorTex->Bind(7);
 	}
 
 	if (auto* infoTex = infoTextureHandler->GetCurrentInfoRHITexture())
 		infoTex->Bind(8);
-
-	glActiveTexture(GL_TEXTURE0);
 }
 
 void CGroundDecalHandler::UnbindTextures()
@@ -548,24 +544,20 @@ void CGroundDecalHandler::UnbindTextures()
 	smfMap->GetRHITexture(MAP_BASE_MINIMAP_TEX)->Unbind(2);
 	smfMap->GetHeightMapTextureObj().GetRHITexture()->Unbind(3);
 
-	// Depth buffer not wrapped yet — keep GL
-	glActiveTexture(GL_TEXTURE4);
-	glBindTexture(GetDepthBufferTextureTarget(), 0);
+	if (auto* depthTex = depthBufferCopy->GetDepthBufferRHITexture(highQuality))
+		depthTex->Unbind(4);
 
 	smfMap->GetRHITexture(MAP_BASE_NORMALS_TEX)->Unbind(5);
 
-	// Shadow textures not wrapped yet — keep GL
 	if (smfDrawer->UseAdvShading() && shadowHandler.ShadowsLoaded()) {
 		shadowHandler.ResetShadowTexSampler(GL_TEXTURE6, true);
 
-		glActiveTexture(GL_TEXTURE7);
-		glBindTexture(GL_TEXTURE_2D, 0);
+		if (auto* colorTex = shadowHandler.GetColorTexture())
+			colorTex->Unbind(7);
 	}
 
 	if (auto* infoTex = infoTextureHandler->GetCurrentInfoRHITexture())
 		infoTex->Unbind(8);
-
-	glActiveTexture(GL_TEXTURE0);
 }
 
 /*

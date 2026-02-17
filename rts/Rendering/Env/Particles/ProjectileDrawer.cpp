@@ -61,8 +61,8 @@
 //   perlinFB.Bind/Unbind -> IRHIContext::BeginRenderPass/EndRenderPass
 //   perlinFB.AttachTexture -> IRHIFramebuffer::AttachColor
 //
-// 2. External texture bindings (blocked by external systems):
-//   depthBufferCopy->GetDepthBufferTexture() (returns raw GLuint)
+// 2. External texture bindings:
+//   depthBufferCopy depth texture migrated to RHI via GetDepthBufferRHITexture()
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/LosHandler.h"
 #include "Sim/Misc/TeamHandler.h"
@@ -844,7 +844,8 @@ void CProjectileDrawer::DrawAlpha(bool drawAboveWater, bool drawBelowWater, bool
 		textureAtlas->GetRHITexture()->Bind(0);
 
 		if (needSoften) {
-			glActiveTexture(GL_TEXTURE15); glBindTexture(GL_TEXTURE_2D, depthBufferCopy->GetDepthBufferTexture(false));
+			if (auto* depthTex = depthBufferCopy->GetDepthBufferRHITexture(false))
+				depthTex->Bind(15);
 		}
 
 		const auto camPlayer = CCameraHandler::GetCamera(CCamera::CAMTYPE_PLAYER);
@@ -866,7 +867,8 @@ void CProjectileDrawer::DrawAlpha(bool drawAboveWater, bool drawBelowWater, bool
 		fxShader->Disable();
 
 		if (needSoften) {
-			glBindTexture(GL_TEXTURE_2D, 0); //15th slot
+			if (auto* depthTex = depthBufferCopy->GetDepthBufferRHITexture(false))
+				depthTex->Unbind(15);
 		}
 	}
 }
@@ -1040,7 +1042,8 @@ void CProjectileDrawer::DrawGroundFlashes()
 	auto& rb = CExpGenSpawnable::GetPrimaryRenderBuffer();
 
 	if (needSoften) {
-		glActiveTexture(GL_TEXTURE15); glBindTexture(GL_TEXTURE_2D, depthBufferCopy->GetDepthBufferTexture(false));
+		if (auto* depthTex = depthBufferCopy->GetDepthBufferRHITexture(false))
+			depthTex->Bind(15);
 	}
 
 	const auto camPlayer = CCameraHandler::GetCamera(CCamera::CAMTYPE_PLAYER);
@@ -1082,7 +1085,8 @@ void CProjectileDrawer::DrawGroundFlashes()
 	fxShader->Disable();
 
 	if (needSoften) {
-		glBindTexture(GL_TEXTURE_2D, 0); //15th slot
+		if (auto* depthTex = depthBufferCopy->GetDepthBufferRHITexture(false))
+			depthTex->Unbind(15);
 	}
 
 	ctx->SetPolygonOffset(false);
