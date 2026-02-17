@@ -358,10 +358,13 @@ void CSMFGroundDrawer::DrawBorder(const DrawPass::e drawPass)
 	ctx->SetCullFaceEnabled(true);
 	ctx->SetCullFace(RHI::CullMode::Back);
 
-	// Bind detail texture (unit 2)
-	// RHI_TODO: detailTex is created via CBitmap::CreateMipMapTexture (external)
-	glActiveTexture(GL_TEXTURE2);
-	glBindTexture(GL_TEXTURE_2D, smfMap->GetDetailTexture());
+	// Bind detail texture (unit 2) via RHI wrapper
+	if (auto* rhiTex = smfMap->GetRHITexture(MAP_BASE_DETAIL_TEX)) {
+		rhiTex->Bind(2);
+	} else {
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, smfMap->GetDetailTexture());
+	}
 
 	// Bind heightmap texture (unit 1)
 	if (auto* rhiTex = smfMap->GetHeightMapTextureObj().GetRawRHITexture()) {
@@ -408,10 +411,12 @@ void CSMFGroundDrawer::DrawShadowPass()
 	//#pragma message "REMOVE ME, WHEN NOT NEEDED"
 	//ctx->SetCullFaceEnabled(false);
 
+	bool usedGLFallback = false;
 	if (auto* rhiTex = smfMap->GetHeightMapTextureObj().GetRawRHITexture()) {
 		rhiTex->Bind(1);
 	} else {
 		glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, smfMap->GetHeightMapTexture());
+		usedGLFallback = true;
 	}
 	shadowShader->Enable();
 	shadowShader->SetUniform("borderMinHeight", std::min(readMap->GetInitMinHeight(), -500.0f));
@@ -419,7 +424,8 @@ void CSMFGroundDrawer::DrawShadowPass()
 		// also render the border geometry to prevent light-visible backfaces
 		meshDrawer->DrawBorderMesh(DrawPass::Shadow);
 	shadowShader->Disable();
-	glActiveTexture(GL_TEXTURE0);
+	if (usedGLFallback)
+		glActiveTexture(GL_TEXTURE0);
 
 	ctx->SetPolygonOffset(false);
 	//ctx->SetCullFaceEnabled(true);

@@ -7,10 +7,11 @@
  *   - Texture creation for minimap, shading, normals, heightmap via RHI::IRHITexture
  *   - Texture parameter setting (filters, wrap modes, swizzle, anisotropy)
  *   - Texture binding in UpdateVisNormalsAndShadingTexture, BindMiniMapTextures
+ *   - Minimap compressed DXT1 texture via RHI CreateTexture + UploadCompressed
+ *   - Full heightmap upload via RHI Upload() (UpdateHeightMapTexture full path)
  *
  * Remaining:
- *   - glTexSubImage2D in UpdateHeightMapTexture (needs Upload API)
- *   - glCompressedTexImage2DARB for minimap (compressed upload not in RHI yet)
+ *   - Partial heightmap upload via PBO (lines 606-631, no PBO-offset Upload API)
  *   - glDrawBuffers (FBO state, not texture-specific)
  */
 
@@ -229,20 +230,26 @@ void CSMFReadMap::LoadMinimap()
 	// default; only valid for mip 0
 	minimapTex.SetRawSize(int2(1024, 1024));
 
-	// RHI_TODO(compressed upload): glCompressedTexImage2D not yet in RHI API
-	// Keep raw GL calls for now since this is DXT1-compressed data
-	glGenTextures(1, minimapTex.GetIDPtr());
-	glBindTexture(GL_TEXTURE_2D, minimapTex.GetID());
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, MINIMAP_NUM_MIPMAP - 1);
+	// Create compressed minimap texture via RHI (UploadCompressed available in both GL and Metal backends)
+	auto* device = RHI::GetDevice();
+	auto minimapRHI = device->CreateTexture(
+		RHI::TextureType::Texture2D,
+		RHI::TextureFormat::CompressedDXT1,
+		1024, 1024,
+		1, // depthOrLayers
+		MINIMAP_NUM_MIPMAP);
+	minimapRHI->SetMagFilter(RHI::TextureFilter::Linear);
+	minimapRHI->SetMinFilter(RHI::TextureFilter::LinearMipmapLinear);
+
 	int offset = 0;
 	for (uint32_t i = 0; i < MINIMAP_NUM_MIPMAP; i++) {
 		const int mipsize = 1024 >> i;
 		const int size = ((mipsize + 3) / 4) * ((mipsize + 3) / 4) * 8;
-		glCompressedTexImage2DARB(GL_TEXTURE_2D, i, GL_COMPRESSED_RGBA_S3TC_DXT1_EXT, mipsize, mipsize, 0, size, &minimapTexBuf[0] + offset);
+		minimapRHI->UploadCompressed(i, 0, 0, mipsize, mipsize, size, &minimapTexBuf[0] + offset);
 		offset += size;
 	}
+	minimapTex.SetRawTexID(minimapRHI->GetNativeHandle());
+	minimapTex.SetRawRHITexture(std::move(minimapRHI));
 }
 
 void CSMFReadMap::CreateSpecularTex()
@@ -590,11 +597,13 @@ void CSMFReadMap::UpdateHeightMapTexture(const SRectangle& update)
 	// consider full update if the area of update is >= 50% of full update
 	const auto refFullUpdateThreshold = (mapDims.mapx * mapDims.mapy) >> 1;
 	if (update.GetArea() >= refFullUpdateThreshold) {
-		// RHI_TODO(upload): Use heightMapTexture.GetRawRHITexture()->Upload() instead
-		// Requires mapping GL_RED format to RHI upload API
-		glBindTexture(GL_TEXTURE_2D, heightMapTexture.GetID());
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, mapDims.mapxp1, mapDims.mapyp1, GL_RED, GL_FLOAT, GetCornerHeightMapUnsynced());
-		glBindTexture(GL_TEXTURE_2D, 0);
+		if (auto* rhiTex = heightMapTexture.GetRawRHITexture()) {
+			rhiTex->Upload(0, 0, 0, mapDims.mapxp1, mapDims.mapyp1, GetCornerHeightMapUnsynced());
+		} else {
+			glBindTexture(GL_TEXTURE_2D, heightMapTexture.GetID());
+			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, mapDims.mapxp1, mapDims.mapyp1, GL_RED, GL_FLOAT, GetCornerHeightMapUnsynced());
+			glBindTexture(GL_TEXTURE_2D, 0);
+		}
 
 		return;
 	}

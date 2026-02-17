@@ -1,18 +1,19 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-// RHI Migration Status: ~70% migrated
+// RHI Migration Status: ~90% migrated
 // - MIGRATED: glDepthMask → ctx->SetDepthWriteEnabled
 // - MIGRATED: glPolygonMode → ctx->SetPolygonMode
+// - MIGRATED: glBindTexture → textureRHI->Bind/Unbind (owning RHI wrapper)
+// - MIGRATED: glDeleteTextures → textureRHI.reset() (owning wrapper handles deletion)
 // - REMOVED: GL_ALPHA_TEST (FFP no-op in shader rendering)
-// - KEPT (external boundary): glDeleteTextures, glBindTexture (waiting for CBitmap to return IRHITexture)
-// - KEPT (scoped state): glPushAttrib/glPopAttrib (ScopedPipeline requires full blend state tracking)
 
 #include "BasicWater.h"
 #include "ISky.h"
 #include "WaterRendering.h"
 
-#include "Rendering/GL/myGL.h" // retained: glDeleteTextures, glBindTexture, glPushAttrib/glPopAttrib
+#include "Rendering/GL/myGL.h" // retained: GL fallback paths
 #include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/Textures/Bitmap.h"
@@ -43,19 +44,22 @@ void CBasicWater::InitResources(bool loadShader)
 	xsize = waterTexBM.xsize;
 	ysize = waterTexBM.ysize;
 
+	// Wrap with owning RHI texture (handles GL deletion on destruction)
+	textureRHI = RHI::GetDevice()->CreateTextureFromExisting(
+		textureID,
+		RHI::TextureType::Texture2D,
+		RHI::TextureFormat::RGBA8,
+		xsize, ysize);
+
 	GenWaterQuadsRB();
 }
 
 void CBasicWater::FreeResources()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI-GAP: glDeleteTextures should be replaced with IRHITexture destructor
-	// once textureID is migrated from raw GLuint to std::unique_ptr<IRHITexture>.
-	// This requires CBitmap::CreateMipMapTexture() to return IRHITexture.
-	if (textureID > 0) {
-		glDeleteTextures(1, &textureID);
-		textureID = 0;
-	}
+	// Owning RHI wrapper handles GL texture deletion
+	textureRHI.reset();
+	textureID = 0;
 }
 
 void CBasicWater::GenWaterQuadsRB()
@@ -120,8 +124,10 @@ void CBasicWater::Draw()
 	sky->SetupFog();
 	ctx->SetPolygonMode(wireFrameMode ? RHI::PolygonMode::Line : RHI::PolygonMode::Fill);
 
-	// RHI-GAP: glBindTexture -> IRHIContext::BindTexture once textureID is IRHITexture
-	glBindTexture(GL_TEXTURE_2D, textureID);
+	if (textureRHI)
+		textureRHI->Bind(0);
+	else
+		glBindTexture(GL_TEXTURE_2D, textureID);
 
 	auto& sh = rb.GetShader();
 	sh.Enable();
@@ -130,8 +136,10 @@ void CBasicWater::Draw()
 	sh.SetUniform("ucolor", 1.0f, 1.0f, 1.0f, 1.0f);
 	sh.Disable();
 
-	// RHI-GAP: glBindTexture -> IRHIContext::BindTexture(nullptr, unit) to unbind
-	glBindTexture(GL_TEXTURE_2D, 0);
+	if (textureRHI)
+		textureRHI->Unbind(0);
+	else
+		glBindTexture(GL_TEXTURE_2D, 0);
 
 	// Restore state explicitly
 	ctx->SetDepthWriteEnabled(true);

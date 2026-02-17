@@ -79,13 +79,9 @@ DebugCubeMapTexture::DebugCubeMapTexture()
 		);
 
 		// RHI_TODO: CBitmap::CreateDDSTextureRHI() doesn't support TextureCubemap yet.
-		// Use legacy CreateTexture() to create a temp GL texture, then delete it.
-		// This leaves cubeTexture empty (only allocated, no data uploaded).
+		// The RHI cubemap is allocated but has no data uploaded — debug faces will be black.
 		// Need to extend CBitmap to expose cubemap face data for RHI upload,
 		// or extend CreateDDSTextureRHI() to support nv_dds::TextureCubemap type.
-		uint32_t tempTexId = btex.CreateTexture();
-		glDeleteTextures(1, &tempTexId); // cleanup temp texture
-
 		LOG_L(L_WARNING, "[DebugCubeMapTexture] DDS cubemap upload via RHI not yet implemented - texture may be incomplete");
 	}
 

@@ -6,6 +6,9 @@
 #include "IWater.h"
 #include "Rendering/GL/VertexArrayTypes.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHITexture.h"
+
+#include <memory>
 
 class CBasicWater : public IWater
 {
@@ -24,6 +27,7 @@ private:
 	void GenWaterQuadsRB();
 	TypedRenderBuffer<VA_TYPE_T> rb;
 
+	std::unique_ptr<RHI::IRHITexture> textureRHI;
 	uint32_t textureID;
 	uint32_t xsize;
 	uint32_t ysize;
