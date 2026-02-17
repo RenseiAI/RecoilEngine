@@ -44,6 +44,7 @@ GLenum GLTexture::ToGLInternalFormat(TextureFormat format) {
 		case TextureFormat::SRGB8Alpha8:       return GL_SRGB8_ALPHA8;
 		case TextureFormat::CompressedDXT1:    return GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
 		case TextureFormat::CompressedDXT5:    return GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
+		case TextureFormat::CompressedETC2:    return GL_COMPRESSED_RGB8_ETC2;
 	}
 	return GL_RGBA8;
 }
@@ -56,6 +57,7 @@ GLenum GLTexture::ToGLFormat(TextureFormat format) {
 		case TextureFormat::SRGB8Alpha8:
 		case TextureFormat::CompressedDXT1:
 		case TextureFormat::CompressedDXT5:    return GL_RGBA;
+		case TextureFormat::CompressedETC2:    return GL_RGB;
 		case TextureFormat::RGB8:
 		case TextureFormat::RGB16F:
 		case TextureFormat::RGB32F:            return GL_RGB;

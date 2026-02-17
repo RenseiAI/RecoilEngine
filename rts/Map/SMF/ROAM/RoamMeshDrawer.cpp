@@ -15,9 +15,6 @@
 #include "System/Config/ConfigHandler.h"
 #include "System/Log/ILog.h"
 
-#ifdef DRAW_DEBUG_IN_MINIMAP
-	#include "Game/UI/MiniMap.h"
-#endif
 
 #include <cmath>
 
@@ -60,10 +57,6 @@ CRoamMeshDrawer::CRoamMeshDrawer(CSMFGroundDrawer* gd)
 	// assert((numPatchesX == smfReadMap->numBigTexX) && (numPatchesY == smfReadMap->numBigTexY));
 
 	ForceNextTesselation(true, true);
-
-	#ifdef DRAW_DEBUG_IN_MINIMAP
-		debugColors.resize(numPatchesX*numPatchesY);
-	#endif
 
 	for (unsigned int i = MESH_NORMAL; i <= MESH_SHADOW; i++) {
 		patchMeshGrid[i].resize(numPatchesX * numPatchesY);
@@ -299,22 +292,6 @@ void CRoamMeshDrawer::Update()
 				}
 			}
 
-			#ifdef DRAW_DEBUG_IN_MINIMAP
-				if (isVisibleNow) {
-					if (shadowPass) {
-						debugColors[i].z = 1.0;
-					} else {
-						debugColors[i].y = 1.0;
-					}
-				} else {
-					if (shadowPass) {
-						debugColors[i].z = 0.0;
-					} else {
-						debugColors[i].y = 0.0;
-					}
-
-				}
-			#endif
 		}
 	}
 
@@ -343,19 +320,12 @@ void CRoamMeshDrawer::Update()
 			for (int pi = 0; pi < numPatches; ++pi) {
 				Patch& p = patches[pi];
 
-			#ifdef DRAW_DEBUG_IN_MINIMAP
-				debugColors[pi].x = std::max (debugColors[pi].x -0.002f,0.0f);
-			#endif
-
 				if (!patchesToTesselate[pi])
 					continue;
 
 				actualTesselations++;
 				tesselationsSinceLastReset[shadowPass]++;
 
-			#ifdef DRAW_DEBUG_IN_MINIMAP
-				debugColors[pi].x = 1.0;
-			#endif
 
 				if (p.Tessellate(playerCameraPosition, smfGroundDrawer->GetGroundDetail(), shadowPass))
 					continue;
@@ -384,9 +354,6 @@ void CRoamMeshDrawer::Update()
 				actualTesselations++;
 				tesselationsSinceLastReset[shadowPass]++;
 
-			#ifdef DRAW_DEBUG_IN_MINIMAP
-				debugColors[pi].x = 1.0;
-			#endif
 			}
 		}
 	}
@@ -507,38 +474,7 @@ void CRoamMeshDrawer::DrawBorderMesh(const DrawPass::e& drawPass)
 void CRoamMeshDrawer::DrawInMiniMap()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	#ifdef DRAW_DEBUG_IN_MINIMAP
-	// DrawInMiniMap runs before DrawWorld
-	globalRendering->drawFrame -= 1;
-
-	glMatrixMode(GL_PROJECTION);
-		glPushMatrix();
-		glLoadIdentity();
-		glOrtho(0.0f, 1.0f, 0.0f, 1.0f, 0.0, -1.0);
-		minimap->ApplyConstraintsMatrix();
-	glMatrixMode(GL_MODELVIEW);
-		glPushMatrix();
-		glLoadIdentity();
-		glTranslatef3(UpVector);
-		glScalef(1.0f / mapDims.mapx, -1.0f / mapDims.mapy, 1.0f);
-
-	glColor4f(0.0f, 0.0f, 0.0f, 0.5f);
-
-
-	int pi = 0;
-	for (const Patch& p: patchMeshGrid[MESH_NORMAL]) {
-		glColor4f(debugColors[pi].x, debugColors[pi].y, debugColors[pi].z ,0.5f);
-		pi++;
-		glRectf(p.coors.x, p.coors.y, p.coors.x + PATCH_SIZE, p.coors.y + PATCH_SIZE);
-	}
-
-	glMatrixMode(GL_PROJECTION);
-		glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-		glPopMatrix();
-
-	globalRendering->drawFrame += 1;
-	#endif
+	// ROAM debug visualization removed (was gated by DRAW_DEBUG_IN_MINIMAP, never enabled)
 }
 
 

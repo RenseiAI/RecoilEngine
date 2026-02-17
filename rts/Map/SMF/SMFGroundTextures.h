@@ -3,10 +3,13 @@
 #ifndef _SMF_GROUND_TEXTURES_H_
 #define _SMF_GROUND_TEXTURES_H_
 
+#include <memory>
 #include <vector>
 
 #include "Map/BaseGroundTextures.h"
 #include "Rendering/GL/PBO.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHITexture.h"
 
 class CSMFMapFile;
 class CSMFReadMap;
@@ -38,28 +41,28 @@ protected:
 
 private:
 	struct GroundSquare {
-		enum {
-			RAW_TEX_IDX = 0,
-			LUA_TEX_IDX = 1,
-		};
+		GroundSquare(): luaTextureID(0), texMipLevel(0), texDrawFrame(1) {}
+		~GroundSquare() = default;
+		GroundSquare(GroundSquare&&) = default;
+		GroundSquare& operator=(GroundSquare&&) = default;
+		GroundSquare(const GroundSquare&) = delete;
+		GroundSquare& operator=(const GroundSquare&) = delete;
 
-		GroundSquare(): textureIDs{0, 0}, texMipLevel(0), texDrawFrame(1) {}
-		~GroundSquare();
+		bool HasLuaTexture() const { return (luaTextureID != 0); }
 
-		bool HasLuaTexture() const { return (textureIDs[LUA_TEX_IDX] != 0); }
-
-		void SetRawTexture(unsigned int id) { textureIDs[RAW_TEX_IDX] = id; }
-		void SetLuaTexture(unsigned int id) { textureIDs[LUA_TEX_IDX] = id; }
+		void SetRawTexture(std::unique_ptr<RHI::IRHITexture> tex) { rhiTexture = std::move(tex); }
+		void SetLuaTexture(unsigned int id) { luaTextureID = id; }
 		void SetMipLevel(unsigned int l) { texMipLevel = l; }
 		void SetDrawFrame(unsigned int f) { texDrawFrame = f; }
 
-		unsigned int* GetTextureIDPtr() { return &textureIDs[RAW_TEX_IDX]; }
-		unsigned int GetTextureID() const { return textureIDs[HasLuaTexture()]; }
+		RHI::IRHITexture* GetRHITexture() const { return rhiTexture.get(); }
+		unsigned int GetLuaTextureID() const { return luaTextureID; }
 		unsigned int GetMipLevel() const { return texMipLevel; }
 		unsigned int GetDrawFrame() const { return texDrawFrame; }
 
 	private:
-		unsigned int textureIDs[2];
+		std::unique_ptr<RHI::IRHITexture> rhiTexture;
+		unsigned int luaTextureID;
 		unsigned int texMipLevel;
 		unsigned int texDrawFrame;
 	};
@@ -78,7 +81,7 @@ private:
 	// use Pixel Buffer Objects for async. uploading (DMA)
 	PBO pbo;
 
-	unsigned int tileTexFormat = 0;
+	RHI::TextureFormat rhiTexFormat = RHI::TextureFormat::CompressedDXT1;
 	// unsigned int pboUnsyncedBit = 0;
 	bool smfTextureStreaming = false;
 	float smfTextureLodBias = 0.0f;

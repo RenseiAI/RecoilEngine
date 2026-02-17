@@ -1,15 +1,16 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 /**
- * RHI Migration Status: MINIMAL
+ * RHI Migration Status: MOSTLY COMPLETE
+ *
+ * Migrated:
+ *   - Compressed texture creation → RHI CreateTexture + UploadCompressed
+ *   - Texture parameter setup → SetMinFilter/SetMagFilter/SetWrap/SetAnisotropy/SetLodBias
+ *   - Texture binding → IRHITexture::Bind()
+ *   - Texture deletion → unique_ptr<IRHITexture> automatic cleanup
  *
  * Not Migrated:
- *   - GL_TEXTURE_PRIORITY (deprecated, no-op in modern GL, removed)
- *   - Compressed texture creation (glCompressedTexImage2D) - needs RHI compressed upload API
- *   - Dynamic texture streaming (LoadSquareTexture, LoadSquareTexturePersistent)
- *
- * Note: These textures are created via raw GL due to compressed (DXT1/ETC1) format.
- * Migration blocked until RHI adds compressed texture upload support.
+ *   - GetSquareLuaTexture: Lua provides raw GLuint texture ID (3 GL calls)
  */
 
 #include <cmath>
@@ -27,6 +28,7 @@
 #include "SMFReadMap.h"
 #include "Rendering/GL/PBO.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Map/MapInfo.h"
 #include "Game/Camera.h"
 #include "Game/CameraHandler.h"
@@ -68,14 +70,7 @@ std::vector<float> CSMFGroundTextures::stretchFactors;
 
 
 
-CSMFGroundTextures::GroundSquare::~GroundSquare()
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	glDeleteTextures(1, &textureIDs[RAW_TEX_IDX]);
-
-	textureIDs[RAW_TEX_IDX] = 0;
-	textureIDs[LUA_TEX_IDX] = 0;
-}
+// GroundSquare destructor: RHI texture freed automatically via unique_ptr
 
 
 
@@ -198,11 +193,11 @@ void CSMFGroundTextures::LoadTiles(CSMFMapFile& file)
 	if (RecompressTilesIfNeeded()) {
 		// Not all FOSS drivers support S3TC, use ETC1 for those if possible
 		// ETC2 is backward compatible with ETC1! GLEW doesn't have the ETC1 extension :<
-		tileTexFormat = GL_COMPRESSED_RGB8_ETC2;
+		rhiTexFormat = RHI::TextureFormat::CompressedETC2;
 	} else
 #endif
 	{
-		tileTexFormat = GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
+		rhiTexFormat = RHI::TextureFormat::CompressedDXT1;
 	}
 }
 
@@ -453,8 +448,7 @@ bool CSMFGroundTextures::SetSquareLuaTexture(int texSquareX, int texSquareY, int
 
 	if (texID != 0) {
 		// free up some memory while the Lua texture is around
-		glDeleteTextures(1, square->GetTextureIDPtr());
-		square->SetRawTexture(0);
+		square->SetRawTexture(nullptr);
 		square->SetLuaTexture(texID);
 	}
 	else {
@@ -491,6 +485,11 @@ bool CSMFGroundTextures::GetSquareLuaTexture(int texSquareX, int texSquareY, int
 	if (texSizeY != (smfMap->bigTexSize >> lodMin))
 		return false;
 
+	// Lua texture path: raw GL calls remain (Lua provides GLuint texID)
+	const GLenum glTexFormat = (rhiTexFormat == RHI::TextureFormat::CompressedETC2)
+		? GL_COMPRESSED_RGB8_ETC2
+		: GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
+
 	glBindTexture(ttarget, texID);
 
 	for (int lod = lodMin; lod <= lodMax; ++lod) {
@@ -502,7 +501,7 @@ bool CSMFGroundTextures::GetSquareLuaTexture(int texSquareX, int texSquareY, int
 		ExtractSquareTiles(texSquareX, texSquareY, lod, reinterpret_cast<GLint*>(pbo.MapBuffer(0, pbo.GetSize(), access | pbo.mapUnsyncedBit)));
 		pbo.UnmapBuffer();
 
-		glCompressedTexImage2D(ttarget, 0, tileTexFormat, texSizeX, texSizeY, 0, numSqBytes, pbo.GetPtr());
+		glCompressedTexImage2D(ttarget, 0, glTexFormat, texSizeX, texSizeY, 0, numSqBytes, pbo.GetPtr());
 
 		pbo.Invalidate();
 		pbo.Unbind();
@@ -558,7 +557,6 @@ void CSMFGroundTextures::ExtractSquareTiles(
 void CSMFGroundTextures::LoadSquareTexture(int x, int y, int level)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	static constexpr GLenum ttarget = GL_TEXTURE_2D;
 	static constexpr GLbitfield access = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT;
 
 	const int mipSqSize = smfMap->bigTexSize >> level;
@@ -568,71 +566,68 @@ void CSMFGroundTextures::LoadSquareTexture(int x, int y, int level)
 	square->SetMipLevel(level);
 	assert(!square->HasLuaTexture());
 
+	// Extract tile data via PBO for async DMA
 	pbo.Bind();
 	pbo.New(numSqBytes);
 	ExtractSquareTiles(x, y, level, reinterpret_cast<GLint*>(pbo.MapBuffer(0, pbo.GetSize(), access | pbo.mapUnsyncedBit)));
 	pbo.UnmapBuffer();
 
-	glDeleteTextures(1, square->GetTextureIDPtr());
-	glGenTextures(1, square->GetTextureIDPtr());
-	glBindTexture(ttarget, square->GetTextureID());
-	glTexParameteri(ttarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(ttarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	// Create RHI texture (replaces old one via unique_ptr)
+	auto* device = RHI::GetDevice();
+	auto tex = device->CreateTexture(
+		RHI::TextureType::Texture2D, rhiTexFormat,
+		mipSqSize, mipSqSize, 1, 1);
 
-	glTexParameteri(ttarget, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(ttarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	tex->SetMagFilter(RHI::TextureFilter::Linear);
+	tex->SetMinFilter(RHI::TextureFilter::Linear);
+	tex->SetWrapS(RHI::TextureWrap::ClampToEdge);
+	tex->SetWrapT(RHI::TextureWrap::ClampToEdge);
 
 	if (smfMap->GetTexAnisotropyLevel(false) != 0.0f)
-		glTexParameterf(ttarget, GL_TEXTURE_MAX_ANISOTROPY_EXT, smfMap->GetTexAnisotropyLevel(false));
+		tex->SetAnisotropy(smfMap->GetTexAnisotropyLevel(false));
 
-	// GL_TEXTURE_PRIORITY removed (deprecated, no-op in modern GL)
-
-	glCompressedTexImage2D(ttarget, 0, tileTexFormat, mipSqSize, mipSqSize, 0, numSqBytes, pbo.GetPtr());
+	tex->UploadCompressed(0, 0, 0, mipSqSize, mipSqSize, numSqBytes, pbo.GetPtr());
 
 	pbo.Invalidate();
 	pbo.Unbind();
 
-	glBindTexture(ttarget, 0);
+	square->SetRawTexture(std::move(tex));
 }
 
 void CSMFGroundTextures::LoadSquareTexturePersistent(int x, int y)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	static constexpr GLenum ttarget = GL_TEXTURE_2D;
-
 	GroundSquare* square = &squares[y * smfMap->numBigTexX + x];
 	square->SetMipLevel(0);
 	assert(!square->HasLuaTexture());
 
-	//skip pbo, makes little sense here
-
-	glGenTextures(1, square->GetTextureIDPtr());
-	glBindTexture(ttarget, square->GetTextureID());
-
-	glTexParameteri(ttarget, GL_TEXTURE_BASE_LEVEL, 0);
-	glTexParameteri(ttarget, GL_TEXTURE_MAX_LEVEL , 3);
+	// Create RHI texture with 4 mip levels (base + 3)
+	auto* device = RHI::GetDevice();
+	auto tex = device->CreateTexture(
+		RHI::TextureType::Texture2D, rhiTexFormat,
+		smfMap->bigTexSize, smfMap->bigTexSize, 1, 4);
 
 	if (smfTextureLodBias != 0.0f)
-		glTexParameterf(ttarget, GL_TEXTURE_LOD_BIAS, smfTextureLodBias);
+		tex->SetLodBias(smfTextureLodBias);
 
-	glTexParameteri(ttarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(ttarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-
-	glTexParameteri(ttarget, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(ttarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	tex->SetMagFilter(RHI::TextureFilter::Linear);
+	tex->SetMinFilter(RHI::TextureFilter::LinearMipmapLinear);
+	tex->SetWrapS(RHI::TextureWrap::ClampToEdge);
+	tex->SetWrapT(RHI::TextureWrap::ClampToEdge);
 
 	if (smfMap->GetTexAnisotropyLevel(false) != 0.0f)
-		glTexParameterf(ttarget, GL_TEXTURE_MAX_ANISOTROPY_EXT, smfMap->GetTexAnisotropyLevel(false));
+		tex->SetAnisotropy(smfMap->GetTexAnisotropyLevel(false));
 
+	// Upload each mip level directly (no PBO needed for persistent textures)
 	std::vector<GLint> tilesBuffer(smfMap->bigTexSize * smfMap->bigTexSize / 2 / sizeof(GLint));
 	for (int level = 0; level <= 3; ++level) {
 		const int mipSqSize = smfMap->bigTexSize >> level;
 		const int numSqBytes = (mipSqSize * mipSqSize) / 2;
 		ExtractSquareTiles(x, y, level, tilesBuffer.data());
-		glCompressedTexImage2D(ttarget, level, tileTexFormat, mipSqSize, mipSqSize, 0, numSqBytes, tilesBuffer.data());
+		tex->UploadCompressed(level, 0, 0, mipSqSize, mipSqSize, numSqBytes, tilesBuffer.data());
 	}
 
-	glBindTexture(ttarget, 0);
+	square->SetRawTexture(std::move(tex));
 }
 
 void CSMFGroundTextures::BindSquareTexture(int texSquareX, int texSquareY)
@@ -644,7 +639,13 @@ void CSMFGroundTextures::BindSquareTexture(int texSquareX, int texSquareY)
 	assert(texSquareY < smfMap->numBigTexY);
 
 	GroundSquare* square = &squares[texSquareY * smfMap->numBigTexX + texSquareX];
-	glBindTexture(GL_TEXTURE_2D, square->GetTextureID());
+
+	if (square->HasLuaTexture()) {
+		// Lua texture is a raw GL ID — bind directly
+		glBindTexture(GL_TEXTURE_2D, square->GetLuaTextureID());
+	} else if (auto* tex = square->GetRHITexture()) {
+		tex->Bind(0);
+	}
 
 	if (game->GetDrawMode() == CGame::gameNormalDraw) {
 		square->SetDrawFrame(globalRendering->drawFrame);

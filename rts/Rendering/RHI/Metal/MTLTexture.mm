@@ -33,6 +33,7 @@ MTLPixelFormat MTLTexture::ToMTLPixelFormat(TextureFormat format) {
 		case TextureFormat::SRGB8Alpha8:     return MTLPixelFormatRGBA8Unorm_sRGB;
 		case TextureFormat::CompressedDXT1:  return MTLPixelFormatBC1_RGBA;
 		case TextureFormat::CompressedDXT5:  return MTLPixelFormatBC3_RGBA;
+		case TextureFormat::CompressedETC2:  return MTLPixelFormatETC2_RGB8;
 	}
 	return MTLPixelFormatRGBA8Unorm;
 }
@@ -129,6 +130,7 @@ static size_t GetBytesPerPixel(TextureFormat format) {
 		case TextureFormat::SRGB8Alpha8:      return 4;
 		case TextureFormat::CompressedDXT1:   return 0;  // Block compressed
 		case TextureFormat::CompressedDXT5:   return 0;  // Block compressed
+		case TextureFormat::CompressedETC2:   return 0;  // Block compressed
 	}
 	return 4;
 }
@@ -280,7 +282,8 @@ void MTLTexture::UploadCompressed(uint32_t level, uint32_t x, uint32_t y,
 	// Block size is 4x4 pixels
 	size_t blockSize = 4;
 	size_t blocksWide = (width + blockSize - 1) / blockSize;
-	size_t bytesPerBlock = (texFormat == TextureFormat::CompressedDXT1) ? 8 : 16;
+	// DXT1 and ETC2 use 8 bytes per 4x4 block, DXT5 uses 16
+	size_t bytesPerBlock = (texFormat == TextureFormat::CompressedDXT5) ? 16 : 8;
 	size_t bytesPerRow = blocksWide * bytesPerBlock;
 
 	MTLRegion region = MTLRegionMake2D(x, y, width, height);

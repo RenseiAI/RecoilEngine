@@ -5,6 +5,7 @@
 #include "Rendering/GL/VertexArrayTypes.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/RHI/RHITexture.h"
+#include "System/Matrix44f.h"
 
 class CglFont;
 class CFontTexture;
@@ -15,6 +16,7 @@ public:
 	virtual void AddQuadTrianglesPB(VA_TYPE_TC&& tl, VA_TYPE_TC&& tr, VA_TYPE_TC&& br, VA_TYPE_TC&& bl) = 0;
 	virtual void AddQuadTrianglesOB(VA_TYPE_TC&& tl, VA_TYPE_TC&& tr, VA_TYPE_TC&& br, VA_TYPE_TC&& bl) = 0;
 	virtual void DrawTraingleElements() = 0;
+	virtual void SetWorldTransform(const CMatrix44f& mvp) {}
 	virtual void HandleTextureUpdate(CFontTexture& font, bool onlyUpload) = 0;
 	virtual void PushGLState(const CglFont& font) = 0;
 	virtual void PopGLState(const CglFont& font) = 0;
@@ -48,6 +50,7 @@ public:
 	void AddQuadTrianglesPB(VA_TYPE_TC&& tl, VA_TYPE_TC&& tr, VA_TYPE_TC&& br, VA_TYPE_TC&& bl) override;
 	void AddQuadTrianglesOB(VA_TYPE_TC&& tl, VA_TYPE_TC&& tr, VA_TYPE_TC&& br, VA_TYPE_TC&& bl) override;
 	void DrawTraingleElements() override;
+	void SetWorldTransform(const CMatrix44f& mvp) override;
 	void HandleTextureUpdate(CFontTexture& font, bool onlyUpload) override;
 	void PushGLState(const CglFont& font) override;
 	void PopGLState(const CglFont& font) override;
@@ -58,6 +61,9 @@ public:
 private:
 	TypedRenderBuffer<VA_TYPE_TC> primaryBufferTC;
 	TypedRenderBuffer<VA_TYPE_TC> outlineBufferTC;
+
+	CMatrix44f worldTransform;
+	bool hasWorldTransform = false;
 
 	static inline size_t fontShaderRefs = 0;
 	static inline std::unique_ptr<Shader::IProgramObject> fontShader = nullptr;

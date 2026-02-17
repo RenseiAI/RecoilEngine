@@ -478,23 +478,17 @@ void QTPFSPathDrawer::DrawInMiniMap()
 	if (!IsEnabled() || (!gs->cheatEnabled && !gu->spectatingFullView))
 		return;
 
-	// Save current matrices
-	CMatrix44f savedProj, savedMV;
-	glGetFloatv(GL_PROJECTION_MATRIX, &savedProj.md[0][0]);
-	glGetFloatv(GL_MODELVIEW_MATRIX, &savedMV.md[0][0]);
-
-	// Projection: ortho(0,1,0,1,0,-1) with clip-space-control
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(CMatrix44f::ClipOrthoProj(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, -1.0f,
-		globalRendering->supportClipSpaceControl));
-	minimap->ApplyConstraintsMatrix();  // cross-cutting: modifies GL matrix directly
+	// Compute projection: ortho(0,1,0,1,0,-1) * minimap constraints
+	CMatrix44f proj = CMatrix44f::ClipOrthoProj(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, -1.0f,
+		globalRendering->supportClipSpaceControl);
+	proj *= minimap->GetConstraintsMatrix();
 
 	// Modelview: translate(0,1,0) then scale(1/mapx, -1/mapy, 1)
 	CMatrix44f mv;
 	mv.Translate(UpVector);
 	mv.Scale(1.0f / mapDims.mapx, -1.0f / mapDims.mapy, 1.0f);
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(mv);
+
+	const CMatrix44f mvp = proj * mv;
 
 	const int blockSize = QTPFS::PathManager::DAMAGE_MAP_BLOCK_SIZE;
 
@@ -532,14 +526,9 @@ void QTPFSPathDrawer::DrawInMiniMap()
 		}
 
 		sh.Enable();
+		rb.SetTransformMatrix(mvp);
 		rb.DrawElements(GL_TRIANGLES);
 		sh.Disable();
 	}
-
-	// Restore previous matrices
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(savedProj);
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(savedMV);
 }
 

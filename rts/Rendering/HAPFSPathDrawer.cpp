@@ -39,16 +39,13 @@
 #include "System/SpringMath.h"
 #include "System/StringUtil.h"
 
-// RHI Migration Status (HAPFSPathDrawer):
-// MIGRATED:
+// RHI Migration Status (HAPFSPathDrawer): COMPLETE
+// All GL calls migrated to RHI:
 //   glLineWidth(3/1) -> ctx->SetLineWidth()
-//   glBegin(GL_LINE_STRIP)/glEnd, glColor4f, glVertexf3 -> TypedRenderBuffer<VA_TYPE_C> (Draw paths)
-//   glBegin(GL_LINES)/glEnd, glColor3f, glVertexf3 -> TypedRenderBuffer<VA_TYPE_C> (Draw PE overlay)
-//   glRectf -> TypedRenderBuffer<VA_TYPE_C> AddQuadTriangles (DrawInMiniMap)
-//   glDisable/glEnable(GL_TEXTURE_2D), glDisable(GL_LIGHTING) -> removed (shader-based)
-// Not migrated (FFP matrix stack - deferred):
-//   glMatrixMode, glPushMatrix/glPopMatrix, glLoadIdentity, glOrtho -> matrix stack (DrawInMiniMap)
-//   glTranslatef3, glScalef -> FFP transforms (DrawInMiniMap)
+//   glBegin/glEnd, glColor, glVertex -> TypedRenderBuffer<VA_TYPE_C>
+//   glRectf -> TypedRenderBuffer<VA_TYPE_C> AddQuadTriangles
+//   glDisable/glEnable(GL_TEXTURE_2D/GL_LIGHTING) -> removed (shader-based)
+//   FFP matrix stack (DrawInMiniMap) -> explicit MVP + SetTransformMatrix
 
 #define PE_EXTRA_DEBUG_OVERLAYS 1
 
@@ -89,23 +86,17 @@ void HAPFSPathDrawer::DrawInMiniMap()
 	if (!IsEnabled() || (!gs->cheatEnabled && !gu->spectatingFullView))
 		return;
 
-	// Save current matrices
-	CMatrix44f savedProj, savedMV;
-	glGetFloatv(GL_PROJECTION_MATRIX, &savedProj.md[0][0]);
-	glGetFloatv(GL_MODELVIEW_MATRIX, &savedMV.md[0][0]);
-
-	// Projection: ortho(0,1,0,1,0,-1) with clip-space-control
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(CMatrix44f::ClipOrthoProj(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, -1.0f,
-		globalRendering->supportClipSpaceControl));
-	minimap->ApplyConstraintsMatrix();  // cross-cutting: modifies GL matrix directly
+	// Compute projection: ortho(0,1,0,1,0,-1) * minimap constraints
+	CMatrix44f proj = CMatrix44f::ClipOrthoProj(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, -1.0f,
+		globalRendering->supportClipSpaceControl);
+	proj *= minimap->GetConstraintsMatrix();
 
 	// Modelview: translate(0,1,0) then scale(1/mapx, -1/mapy, 1)
 	CMatrix44f mv;
 	mv.Translate(UpVector);
 	mv.Scale(1.0f / mapDims.mapx, -1.0f / mapDims.mapy, 1.0f);
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(mv);
+
+	const CMatrix44f mvp = proj * mv;
 
 	{
 		const SColor color(1.0f, 1.0f, 0.0f, 0.7f);
@@ -127,15 +118,10 @@ void HAPFSPathDrawer::DrawInMiniMap()
 		}
 
 		sh.Enable();
+		rb.SetTransformMatrix(mvp);
 		rb.DrawElements(GL_TRIANGLES);
 		sh.Disable();
 	}
-
-	// Restore previous matrices
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(savedProj);
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(savedMV);
 }
 
 

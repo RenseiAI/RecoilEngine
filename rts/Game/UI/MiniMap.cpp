@@ -1095,6 +1095,20 @@ void CMiniMap::ApplyConstraintsMatrix() const
 	}
 }
 
+CMatrix44f CMiniMap::GetConstraintsMatrix() const
+{
+	CMatrix44f m;
+	if (!renderToTexture) {
+		if (globalRendering->dualScreenMode) {
+			m.Translate(curPos.x, curPos.y, 0.0f);
+		} else {
+			m.Translate(curPos.x * globalRendering->pixelX, curPos.y * globalRendering->pixelY, 0.0f);
+		}
+		m.Scale(curDim.x * globalRendering->pixelX, curDim.y * globalRendering->pixelY, 1.0f);
+	}
+	return m;
+}
+
 /******************************************************************************/
 
 void CMiniMap::Update()

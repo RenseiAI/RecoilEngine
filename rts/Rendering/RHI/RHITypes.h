@@ -145,7 +145,8 @@ enum class TextureFormat : uint8_t {
 	Depth32FStencil8,
 	SRGB8Alpha8,
 	CompressedDXT1,
-	CompressedDXT5
+	CompressedDXT5,
+	CompressedETC2
 };
 
 enum class TextureType : uint8_t {

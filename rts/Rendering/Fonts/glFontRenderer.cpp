@@ -9,6 +9,7 @@
 #include "CFontTexture.h"
 #include "glFont.h"
 #include "Rendering/GlobalRendering.h"
+#include "System/Matrix44f.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/Shaders/Shader.h"
@@ -210,8 +211,22 @@ void CglShaderFontRenderer::AddQuadTrianglesOB(VA_TYPE_TC&& tl, VA_TYPE_TC&& tr,
 void CglShaderFontRenderer::DrawTraingleElements()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// SetTransformMatrix is consumed per draw, so apply before each buffer
+	if (hasWorldTransform) {
+		outlineBufferTC.SetTransformMatrix(worldTransform);
+	}
 	outlineBufferTC.DrawElements(GL_TRIANGLES);
+	if (hasWorldTransform) {
+		primaryBufferTC.SetTransformMatrix(worldTransform);
+		hasWorldTransform = false;
+	}
 	primaryBufferTC.DrawElements(GL_TRIANGLES);
+}
+
+void CglShaderFontRenderer::SetWorldTransform(const CMatrix44f& mvp)
+{
+	worldTransform = mvp;
+	hasWorldTransform = true;
 }
 
 void CglShaderFontRenderer::HandleTextureUpdate(CFontTexture& fnt, bool onlyUpload)

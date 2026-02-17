@@ -17,9 +17,6 @@ class CCamera;
 
 
 
-// Visualize visible patches in Minimap for debugging?
-// #define DRAW_DEBUG_IN_MINIMAP
-
 
 /**
  * Map mesh drawer implementation; based on the Tread Marks engine
@@ -88,9 +85,6 @@ private:
 	// whether tessellation should be forcibly performed next frame
 	static bool forceNextTesselation[MESH_COUNT];
 
-#ifdef DRAW_DEBUG_IN_MINIMAP
-	std::vector<float3> debugColors;
-#endif
 };
 
 #endif // _ROAM_MESH_DRAWER_H_

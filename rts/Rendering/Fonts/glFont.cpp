@@ -711,12 +711,12 @@ void CglFont::DrawBuffered(bool userDefinedBlending)
 void CglFont::DrawWorldBuffered(bool userDefinedBlending)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glPushMatrix();
-	glMultMatrixf(camera->GetBillBoardMatrix());
+	// Compute explicit MVP: proj * (view * billboard), bypassing FFP matrix stack
+	const CMatrix44f worldMVP = camera->GetProjectionMatrix()
+		* (camera->GetViewMatrix() * camera->GetBillBoardMatrix());
+	fontRenderer->SetWorldTransform(worldMVP);
 
 	DrawBuffered(userDefinedBlending);
-
-	glPopMatrix();
 }
 
 template<int shiftXC, int shiftYC, bool outline>
@@ -815,21 +815,19 @@ void CglFont::glWorldPrint(const float3& p, const float size, const std::string&
 	RECOIL_DETAILED_TRACY_ZONE;
 	const bool buffered = (options & FONT_BUFFERED) == FONT_BUFFERED;
 	if (!buffered) {
-		glPushMatrix();
-
-		CMatrix44f tbM = camera->GetBillBoardMatrix();
-		//tbM.SetPos(p); // (Tr * Bm)
-		glMultMatrixf(tbM);
-
+		const CMatrix44f tbM = camera->GetBillBoardMatrix();
 		const float3 pos = tbM.Transpose() * p;
+
+		// Compute explicit MVP: proj * (view * billboard), bypassing FFP matrix stack
+		const CMatrix44f worldMVP = camera->GetProjectionMatrix()
+			* (camera->GetViewMatrix() * tbM);
+		fontRenderer->SetWorldTransform(worldMVP);
 
 		Begin();
 		SetTextDepth(pos.z); SetOutlineDepth(pos.z);
 		glPrint(pos.x, pos.y, size, options, str);
 		SetTextDepth(     ); SetOutlineDepth(     );
 		End();
-
-		glPopMatrix();
 	}
 	else {
 		CMatrix44f bm = camera->GetBillBoardMatrix();
