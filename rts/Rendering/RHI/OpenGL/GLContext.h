@@ -76,6 +76,8 @@ public:
 
 	void BlitFramebuffer(IRHIFramebuffer* src, IRHIFramebuffer* dst, int srcX0, int srcY0, int srcX1, int srcY1, int dstX0, int dstY0, int dstX1, int dstY1, bool colorBit, bool depthBit, bool filterLinear) override;
 
+	void ReadPixels(int x, int y, int width, int height, uint32_t format, uint32_t type, void* data) override;
+
 	void Flush() override;
 	void Finish() override;
 

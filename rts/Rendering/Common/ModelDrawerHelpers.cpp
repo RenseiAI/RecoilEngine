@@ -177,7 +177,7 @@ bool CModelDrawerHelper::DIDCheckMatrixMode(int wantedMode)
 	// Debug check for FFP matrix mode. Retained because FlushMatricesToFFP() manipulates GL matrix mode.
 	// This check verifies the FFP state is as expected before drawing.
 	// Could be removed once the legacy rendering path is eliminated.
-#if 1
+#if 0 // Disabled: glGetIntegerv(GL_MATRIX_MODE) is a debug-only query with no Metal equivalent
 	int matrixMode = 0;
 	glGetIntegerv(GL_MATRIX_MODE, &matrixMode);
 	return (matrixMode == wantedMode);

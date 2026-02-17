@@ -126,6 +126,16 @@ public:
 		int dstX0, int dstY0, int dstX1, int dstY1,
 		bool colorBit, bool depthBit, bool filterLinear = false) = 0;
 
+	// --- Readback ---
+	/// Read pixel data from the current read framebuffer.
+	/// Maps to glReadPixels.
+	/// @param x, y   Lower-left corner of the rectangle to read
+	/// @param width, height   Dimensions of the rectangle
+	/// @param format  GL pixel format (GL_RGBA, GL_BGR_EXT, etc.)
+	/// @param type    GL pixel type (GL_UNSIGNED_BYTE, etc.)
+	/// @param data    Destination buffer (must be large enough)
+	virtual void ReadPixels(int x, int y, int width, int height, uint32_t format, uint32_t type, void* data) = 0;
+
 	// --- Synchronization ---
 	virtual void Flush() = 0;
 	virtual void Finish() = 0;

@@ -486,6 +486,10 @@ void GLContext::SetProgramPointSizeEnabled(bool enabled) {
 
 // --- Sync ---
 
+void GLContext::ReadPixels(int x, int y, int width, int height, uint32_t format, uint32_t type, void* data) {
+	glReadPixels(x, y, width, height, format, type, data);
+}
+
 void GLContext::Flush()  { glFlush(); }
 void GLContext::Finish() { glFinish(); }
 

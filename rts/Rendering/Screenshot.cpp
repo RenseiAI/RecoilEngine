@@ -7,6 +7,8 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/Textures/Bitmap.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "System/StringUtil.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/Log/ILog.h"
@@ -55,7 +57,7 @@ void TakeScreenshot(std::string type, unsigned quality)
 	args.quality = quality;
 	args.pixelbuf.resize(args.x * args.y * 4);
 
-	glReadPixels(0, 0, args.x, args.y, GL_RGBA, GL_UNSIGNED_BYTE, &args.pixelbuf[0]);
+	RHI::GetDevice()->GetContext()->ReadPixels(0, 0, args.x, args.y, GL_RGBA, GL_UNSIGNED_BYTE, &args.pixelbuf[0]);
 
 	fut = ThreadPool::Enqueue([](const FunctionArgs& args) {
 		CBitmap bmp(&args.pixelbuf[0], args.x, args.y);

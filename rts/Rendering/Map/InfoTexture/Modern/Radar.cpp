@@ -1,10 +1,8 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-// RHI migration status: BLOCKED
+// RHI migration status: COMPLETE
 // - RHI used for viewport, clear, draw operations via RunFullScreenPass()
-// - Remaining GL calls (2): glActiveTexture, glBindTexture for external LOS texture
-// - Blocker: CInfoTexture::GetTexture() returns raw GLuint, not IRHITexture*
-// - Requires interface change across all InfoTexture implementations
+// - LOS texture binding via CInfoTexture::GetRHITexture()->Bind(2)
 
 #include "Radar.h"
 #include "InfoTextureHandler.h"
@@ -17,6 +15,7 @@
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "Sim/Misc/LosHandler.h"
 #include "Sim/Misc/ModInfo.h"
 #include "System/Exceptions.h"
@@ -143,16 +142,10 @@ void CRadarTexture::Update()
 	auto state = GL::SubState(
 		Blending(GL_FALSE)
 	);
-	// RHI_TODO: infoTextureHandler->GetInfoTexture("los")->GetTexture() returns raw GLuint
-	// (see CInfoTexture::GetTexture() in InfoTexture.h). Migration blocked until
-	// CInfoTexture interface is extended to return IRHITexture* instead of GLuint.
-	// Would require changing GetTexture() signature across all InfoTexture implementations.
-	glActiveTexture(GL_TEXTURE2);
-	glBindTexture(GL_TEXTURE_2D, infoTextureHandler->GetInfoTexture("los")->GetTexture());
+	// Bind the LOS info texture via RHI non-owning wrapper
+	if (auto* losTex = infoTextureHandler->GetInfoTexture("los")->GetRHITexture())
+		losTex->Bind(2);
 	RunFullScreenPass();
-
-	// ScopedBind cleanup handles texture unbinding automatically
-	// (no manual glBindTexture(0) or glActiveTexture needed)
 
 	// generate mipmaps
 	auto binding = texture.ScopedBind();

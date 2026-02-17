@@ -5,6 +5,8 @@
 
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Game/GameVersion.h"
 #include "System/Log/ILog.h"
 #include "System/Platform/Threading.h"
@@ -399,7 +401,7 @@ bool CAVIGenerator::readOpenglPixelDataThreaded()
 		}
 	}
 
-	glReadPixels(0, 0, bitmapInfo.biWidth, bitmapInfo.biHeight, GL_BGR_EXT, GL_UNSIGNED_BYTE, readBuf);
+	RHI::GetDevice()->GetContext()->ReadPixels(0, 0, bitmapInfo.biWidth, bitmapInfo.biHeight, GL_BGR_EXT, GL_UNSIGNED_BYTE, readBuf);
 	return true;
 }
 

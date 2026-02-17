@@ -1,10 +1,8 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-// RHI migration status: BLOCKED
+// RHI migration status: COMPLETE
 // - RHI used for viewport, draw operations via RunFullScreenPass()
-// - Remaining GL calls (2): glBindTexture for external LOS texture (bind + unbind)
-// - Blocker: CInfoTexture::GetTexture() returns raw GLuint, not IRHITexture*
-// - Requires interface change across all InfoTexture implementations
+// - LOS texture binding via CInfoTexture::GetRHITexture()->Bind(0)
 
 #include "MetalExtraction.h"
 #include "InfoTextureHandler.h"
@@ -16,6 +14,8 @@
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/GL/SubState.h"
 #include "Rendering/GL/myGL.h"  // transitional: GL types still needed
+#include "Rendering/RHI/RHITexture.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Sim/Misc/LosHandler.h"
 #include "System/Exceptions.h"
 #include "System/Log/ILog.h"
@@ -119,11 +119,8 @@ void CMetalExtractionTexture::Update()
 		BlendFunc(GL_ZERO, GL_SRC_COLOR)
 	);
 
-	// do post-processing on the gpu (los-checking & scaling)
-	// RHI_TODO: infoTex->GetTexture() returns raw GLuint
-	// (see CInfoTexture::GetTexture() in InfoTexture.h). Migration blocked until
-	// CInfoTexture interface is extended to return IRHITexture* instead of GLuint.
-	glBindTexture(GL_TEXTURE_2D, infoTex->GetTexture());
+	// Bind the LOS info texture via RHI non-owning wrapper
+	if (auto* losTex = infoTex->GetRHITexture())
+		losTex->Bind(0);
 	RunFullScreenPass();
-	glBindTexture(GL_TEXTURE_2D, 0);
 }

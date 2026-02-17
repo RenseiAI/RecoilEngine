@@ -126,6 +126,9 @@ public:
 	                     int dstX0, int dstY0, int dstX1, int dstY1,
 	                     bool colorBit, bool depthBit, bool filterLinear) override;
 
+	// --- Readback ---
+	void ReadPixels(int x, int y, int width, int height, uint32_t format, uint32_t type, void* data) override {} // Metal: TBD - use MTLTexture getBytes
+
 	// --- Synchronization ---
 	void Flush() override;
 	void Finish() override;

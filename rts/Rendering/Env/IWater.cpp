@@ -138,9 +138,6 @@ void IWater::SetWater(int rendererMode)
 }
 
 
-// RHI-GAP: GL_CLIP_PLANE2 usage in DrawReflections/DrawRefractions has no
-// RHI equivalent. Metal requires shader-based clipping via [[clip_distance]].
-// The reflection pass clips geometry below the water plane (y > 0).
 void IWater::DrawReflections(const double* clipPlaneEqs, bool drawGround, bool drawSky) {
 	RECOIL_DETAILED_TRACY_ZONE;
 	game->SetDrawMode(CGame::gameReflectionDraw);
@@ -151,12 +148,15 @@ void IWater::DrawReflections(const double* clipPlaneEqs, bool drawGround, bool d
 		SCOPED_TIMER("Draw::Water::DrawReflections");
 		SCOPED_GL_DEBUGGROUP("Draw::Water::DrawReflections");
 
+		auto* ctx = RHI::GetDevice()->GetContext();
+
 		// opaque; do not clip skydome (is drawn in camera space)
 		if (drawSky) {
 			ISky::GetSky()->Draw();
 		}
 
-		glEnable(GL_CLIP_PLANE2);
+		ctx->SetClipDistanceEnabled(2, true);
+		// Ground clip plane: equation in world-space, glClipPlane transforms by current MV
 		glClipPlane(GL_CLIP_PLANE2, &clipPlaneEqs[0]);
 
 		if (drawGround)
@@ -176,7 +176,7 @@ void IWater::DrawReflections(const double* clipPlaneEqs, bool drawGround, bool d
 		// sun-disc does not blend well with water
 
 		eventHandler.DrawWorldReflection();
-		glDisable(GL_CLIP_PLANE2);
+		ctx->SetClipDistanceEnabled(2, false);
 
 		drawReflection = false;
 	}
@@ -184,7 +184,6 @@ void IWater::DrawReflections(const double* clipPlaneEqs, bool drawGround, bool d
 	game->SetDrawMode(CGame::gameNormalDraw);
 }
 
-// RHI-GAP: The refraction pass clips geometry above the water plane (y < 0).
 void IWater::DrawRefractions(const double* clipPlaneEqs, bool drawGround, bool drawSky) {
 	RECOIL_DETAILED_TRACY_ZONE;
 	game->SetDrawMode(CGame::gameRefractionDraw);
@@ -195,7 +194,10 @@ void IWater::DrawRefractions(const double* clipPlaneEqs, bool drawGround, bool d
 		SCOPED_TIMER("Draw::Water::DrawRefractions");
 		SCOPED_GL_DEBUGGROUP("Draw::Water::DrawRefractions");
 
-		glEnable(GL_CLIP_PLANE2);
+		auto* ctx = RHI::GetDevice()->GetContext();
+
+		ctx->SetClipDistanceEnabled(2, true);
+		// Ground clip plane: equation in world-space, glClipPlane transforms by current MV
 		glClipPlane(GL_CLIP_PLANE2, &clipPlaneEqs[0]);
 
 		// opaque
@@ -218,7 +220,7 @@ void IWater::DrawRefractions(const double* clipPlaneEqs, bool drawGround, bool d
 		projectileDrawer->DrawAlpha(false, true, false, true);
 
 		eventHandler.DrawWorldRefraction();
-		glDisable(GL_CLIP_PLANE2);
+		ctx->SetClipDistanceEnabled(2, false);
 
 		drawRefraction = false;
 	}
