@@ -16,11 +16,9 @@
 
 #include "System/Misc/TracyDefs.h"
 
-// RHI Migration Status (FlyingPiece):
-// MIGRATED:
+// RHI Migration Status (FlyingPiece): FULLY MIGRATED
 //   - glDisable/glEnable(GL_CULL_FACE) -> ctx->SetCullFaceEnabled()
-// REMAINING (no RHI equivalent):
-//   - glPushMatrix/glPopMatrix/glMultMatrixf in Draw() -> FFP matrix stack
+//   - glPushMatrix/glPopMatrix/glMultMatrixf -> modelViewStack + SyncModelMatrixUniform
 
 
 static const float EXPLOSION_SPEED = 2.f;
@@ -241,13 +239,17 @@ void FlyingPiece::Draw(const FlyingPiece* prev) const
 
 	const float3 dragFactors = GetDragFactors(); // speedDrag, gravityDrag, interAge
 
+	auto& mdMvStack = CModelDrawerHelper::GetModelViewStack();
+
 	for (auto& cp: splitterParts) {
-		glPushMatrix();
-		glMultMatrixf(GetMatrixOf(cp, dragFactors));
+		mdMvStack.Push().MultMatrix(GetMatrixOf(cp, dragFactors));
+		CModelDrawerHelper::SyncModelMatrixUniform();
+
 		assert(piece->indxCount != ~0u);
 		const uint32_t indxOffset = piece->indxStart + piece->indxCount; //shatter piece indices come after regular indices
 		S3DModelPiece::DrawShatterElements(indxOffset + cp.indexStart, cp.indexCount);
-		glPopMatrix();
+
+		mdMvStack.Pop();
 	}
 }
 

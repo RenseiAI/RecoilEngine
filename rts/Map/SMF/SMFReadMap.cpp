@@ -9,13 +9,14 @@
  *   - Texture binding in UpdateVisNormalsAndShadingTexture, BindMiniMapTextures
  *   - Minimap compressed DXT1 texture via RHI CreateTexture + UploadCompressed
  *   - Full heightmap upload via RHI Upload() (UpdateHeightMapTexture full path)
+ *   - Partial heightmap upload via RHI Upload() subregion (was PBO + glTexSubImage2D)
  *
  * Remaining:
- *   - Partial heightmap upload via PBO (lines 606-631, no PBO-offset Upload API)
  *   - glDrawBuffers (FBO state, not texture-specific)
  */
 
 #include <cstring> // mem{set,cpy}
+#include <vector>
 
 #include "xsimd/xsimd.hpp"
 #include "SMFReadMap.h"
@@ -34,7 +35,6 @@
 #include "Rendering/Env/SkyLight.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/FBO.h"
-#include "Rendering/GL/PBO.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/GL/SubState.h"
 #include "Rendering/Shaders/ShaderHandler.h"
@@ -494,7 +494,7 @@ void CSMFReadMap::CreateHeightMapTex()
 		static_cast<uint8_t>(RHI::SwizzleComponent::Red)
 	);
 
-	// Store raw GL ID for legacy glTexSubImage2D calls
+	// Store raw GL ID for legacy FBO attachment / fallback paths
 	heightMapTexture.SetRawTexID(rhiTex->GetNativeHandle());
 	// Store RHI texture for binding
 	heightMapTexture.SetRawRHITexture(std::move(rhiTex));
@@ -599,10 +599,6 @@ void CSMFReadMap::UpdateHeightMapTexture(const SRectangle& update)
 	if (update.GetArea() >= refFullUpdateThreshold) {
 		if (auto* rhiTex = heightMapTexture.GetRawRHITexture()) {
 			rhiTex->Upload(0, 0, 0, mapDims.mapxp1, mapDims.mapyp1, GetCornerHeightMapUnsynced());
-		} else {
-			glBindTexture(GL_TEXTURE_2D, heightMapTexture.GetID());
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, mapDims.mapxp1, mapDims.mapyp1, GL_RED, GL_FLOAT, GetCornerHeightMapUnsynced());
-			glBindTexture(GL_TEXTURE_2D, 0);
 		}
 
 		return;
@@ -612,32 +608,26 @@ void CSMFReadMap::UpdateHeightMapTexture(const SRectangle& update)
 	const int sizeX = update.GetWidth() + 1;
 	const int sizeZ = update.GetHeight() + 1;
 
-	PBO pbo;
-	pbo.Bind();
-	pbo.New(sizeX * sizeZ * sizeof(float));
-
 	const float* heightMap = readMap->GetCornerHeightMapUnsynced();
-	float* heightBuf = reinterpret_cast<float*>(pbo.MapBuffer(0, pbo.GetSize(), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT | pbo.mapUnsyncedBit));
 
-	if (heightBuf != nullptr) {
-		for (int z = 0; z < sizeZ; z++) {
-			const auto* src = heightMap + update.x1 + (z + update.z1) * mapDims.mapxp1;
-			      auto* dst = heightBuf +             (z            ) * sizeX;
+	// Stage subregion into contiguous buffer
+	std::vector<float> heightBuf(sizeX * sizeZ);
+	for (int z = 0; z < sizeZ; z++) {
+		const auto* src = heightMap + update.x1 + (z + update.z1) * mapDims.mapxp1;
+		      auto* dst = heightBuf.data() + z * sizeX;
 
-			std::copy(src, src + sizeX, dst);
-		}
+		std::copy(src, src + sizeX, dst);
 	}
 
-	pbo.UnmapBuffer();
-
-	// RHI_TODO(upload): Use heightMapTexture.GetRawRHITexture()->Upload() instead
-	glBindTexture(GL_TEXTURE_2D, heightMapTexture.GetID());
-	glTexSubImage2D(GL_TEXTURE_2D, 0, update.x1, update.z1, sizeX, sizeZ, GL_RED, GL_FLOAT, pbo.GetPtr());
-
-	pbo.Invalidate();
-	pbo.Unbind();
-
-	glBindTexture(GL_TEXTURE_2D, 0);
+	// Upload subregion via RHI
+	if (auto* rhiTex = heightMapTexture.GetRawRHITexture()) {
+		rhiTex->Upload(0, update.x1, update.z1, sizeX, sizeZ, heightBuf.data());
+	} else {
+		// Fallback (should not happen — RHI texture created in CreateHeightMapTex)
+		glBindTexture(GL_TEXTURE_2D, heightMapTexture.GetID());
+		glTexSubImage2D(GL_TEXTURE_2D, 0, update.x1, update.z1, sizeX, sizeZ, GL_RED, GL_FLOAT, heightBuf.data());
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
 }
 
 
