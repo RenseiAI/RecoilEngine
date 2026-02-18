@@ -14,8 +14,6 @@
  *
  * Remaining GL calls (blocked, cannot migrate yet):
  *   - glCallList: Lua display lists, no RHI equivalent. Blocked on Lua infrastructure.
- *   - glClipPlane: FFP clip plane equation. Non-identity MV sites remain.
- *   - glGetIntegerv(GL_CURRENT_PROGRAM)/glUseProgram: Shader save/restore hack.
  */
 
 #include "UnitDrawer.h"
@@ -1053,16 +1051,15 @@ void CUnitDrawerGLSL::DrawAlphaAIUnitBorder(const CUnitDrawerData::TempDrawUnit&
 		{buildPos + float3( xsize, 1.0f,  zsize), col}
 	});
 
-	GLint progID = 0;
-	glGetIntegerv(GL_CURRENT_PROGRAM, &progID);
+	auto* prevShader = modelDrawerState->GetActiveShader();
 
 	auto& sh = rb.GetShader();
 	sh.Enable();
 	rb.DrawArrays(GL_LINE_STRIP);
 	sh.Disable();
 
-	if (progID > 0)
-		glUseProgram(progID);
+	if (prevShader)
+		prevShader->Enable();
 
 	modelDrawerState->SetColorMultiplier(1.0f);
 }
@@ -1225,8 +1222,8 @@ void CUnitDrawerGLSL::DrawModelWireBuildStageOpaque(const CUnit* unit, const dou
 		ctx->SetClipDistanceEnabled(0, false);
 		ctx->SetClipDistanceEnabled(1, false);
 	} else {
-		glClipPlane(GL_CLIP_PLANE0, upperPlane);
-		glClipPlane(GL_CLIP_PLANE1, lowerPlane);
+		ctx->SetClipPlaneEquation(0, upperPlane);
+		ctx->SetClipPlaneEquation(1, lowerPlane);
 	}
 
 	ctx->SetPolygonMode(RHI::PolygonMode::Line);
@@ -1242,8 +1239,9 @@ void CUnitDrawerGLSL::DrawModelWireBuildStageOpaque(const CUnit* unit, const dou
 void CUnitDrawerGLSL::DrawModelFlatBuildStageOpaque(const CUnit* unit, const double* upperPlane, const double* lowerPlane, bool noLuaCall) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glClipPlane(GL_CLIP_PLANE0, upperPlane);
-	glClipPlane(GL_CLIP_PLANE1, lowerPlane);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetClipPlaneEquation(0, upperPlane);
+	ctx->SetClipPlaneEquation(1, lowerPlane);
 
 	DrawUnitModel(unit, noLuaCall);
 }
@@ -1256,7 +1254,7 @@ void CUnitDrawerGLSL::DrawModelFillBuildStageOpaque(const CUnit* unit, const dou
 	if (globalRendering->amdHacks)
 		ctx->SetClipDistanceEnabled(0, false);
 	else
-		glClipPlane(GL_CLIP_PLANE0, upperPlane);
+		ctx->SetClipPlaneEquation(0, upperPlane);
 
 	ctx->SetPolygonOffset(true, 1.0f, 1.0f);
 	DrawUnitModel(unit, noLuaCall);

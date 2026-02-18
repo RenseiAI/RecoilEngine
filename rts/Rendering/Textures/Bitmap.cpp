@@ -10,11 +10,8 @@
  *   - CreateTexture() uses RHI for texture object creation
  *
  * Remaining GL (legacy compatibility):
- *   - CreateTexture() uses glTexParameteri for wrap/filter/LOD/aniso
- *   - CreateDDSTexture() uses glBindTexture, glTexParameteri, glDeleteTextures, glGenerateMipmap
- *   - RecoilBuildMipmaps() is a GL utility (uses glTexImage2D internally)
- *
- * Note: RHI methods preferred for new code; GL methods kept for backward compatibility.
+ *   - CreateTexture(): RecoilBuildMipmaps uses glTexImage2D internally
+ *   - CreateDDSTexture(): glBindTexture (nv_dds requires bound texture), glDeleteTextures (error paths)
  */
 
 #include <algorithm>
@@ -1739,6 +1736,18 @@ bool CBitmap::SaveFloat(std::string const& filename) const
 
 
 #ifndef HEADLESS
+static RHI::TextureFilter MapGLFilter(uint32_t filter) {
+	switch (filter) {
+		case GL_NEAREST:                return RHI::TextureFilter::Nearest;
+		case GL_LINEAR:                 return RHI::TextureFilter::Linear;
+		case GL_NEAREST_MIPMAP_NEAREST: return RHI::TextureFilter::NearestMipmapNearest;
+		case GL_LINEAR_MIPMAP_NEAREST:  return RHI::TextureFilter::LinearMipmapNearest;
+		case GL_NEAREST_MIPMAP_LINEAR:  return RHI::TextureFilter::NearestMipmapLinear;
+		case GL_LINEAR_MIPMAP_LINEAR:   return RHI::TextureFilter::LinearMipmapLinear;
+		default:                        return RHI::TextureFilter::Linear;
+	}
+}
+
 uint32_t CBitmap::CreateTexture(const GL::TextureCreationParams& tcp) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -1765,35 +1774,37 @@ uint32_t CBitmap::CreateTexture(const GL::TextureCreationParams& tcp) const
 
 	auto binding = GL::TexBind(GL_TEXTURE_2D, texID);
 
-	// RHI_TODO: migrate to IRHITexture::SetWrapS/T when wrapping existing GLuint handles
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-
-	if (tcp.lodBias != 0.0f)
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, tcp.lodBias); // RHI_TODO: SetLodBias
-	if (tcp.aniso > 0.0f)
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, tcp.aniso); // RHI_TODO: SetAnisotropy
-
-	// RHI_TODO: RecoilBuildMipmaps does glTexImage2D for each level; no RHI equivalent yet
+	// RecoilBuildMipmaps uses glTexImage2D internally; must keep GL bind for this
 	RecoilBuildMipmaps(GL_TEXTURE_2D, GetIntFmt(), xsize, ysize, GetExtFmt(), dataType, GetRawMem(), numLevels);
 
-	// RHI_TODO: migrate to IRHITexture::SetMinFilter/SetMagFilter
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magFilter);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minFilter);
+	// Set texture parameters via non-owning RHI wrapper
+	{
+		auto* device = RHI::GetDevice();
+		auto rhiTex = device->WrapExistingTexture(texID, RHI::TextureType::Texture2D,
+			RHI::TextureFormat::RGBA8, xsize, ysize);
+
+		rhiTex->SetWrapS(RHI::TextureWrap::Repeat);
+		rhiTex->SetWrapT(RHI::TextureWrap::Repeat);
+		rhiTex->SetMagFilter(MapGLFilter(magFilter));
+		rhiTex->SetMinFilter(MapGLFilter(minFilter));
+
+		if (tcp.lodBias != 0.0f)
+			rhiTex->SetLodBias(tcp.lodBias);
+		if (tcp.aniso > 0.0f)
+			rhiTex->SetAnisotropy(tcp.aniso);
+	} // rhiTex destroyed here (non-owning, doesn't delete GL texture)
 
 	return texID;
 }
 
 
-static void HandleDDSMipmap(GLenum target, int32_t numEmbeddedLevels, uint32_t minFilter)
+static void HandleDDSMipmap(RHI::IRHITexture* rhiTex, int32_t numEmbeddedLevels, uint32_t minFilter)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: migrate to IRHITexture::SetMinFilter
-	glTexParameteri(target, GL_TEXTURE_MIN_FILTER, minFilter);
+	rhiTex->SetMinFilter(MapGLFilter(minFilter));
 
-	// RHI_TODO: migrate to IRHITexture::GenerateMipmaps
 	if (numEmbeddedLevels == 0 && minFilter != GL_LINEAR && minFilter != GL_NEAREST)
-		glGenerateMipmap(target);
+		rhiTex->GenerateMipmaps();
 }
 
 uint32_t CBitmap::CreateDDSTexture(const GL::TextureCreationParams& tcp) const
@@ -1813,70 +1824,70 @@ uint32_t CBitmap::CreateDDSTexture(const GL::TextureCreationParams& tcp) const
 
 	switch (ddsimage.get_type()) {
 		case nv_dds::TextureNone:
-			// RHI_TODO: migrate to unique_ptr destruction
 			glDeleteTextures(1, &texID);
 			texID = 0;
 			break;
 
-		case nv_dds::TextureFlat:    // 1D, 2D, and rectangle textures
-			// RHI_TODO: migrate to IRHITexture::Bind
+		case nv_dds::TextureFlat: {   // 1D, 2D, and rectangle textures
 			glBindTexture(GL_TEXTURE_2D, texID);
 
-			// RHI_TODO: ddsimage.upload_texture2D uses glCompressedTexImage2D; needs RHI UploadCompressed
+			// nv_dds upload uses glCompressedTexImage2D; must keep GL bind
 			if (!ddsimage.upload_texture2D(0, GL_TEXTURE_2D)) {
 				glDeleteTextures(1, &texID);
 				texID = 0;
 				break;
 			}
 
-			// RHI_TODO: migrate to IRHITexture::SetLodBias
+			// Set texture parameters via RHI wrapper
+			auto rhiTex = RHI::GetDevice()->WrapExistingTexture(texID,
+				RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8, xsize, ysize);
 			if (tcp.lodBias != 0.0f)
-				glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, tcp.lodBias);
-			// RHI_TODO: migrate to IRHITexture::SetAnisotropy
+				rhiTex->SetLodBias(tcp.lodBias);
 			if (tcp.aniso > 0.0f)
-				glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, tcp.aniso);
-
-			HandleDDSMipmap(GL_TEXTURE_2D, ddsimage.get_num_mipmaps(), tcp.GetMinFilter(ddsimage.get_num_mipmaps()));
+				rhiTex->SetAnisotropy(tcp.aniso);
+			HandleDDSMipmap(rhiTex.get(), ddsimage.get_num_mipmaps(), tcp.GetMinFilter(ddsimage.get_num_mipmaps()));
 			break;
+		}
 
-		case nv_dds::Texture3D:
-			// RHI_TODO: migrate to IRHITexture::Bind
+		case nv_dds::Texture3D: {
 			glBindTexture(GL_TEXTURE_3D, texID);
 
-			// RHI_TODO: ddsimage.upload_texture3D uses glCompressedTexImage3D; needs RHI UploadCompressed
+			// nv_dds upload uses glCompressedTexImage3D; must keep GL bind
 			if (!ddsimage.upload_texture3D()) {
 				glDeleteTextures(1, &texID);
 				texID = 0;
 				break;
 			}
 
-			// RHI_TODO: migrate to IRHITexture::SetLodBias
+			// Set texture parameters via RHI wrapper
+			auto rhiTex = RHI::GetDevice()->WrapExistingTexture(texID,
+				RHI::TextureType::Texture3D, RHI::TextureFormat::RGBA8, xsize, ysize);
 			if (tcp.lodBias != 0.0f)
-				glTexParameterf(GL_TEXTURE_3D, GL_TEXTURE_LOD_BIAS, tcp.lodBias);
-
-			HandleDDSMipmap(GL_TEXTURE_3D, ddsimage.get_num_mipmaps(), tcp.GetMinFilter(ddsimage.get_num_mipmaps()));
+				rhiTex->SetLodBias(tcp.lodBias);
+			HandleDDSMipmap(rhiTex.get(), ddsimage.get_num_mipmaps(), tcp.GetMinFilter(ddsimage.get_num_mipmaps()));
 			break;
+		}
 
-		case nv_dds::TextureCubemap:
-			// RHI_TODO: migrate to IRHITexture::Bind
+		case nv_dds::TextureCubemap: {
 			glBindTexture(GL_TEXTURE_CUBE_MAP, texID);
 
-			// RHI_TODO: ddsimage.upload_textureCubemap uses glCompressedTexImage2D; needs RHI UploadCompressed
+			// nv_dds upload uses glCompressedTexImage2D; must keep GL bind
 			if (!ddsimage.upload_textureCubemap()) {
 				glDeleteTextures(1, &texID);
 				texID = 0;
 				break;
 			}
 
-			// RHI_TODO: migrate to IRHITexture::SetLodBias
+			// Set texture parameters via RHI wrapper
+			auto rhiTex = RHI::GetDevice()->WrapExistingTexture(texID,
+				RHI::TextureType::TextureCube, RHI::TextureFormat::RGBA8, xsize, ysize);
 			if (tcp.lodBias != 0.0f)
-				glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_LOD_BIAS, tcp.lodBias);
-			// RHI_TODO: migrate to IRHITexture::SetAnisotropy
+				rhiTex->SetLodBias(tcp.lodBias);
 			if (tcp.aniso > 0.0f)
-				glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_ANISOTROPY_EXT, tcp.aniso);
-
-			HandleDDSMipmap(GL_TEXTURE_CUBE_MAP, ddsimage.get_num_mipmaps(), tcp.GetMinFilter(ddsimage.get_num_mipmaps()));
+				rhiTex->SetAnisotropy(tcp.aniso);
+			HandleDDSMipmap(rhiTex.get(), ddsimage.get_num_mipmaps(), tcp.GetMinFilter(ddsimage.get_num_mipmaps()));
 			break;
+		}
 
 		default:
 			assert(false);

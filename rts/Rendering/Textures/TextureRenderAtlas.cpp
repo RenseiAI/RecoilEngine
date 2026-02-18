@@ -8,11 +8,10 @@
  *   - RHI::IRHIContext::SetViewport for FBO rendering (lines 437-441)
  *
  * Remaining GL (render-to-texture pipeline):
- *   - FBO attachment/rendering still uses GL (lines 418-449)
- *   - glTexParameteri for source texture sampling (lines 471-474)
- *   - glDrawBuffer/glReadBuffer for FBO attachment selection (lines 448-449)
- *   - filenameToTexID stores raw GLuint from CBitmap::CreateMipMapTexture (lines 203-206)
- *   - glDeleteTextures for intermediate texture cleanup (lines 146-151, 499-504)
+ *   - FBO attachment/rendering still uses GL
+ *   - glDrawBuffer/glReadBuffer for FBO attachment selection
+ *   - filenameToTexID stores raw GLuint from CBitmap::CreateMipMapTexture
+ *   - glDeleteTextures for intermediate texture cleanup
  *
  * Note: Full migration blocked by FBO RHI wrapper and CBitmap RHI return types.
  */
@@ -480,11 +479,15 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 
 						auto texBind = GL::TexBind(GL_TEXTURE_2D, srcTexID);
 
-						// RHI_TODO: migrate to IRHITexture::SetMinFilter/SetMagFilter/SetWrap* once CBitmap returns RHI textures
-						glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-						glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
-						glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-						glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+					// Set source texture sampling params via RHI wrapper
+					{
+						auto rhiTex = RHI::GetDevice()->WrapExistingTexture(srcTexID,
+							RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8, 0, 0);
+						rhiTex->SetMagFilter(RHI::TextureFilter::Nearest);
+						rhiTex->SetMinFilter(RHI::TextureFilter::NearestMipmapNearest);
+						rhiTex->SetWrapS(RHI::TextureWrap::ClampToEdge);
+						rhiTex->SetWrapT(RHI::TextureWrap::ClampToEdge);
+					}
 
 						rb.AddQuadTriangles(
 							std::move(posTL),

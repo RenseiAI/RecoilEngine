@@ -289,23 +289,6 @@ namespace CNamedTextures {
 			}
 
 			texID = bitmap.CreateTexture(tcp);
-
-			// specify extra params via direct GL (raw handle from CBitmap)
-			// RHI_TODO: migrate to IRHITexture::Bind/SetWrap* once CBitmap returns RHI textures
-			glBindTexture(GL_TEXTURE_2D, texID);
-
-			if (clamped) {
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-			}
-
-			if (border) {
-				// RHI_TODO: RHI gap - no SetBorderColor on IRHITexture
-				float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-				glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, white);
-			}
-
-			glBindTexture(GL_TEXTURE_2D, 0);
 		}
 
 		texInfo.id    = texID;
@@ -321,7 +304,7 @@ namespace CNamedTextures {
 			}
 		#endif
 
-		// Wrap the raw GL texture with a non-owning RHI handle for Bind() to use
+		// Wrap the raw GL texture with a non-owning RHI handle for Bind() and param setting
 		if (texID != 0) {
 			auto* device = RHI::GetDevice();
 			RHI::TextureType rhiType = RHI::TextureType::Texture2D;
@@ -336,6 +319,17 @@ namespace CNamedTextures {
 			texInfo.rhiTexture = device->WrapExistingTexture(
 				texID, rhiType, RHI::TextureFormat::RGBA8,
 				bitmap.xsize, bitmap.ysize);
+
+			// Set extra texture params via RHI (no bind/unbind needed)
+			if (clamped) {
+				texInfo.rhiTexture->SetWrapS(RHI::TextureWrap::ClampToEdge);
+				texInfo.rhiTexture->SetWrapT(RHI::TextureWrap::ClampToEdge);
+			}
+			if (border) {
+				texInfo.rhiTexture->SetWrapS(RHI::TextureWrap::ClampToBorder);
+				texInfo.rhiTexture->SetWrapT(RHI::TextureWrap::ClampToBorder);
+				texInfo.rhiTexture->SetBorderColor(1.0f, 1.0f, 1.0f, 1.0f);
+			}
 		}
 
 		if (genInsert)
