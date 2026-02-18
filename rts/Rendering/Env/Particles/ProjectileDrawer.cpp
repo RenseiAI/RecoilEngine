@@ -848,6 +848,8 @@ void CProjectileDrawer::DrawAlpha(bool drawAboveWater, bool drawBelowWater, bool
 		const auto& sky = ISky::GetSky();
 
 		fxShader->Enable();
+		fxShader->SetUniformMatrix4x4<float>("modelViewMatrix", false, camera->GetViewMatrix());
+		fxShader->SetUniformMatrix4x4<float>("projectionMatrix", false, camera->GetProjectionMatrix());
 		fxShader->SetFlag("SMOOTH_PARTICLES", needSoften);
 		fxShader->SetFlag("USE_TEXTURE_ARRAY", (textureAtlas->GetNumPages() > 1));
 		fxShader->SetUniform("clipPlane", clipPlane[0], clipPlane[1], clipPlane[2], clipPlane[3]);
@@ -945,6 +947,8 @@ void CProjectileDrawer::DrawShadowTransparent()
 	textureAtlas->GetRHITexture()->Bind(0);
 
 	fxShadowShader->Enable();
+	fxShadowShader->SetUniformMatrix4x4<float>("modelViewMatrix", false, camera->GetViewMatrix());
+	fxShadowShader->SetUniformMatrix4x4<float>("projectionMatrix", false, camera->GetProjectionMatrix());
 	fxShadowShader->SetFlag("USE_TEXTURE_ARRAY", (textureAtlas->GetNumPages() > 1));
 	fxShadowShader->SetUniform("shadowColorMode", shadowHandler.shadowColorMode > 0 ? 1.0f : 0.0f);
 
@@ -1046,6 +1050,8 @@ void CProjectileDrawer::DrawGroundFlashes()
 	const auto& sky = ISky::GetSky();
 
 	fxShader->Enable();
+	fxShader->SetUniformMatrix4x4<float>("modelViewMatrix", false, camera->GetViewMatrix());
+	fxShader->SetUniformMatrix4x4<float>("projectionMatrix", false, camera->GetProjectionMatrix());
 	fxShader->SetFlag("USE_TEXTURE_ARRAY", (groundFXAtlas->GetNumPages() > 1));
 	fxShader->SetUniform("alphaCtrl", 0.01f, 1.0f, 0.0f, 0.0f);
 	fxShader->SetUniform("softenThreshold", -CProjectileDrawer::softenThreshold[1]);

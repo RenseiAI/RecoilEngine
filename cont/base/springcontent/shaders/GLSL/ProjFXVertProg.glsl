@@ -17,6 +17,9 @@ noperspective out vec2 screenUV;
 
 out float gl_ClipDistance[1];
 
+uniform mat4 modelViewMatrix = mat4(1.0);
+uniform mat4 projectionMatrix = mat4(1.0);
+
 uniform vec2 fogParams;
 uniform vec3 camPos;
 uniform vec4 clipPlane = vec4(0.0, 0.0, 0.0, 1.0);
@@ -59,7 +62,7 @@ void main() {
 	gl_ClipDistance[0] = dot(vec4(pos, 1.0), clipPlane); //water clip plane
 
 	// viewport relative UV [0.0, 1.0]
-	vsPos = gl_ModelViewMatrix * vec4(pos, 1.0);
-	gl_Position = gl_ProjectionMatrix * vsPos;
+	vsPos = modelViewMatrix * vec4(pos, 1.0);
+	gl_Position = projectionMatrix * vsPos;
 	screenUV = SNORM2NORM(gl_Position.xy / gl_Position.w);
 }
