@@ -24,6 +24,7 @@ uniform vec4 teamColor;
 uniform vec4 nanoColor;
 uniform vec4 alphaCtrl = vec4(0.0, 0.0, 0.0, 1.0); //always pass
 uniform vec4 colorMult = vec4(1.0, 1.0, 1.0, 1.0); // ghost dimming, build preview alpha
+uniform vec4 fogColor;
 
 bool AlphaDiscard(float a) {
 	float alphaTestGT = float(a > alphaCtrl.x) * alphaCtrl.y;
@@ -136,7 +137,7 @@ void main(void)
 	gl_FragData[GBUFFER_EMITTEX_IDX] = vec4(0.0, 0.0, 0.0, 0.0);
 	gl_FragData[GBUFFER_MISCTEX_IDX] = vec4(0.0, 0.0, 0.0, 0.0);
 #else
-	gl_FragColor.rgb = mix(gl_Fog.color.rgb, gl_FragColor.rgb, fogFactor); // fog
+	gl_FragColor.rgb = mix(fogColor.rgb, gl_FragColor.rgb, fogFactor); // fog
 	gl_FragColor.rgb = mix(gl_FragColor.rgb, nanoColor.rgb, nanoColor.a); // wireframe or polygon color
 	gl_FragColor.a   = alpha;
 	gl_FragColor    *= colorMult; // ghost dimming, build preview alpha

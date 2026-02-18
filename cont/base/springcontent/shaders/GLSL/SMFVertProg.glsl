@@ -7,6 +7,7 @@ uniform vec3 cameraPos;
 uniform vec4 lightDir;       // mapInfo->light.sunDir
 uniform vec2 specularTexGen; // 1.0/mapSize
 uniform sampler2D heightMapTex;
+uniform vec4 fogParams; //%.x=start, .y=end, .z=unused, .w=scale (1/(end-start))
 
 out vec3 halfDir;
 out float fogFactor;
@@ -50,7 +51,7 @@ void main() {
 #ifndef DEFERRED_MODE
 	// emulate linear fog
 	float fogCoord = length(gl_ClipVertex.xyz);
-	fogFactor = (gl_Fog.end - fogCoord) * gl_Fog.scale; // gl_Fog.scale == 1.0 / (gl_Fog.end - gl_Fog.start)
+	fogFactor = (fogParams.y - fogCoord) * fogParams.w; // fogParams: .y=end, .w=scale (1/(end-start))
 	fogFactor = clamp(fogFactor, 0.0, 1.0);
 #endif
 }

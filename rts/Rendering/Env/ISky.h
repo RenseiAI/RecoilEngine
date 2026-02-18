@@ -39,10 +39,17 @@ public:
 	bool& WireFrameModeRef() { return wireFrameMode; }
 
 	/**
-	 * Sets up OpenGL to draw fog or not, according to the value of
-	 * globalRendering->drawFog.
+	 * Formerly set FFP fog via glFog* calls; now a no-op.
+	 * Fog parameters are set as explicit shader uniforms via GetFogUniforms().
 	 */
 	void SetupFog();
+
+	/**
+	 * Returns fog color and parameters for use as explicit shader uniforms.
+	 * outColor: RGBA fog color (alpha=1)
+	 * outParams: (start, end, unused, scale=1/(end-start))
+	 */
+	void GetFogUniforms(float4& outColor, float4& outParams) const;
 
 	bool IsUpdated() {
 		return std::exchange(updated, false);

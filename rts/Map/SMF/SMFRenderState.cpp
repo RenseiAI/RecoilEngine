@@ -275,6 +275,14 @@ void SMFRenderStateGLSL::Enable(const CSMFGroundDrawer* smfGroundDrawer, const D
 	currShader->SetUniform("mapHeights", readMap->GetCurrMinHeight(), readMap->GetCurrMaxHeight());
 	currShader->SetUniform("infoTexIntensityMul", float(infoTextureHandler->InMetalMode()) + 1.0f);
 
+	// Set fog uniforms (replaces FFP glFog* state, Phase 4.4)
+	{
+		float4 fc, fp;
+		ISky::GetSky()->GetFogUniforms(fc, fp);
+		currShader->SetUniform4v("fogColor", &fc.x);
+		currShader->SetUniform4v("fogParams", &fp.x);
+	}
+
 	if (isAdv) {
 		currShader->SetUniform3v("cameraPos", &camera->GetPos()[0]);
 		if (shadowHandler.ShadowsLoaded())

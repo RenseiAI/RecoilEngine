@@ -19,6 +19,7 @@ uniform samplerCube specularTex;
 uniform vec3 specularLightColor;
 uniform vec3 ambientLightColor;
 uniform vec3 camDir;
+uniform vec4 fogColor;
 
 varying vec3 normal;
 varying vec4 shadingTexCoords;
@@ -65,5 +66,5 @@ void main() {
 	gl_FragColor.rgb -= (vec3(0.5, 0.5, 0.5) * float(infoTexIntensityMul == 1.0));
 #endif
 
-	gl_FragColor.rgb = mix(gl_Fog.color.rgb, gl_FragColor.rgb, gl_FogFragCoord);
+	gl_FragColor.rgb = mix(fogColor.rgb, gl_FragColor.rgb, gl_FogFragCoord);
 }

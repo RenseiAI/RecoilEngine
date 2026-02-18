@@ -28,6 +28,8 @@ uniform sampler2D depthmap;
 uniform sampler2D waverand;
 uniform float frame;
 uniform vec3 eyePos;
+uniform vec4 fogColor;
+uniform vec4 fogParams; //%.x=start, .y=end, .z=unused, .w=scale (1/(end-start))
 
 in float eyeVertexZ;
 in vec3 eyeVec;
@@ -348,6 +350,6 @@ void main()
     gl_FragColor.rgb += shadowOcc * specular * SpecularColor;
 
   // FOG
-    float fog = clamp( (gl_Fog.end - abs(gl_FogFragCoord)) * gl_Fog.scale ,0.0,1.0);
-    gl_FragColor.rgb = mix(gl_Fog.color.rgb, gl_FragColor.rgb, fog );
+    float fog = clamp( (fogParams.y - abs(gl_FogFragCoord)) * fogParams.w ,0.0,1.0);
+    gl_FragColor.rgb = mix(fogColor.rgb, gl_FragColor.rgb, fog );
 }

@@ -119,6 +119,5 @@ void CModernSky::Draw()
 	skyShader->Disable();
 	vao.Unbind();
 
-	sky->SetupFog();
 #endif
 }

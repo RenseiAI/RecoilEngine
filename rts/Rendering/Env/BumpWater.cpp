@@ -988,6 +988,14 @@ void CBumpWater::Draw()
 	waterShader->SetUniform("eyePos", camera->GetPos().x, camera->GetPos().y, camera->GetPos().z);
 	waterShader->SetUniform("frame", (gs->frameNum + globalRendering->timeOffset) / 15000.0f);
 
+	// Set fog uniforms (replaces FFP glFog* state, Phase 4.4)
+	{
+		float4 fc, fp;
+		ISky::GetSky()->GetFogUniforms(fc, fp);
+		waterShader->SetUniform4v("fogColor", &fc.x);
+		waterShader->SetUniform4v("fogParams", &fp.x);
+	}
+
 	if (shadowHandler.ShadowsLoaded()) {
 		waterShader->SetUniformMatrix4x4("shadowMatrix", false, shadowHandler.GetShadowMatrixRaw());
 

@@ -731,7 +731,6 @@ void CProjectileDrawer::DrawOpaque(bool drawReflection, bool drawRefraction)
 		(drawReflection * DrawFlags::SO_REFLEC_FLAG) +
 		(drawRefraction * DrawFlags::SO_REFRAC_FLAG);
 
-	ISky::GetSky()->SetupFog();
 	ScopedModelDrawerImpl<CUnitDrawer> legacy(true, false);
 	unitDrawer->SetupOpaqueDrawing(false);
 

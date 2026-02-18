@@ -120,8 +120,6 @@ void CBasicWater::Draw()
 
 	ctx->SetDepthWriteEnabled(false);
 
-	const auto& sky = ISky::GetSky();
-	sky->SetupFog();
 	ctx->SetPolygonMode(wireFrameMode ? RHI::PolygonMode::Line : RHI::PolygonMode::Fill);
 
 	if (textureRHI)

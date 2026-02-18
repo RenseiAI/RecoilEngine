@@ -177,9 +177,6 @@ void CWorldDrawer::InitPost() const
 		loadscreen->SetLoadMessage("Creating Water");
 		IWater::SetWater(-1);
 	}
-	{
-		ISky::GetSky()->SetupFog();
-	}
 	lock = {}; //unlock
 	{
 		loadscreen->SetLoadMessage("Finalizing Models");

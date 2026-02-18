@@ -6,6 +6,7 @@
 uniform mat4 modelMatrix;
 uniform mat4 viewProjMatrix;
 uniform vec3 cameraPosW;
+uniform vec4 fogParams; //%.x=start, .y=end, .z=unused, .w=scale (1/(end-start))
 
 varying vec4 vertexWorldPos;
 varying vec3 cameraDir;
@@ -40,7 +41,7 @@ void main(void)
 
 #if (DEFERRED_MODE == 0)
 	float fogCoord = length(cameraDir.xyz);
-	fogFactor = (gl_Fog.end - fogCoord) * gl_Fog.scale; //gl_Fog.scale := 1.0 / (gl_Fog.end - gl_Fog.start)
+	fogFactor = (fogParams.y - fogCoord) * fogParams.w; // fogParams: .y=end, .w=scale (1/(end-start))
 	fogFactor = clamp(fogFactor, 0.0, 1.0);
 #endif
 }

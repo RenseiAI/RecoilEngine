@@ -6,9 +6,8 @@
  * This file contains the ISky base interface. No RHI draw calls are made here;
  * derived classes (ModernSky, SkyBox) handle rendering.
  *
- * Retained GL calls (no RHI equivalent):
- *   - glFogfv, glFogi, glFogf: FFP fog parameters (read by gl_Fog.* built-in uniforms)
- *   Modern rendering uses shader-based fog. These remain until fog system migration.
+ * FFP fog (glFog*) removed in Phase 4.4 — fog is now explicit shader uniforms
+ * via GetFogUniforms(). SetupFog() kept as empty stub for call-site compatibility.
  */
 
 #include "ISky.h"
@@ -58,15 +57,15 @@ std::unique_ptr<ISky> ISky::sky = nullptr;
 
 void ISky::SetupFog() {
 	RECOIL_DETAILED_TRACY_ZONE;
+	// Fog parameters are now set as explicit shader uniforms (Phase 4.4).
+	// glFog* calls removed — shaders read fogColor/fogParams uniforms directly.
+}
 
-	// NOTE: FFP fog calls (glFog*) have no RHI equivalent.
-	// Modern rendering uses shader-based fog. These remain as direct GL
-	// calls until the fog system is migrated to a shader-based approach.
-	glFogfv(GL_FOG_COLOR, fogColor);
-	glFogi(GL_FOG_MODE,   GL_LINEAR);
-	glFogf(GL_FOG_START,  camera->GetFarPlaneDist() * fogStart);
-	glFogf(GL_FOG_END,    camera->GetFarPlaneDist() * fogEnd);
-	glFogf(GL_FOG_DENSITY, 1.0f);
+void ISky::GetFogUniforms(float4& outColor, float4& outParams) const {
+	outColor = float4(fogColor.x, fogColor.y, fogColor.z, 1.0f);
+	const float start = camera->GetFarPlaneDist() * fogStart;
+	const float end   = camera->GetFarPlaneDist() * fogEnd;
+	outParams = float4(start, end, 0.0f, 1.0f / (end - start));
 }
 
 void ISky::SetSky()

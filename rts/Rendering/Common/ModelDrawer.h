@@ -12,10 +12,9 @@
  *   - Alpha test (shadow pass) -> shader discard via alphaCtrl uniform
  *
  * Remaining GL calls:
- *   - ISky::SetupFog() in legacy draw path (glFog* params for gl_Fog.* built-in uniforms)
+ *   - None (fog migrated to explicit shader uniforms in Phase 4.4)
  *
  * Dependencies blocking full migration:
- *   - GLSL path uses legacy FFP fog; GL4 path is modern
  *   - Legacy draw path kept for compatibility with old Lua scripts
  */
 
@@ -338,11 +337,6 @@ inline void CModelDrawerBase<TDrawerData, TDrawer>::DrawImpl(bool drawReflection
 {
 	constexpr static auto zone_name = spring::Concat(spring::TypeToCharN<TDrawer>().str, "::Draw");
 	SCOPED_TIMER(zone_name.str);
-
-	if constexpr (legacy) {
-		// RHI_TODO: legacy FFP state (fog). Only used in GLSL path.
-		ISky::GetSky()->SetupFog();
-	}
 
 	assert((CCameraHandler::GetActiveCamera())->GetCamType() != CCamera::CAMTYPE_SHADOW);
 

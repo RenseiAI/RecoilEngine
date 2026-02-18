@@ -24,7 +24,7 @@
  * - Display lists: glGenLists/glNewList/glCallList replaced with VBO/VAO (Phase 4.3)
  *
  * REMAINING (NOT MIGRATED):
- * - FFP deprecated: GL_ALPHA_TEST, GL_FOG, GL_CLIP_PLANE0, glColor4f
+ * - FFP deprecated: GL_ALPHA_TEST, GL_CLIP_PLANE0, glColor4f
  * - Shadow depth texture (SetupShadowTexSampler / ResetShadowTexSamplerRaw)
  * - FBO operations: glBindFramebufferEXT, glBlitFramebufferEXT
  * - Texture parameters: glTexParameteri, glTexEnvi
@@ -407,6 +407,14 @@ void CGrassDrawer::EnableShader(const GrassShaderProgram type) {
 	grassShader->SetUniform3v("diffuseLightColor",  &sunLighting->modelDiffuseColor.x);
 	grassShader->SetUniform3v("specularLightColor", &sunLighting->modelSpecularColor.x);
 	grassShader->SetUniform3v("sunDir",             &mapInfo->light.sunDir.x);
+
+	// Set fog uniforms (replaces FFP glFog* state, Phase 4.4)
+	{
+		float4 fc, fp;
+		ISky::GetSky()->GetFogUniforms(fc, fp);
+		grassShader->SetUniform4v("fogColor", &fc.x);
+		grassShader->SetUniform4v("fogParams", &fp.x);
+	}
 }
 
 
@@ -678,8 +686,6 @@ void CGrassDrawer::SetupGlStateNear()
 	ctx->SetBlendEnabled(false);
 	ctx->SetDepthWriteEnabled(true);
 
-	const auto& sky = ISky::GetSky();
-	sky->SetupFog();
 }
 
 

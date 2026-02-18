@@ -16,6 +16,7 @@ uniform vec3 windSpeed;
 uniform vec3 sunDir;
 uniform vec3 ambientLightColor;
 uniform vec3 diffuseLightColor;
+uniform vec4 fogParams; //%.x=start, .y=end, .z=unused, .w=scale (1/(end-start))
 
 varying vec3 normal;
 varying vec4 shadingTexCoords;
@@ -158,6 +159,6 @@ void main() {
 	gl_Position = gl_ProjectionMatrix * worldPos;
 
 	gl_FogFragCoord = distance(camPos, worldPos.xyz);
-	gl_FogFragCoord = (gl_Fog.end - gl_FogFragCoord) * gl_Fog.scale;
+	gl_FogFragCoord = (fogParams.y - gl_FogFragCoord) * fogParams.w; // fogParams: .y=end, .w=scale
 	gl_FogFragCoord = clamp(gl_FogFragCoord, 0.0, 1.0);
 }

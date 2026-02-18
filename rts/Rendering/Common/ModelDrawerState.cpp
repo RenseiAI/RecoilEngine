@@ -253,6 +253,14 @@ void CModelDrawerStateGLSL::Enable(bool deferredPass, bool alphaPass) const
 		modelShader->SetUniform("colorMult", 1.0f, 1.0f, 1.0f, 1.0f);
 	}
 
+	// Set fog uniforms (replaces FFP glFog* state, Phase 4.4)
+	{
+		float4 fc, fp;
+		ISky::GetSky()->GetFogUniforms(fc, fp);
+		modelShader->SetUniform4v("fogColor", &fc.x);
+		modelShader->SetUniform4v("fogParams", &fp.x);
+	}
+
 	// Alpha control — replaces legacy FFP glAlphaFunc/GL_ALPHA_TEST
 	float gtThreshold = mix(0.5f, 0.1f, static_cast<float>(alphaPass));
 	modelShader->SetUniform("alphaCtrl", gtThreshold, 1.0f, 0.0f, 0.0f);

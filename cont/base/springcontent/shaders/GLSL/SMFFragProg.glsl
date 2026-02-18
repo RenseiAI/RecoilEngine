@@ -61,6 +61,7 @@ uniform vec4 alphaCtrl = vec4(0.0, 0.0, 0.0, 1.0); // always pass
 uniform sampler2D infoTex;
 uniform float infoTexIntensityMul;
 uniform vec2 infoTexGen;     // 1.0/(pwr2map{x,z} * SQUARE_SIZE)
+uniform vec4 fogColor;
 
 #ifdef SMF_SPECULAR_LIGHTING
 	uniform sampler2D specularTex;
@@ -444,7 +445,7 @@ void main() {
 	// linearly transform the eye-space depths, might be more useful?
 	// gl_FragDepth = gl_FragCoord.z / gl_FragCoord.w;
 #else
-	fragColor.rgb = mix(gl_Fog.color.rgb, fragColor.rgb, fogFactor);
+	fragColor.rgb = mix(fogColor.rgb, fragColor.rgb, fogFactor);
 #endif
 }
 

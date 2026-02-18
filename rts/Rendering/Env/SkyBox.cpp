@@ -324,6 +324,5 @@ void CSkyBox::Draw()
 	if (auto* rhiTex = skyTex.GetRawRHITexture())
 		rhiTex->Unbind(0);
 
-	sky->SetupFog();
 #endif
 }
