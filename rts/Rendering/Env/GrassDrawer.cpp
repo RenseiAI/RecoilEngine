@@ -24,7 +24,8 @@
  * - Display lists: glGenLists/glNewList/glCallList replaced with VBO/VAO (Phase 4.3)
  *
  * REMAINING (NOT MIGRATED):
- * - FFP deprecated: GL_ALPHA_TEST, GL_CLIP_PLANE0, glColor4f
+ * - FFP deprecated: GL_ALPHA_TEST, glColor4f
+ * - Migrated: GL_CLIP_PLANE0 → ctx->SetClipDistanceEnabled + SetClipPlaneEquation (CreateFarTex)
  * - Shadow depth texture (SetupShadowTexSampler / ResetShadowTexSamplerRaw)
  * - FBO operations: glBindFramebufferEXT, glBlitFramebufferEXT
  * - Texture parameters: glTexParameteri, glTexEnvi
@@ -914,12 +915,11 @@ void CGrassDrawer::CreateGrassBladeTex(unsigned char* buf)
 	}
 }
 
-// TODO [RHI cross-cutting]: CreateFarTex is heavily GL-dependent:
-// - FBO operations for render-to-texture
-// - glClipPlane (GL_CLIP_PLANE0) for clipping
-// - glBindFramebufferEXT/glBlitFramebufferEXT for MSAA resolve
-// - CVertexArray with glBegin/glEnd-style drawing
-// Viewport, clear, and matrix stack operations have been migrated to RHI.
+// TODO [RHI cross-cutting]: CreateFarTex remaining GL:
+// - FBO operations (glBindFramebufferEXT, glBlitFramebufferEXT) for render-to-texture
+// - CVertexArray with glBegin/glEnd-style drawing (mipmap blur pass)
+// - FlushMatrices (grassBlade+blur draws use FFP pipeline, no shader active)
+// Migrated: viewport, clear, matrix stack, clip plane (SetClipPlaneEquation).
 void CGrassDrawer::CreateFarTex()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -970,10 +970,9 @@ void CGrassDrawer::CreateFarTex()
 	if (grassBladeTex) {
 		grassBladeTex->Bind(0);
 	}
-	glEnable(GL_CLIP_PLANE0);
-
 	// RHI dynamic state
 	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetClipDistanceEnabled(0, true);
 	ctx->SetBlendEnabled(false);
 	ctx->SetDepthTestEnabled(true);
 	ctx->SetDepthWriteEnabled(true);
@@ -986,7 +985,7 @@ void CGrassDrawer::CreateFarTex()
 		ctx->ClearColor(0.f, 0.f, 0.f, 0.f);
 	}
 
-	static const GLdouble eq[4] = {0.f, 1.f, 0.f, 0.f};
+	static const GLdouble eq[4] = {0.0, 1.0, 0.0, 0.0};
 
 	// render turf from different vertical angles
 	for (int a=0;a<numAngles;++a) {
@@ -994,18 +993,25 @@ void CGrassDrawer::CreateFarTex()
 		mvStack.LoadIdentity()
 		       .RotateX(a * 90.0f / (numAngles - 1) * math::DEG_TO_RAD);
 		projStack.LoadMatrix(CMatrix44f::OrthoProj(-partTurfSize, partTurfSize, partTurfSize, -partTurfSize, -turfSize, turfSize));
-		FlushMatrices();
+		FlushMatrices(); // needed: grassBlade draw uses FFP pipeline (no shader active)
 
-		// has to be applied after the matrix transformations,
-		// cause it uses those an `compiles` them into the clip plane
-		glClipPlane(GL_CLIP_PLANE0, &eq[0]);
+		// Pre-transform clip plane by (MV^-1)^T for SetClipPlaneEquation (identity MV).
+		// MV is RotateX(angle) which is orthogonal, so (MV^-1)^T = MV.
+		const CMatrix44f& mv = mvStack.Top();
+		const GLdouble eyeEq[4] = {
+			mv[0]*eq[0] + mv[4]*eq[1] + mv[8]*eq[2]  + mv[12]*eq[3],
+			mv[1]*eq[0] + mv[5]*eq[1] + mv[9]*eq[2]  + mv[13]*eq[3],
+			mv[2]*eq[0] + mv[6]*eq[1] + mv[10]*eq[2] + mv[14]*eq[3],
+			mv[3]*eq[0] + mv[7]*eq[1] + mv[11]*eq[2] + mv[15]*eq[3]
+		};
+		ctx->SetClipPlaneEquation(0, eyeEq);
 
 		glBindVertexArray(grassBladeVAO);
 		glDrawElements(GL_TRIANGLES, grassBladeIndexCount, GL_UNSIGNED_INT, nullptr);
 		glBindVertexArray(0);
 	}
 
-	glDisable(GL_CLIP_PLANE0);
+	ctx->SetClipDistanceEnabled(0, false);
 
 	// scale down the rendered fartextures (MSAA) and write to the final texture
 	glBindFramebufferEXT(GL_READ_FRAMEBUFFER, fbo.fboId);
