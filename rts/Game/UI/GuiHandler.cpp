@@ -3,10 +3,9 @@
 // RHI Migration Status: GL state + FFP drawing largely migrated to RHI/RenderBuffer
 // Migrated: matrix transforms (CPU CMatrix44f), LogicOp → RHI, DrawBoxShape/DrawMinMaxBox/
 //   DrawCylinderShape → RenderBuffer, GetConeList display list → RenderBuffer (DrawConeGeometry),
-//   FullScreenDraw glRectf → RenderBuffer, glColor4f → per-vertex SColor in data structs
-// Remaining: glPushMatrix/glPopMatrix/glMultMatrixf/glLoadMatrixf (RenderBuffer shader reads
-//   gl_ModelViewProjectionMatrix), glLoadIdentity (DrawOptionLEDs), glColor4f in DrawMapStuff
-//   (model shader reads gl_Color), glBindTexture (external texture manager), glGetIntegerv,
+//   FullScreenDraw → RenderBuffer + SetTransformMatrix(Identity), glColor4f → per-vertex SColor,
+//   DrawOptionLEDs/DrawMiniMapMarker/DrawWeaponCone/DrawMapStuff → SetTransformMatrix (Phase 4.6)
+// Remaining: glBindTexture (external texture manager), glGetIntegerv,
 //   font->glPrint/glFormat (font system)
 
 #include "GuiHandler.h"
@@ -3450,13 +3449,13 @@ void CGuiHandler::DrawOptionLEDs(const IconInfo& icon)
 	}
 	const int option = atoi(cmdDesc.params[0].c_str());
 
-	glLoadIdentity();
-
 	const float xs = xIconSize / float(1 + (pCount * 2));
 	const float ys = yIconSize * 0.125f;
 	const float x1 = icon.visual.x1;
 	const float y2 = icon.visual.y2;
 	const float yp = 1.0f / float(globalRendering->viewSizeY);
+
+	const CMatrix44f ortho2D = CMatrix44f::ClipOrthoProj01();
 
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
 	auto& sh = rb.GetShader();
@@ -3496,6 +3495,7 @@ void CGuiHandler::DrawOptionLEDs(const IconInfo& icon)
 			{ {startx + xs, starty + ys, 0.0f}, ledCol },
 			{ {startx,      starty + ys, 0.0f}, ledCol }
 		);
+		rb.SetTransformMatrix(ortho2D);
 		rb.DrawElements(GL_TRIANGLES);
 		sh.Disable();
 
@@ -3509,6 +3509,7 @@ void CGuiHandler::DrawOptionLEDs(const IconInfo& icon)
 			{ {startx + xs, starty + ys, 0.0f}, outlineCol },
 			{ {startx,      starty + ys, 0.0f}, outlineCol }
 		);
+		rb.SetTransformMatrix(ortho2D);
 		rb.DrawElements(GL_TRIANGLES);
 		sh.Disable();
 		ctx->SetPolygonMode(RHI::PolygonMode::Fill);
@@ -3573,7 +3574,7 @@ static void DrawUnitDefRanges(const CUnit* unit, const UnitDef* unitdef, const f
 
 
 
-static void DrawConeGeometry(const SColor& color)
+static void DrawConeGeometry(const SColor& color, const CMatrix44f& mvp)
 {
 	const int divs = 64;
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
@@ -3589,6 +3590,7 @@ static void DrawConeGeometry(const SColor& color)
 		rb.AddVertex({ {1.0f, std::sin(rad0), std::cos(rad0)}, color });
 		rb.AddVertex({ {1.0f, std::sin(rad1), std::cos(rad1)}, color });
 	}
+	rb.SetTransformMatrix(mvp);
 	rb.DrawArrays(GL_TRIANGLES);
 
 	sh.Disable();
@@ -3600,30 +3602,26 @@ static void DrawWeaponCone(const float3& pos, float len, float hrads, float head
 	RECOIL_DETAILED_TRACY_ZONE;
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	glPushMatrix();
-
 	const float xlen = len * std::cos(hrads);
 	const float yzlen = len * std::sin(hrads);
 
-	// Compute transform on CPU, flush once via glMultMatrixf
 	CMatrix44f coneTransform;
 	coneTransform.Translate(pos);
 	coneTransform.RotateY(heading);
 	coneTransform.RotateZ(pitch);
 	coneTransform.Scale(xlen, yzlen, yzlen);
-	glMultMatrixf(coneTransform);
+
+	const CMatrix44f coneMVP = camera->GetViewProjectionMatrix() * coneTransform;
 
 	ctx->SetCullFaceEnabled(true);
 
 	ctx->SetCullFace(RHI::CullMode::Front);
-	DrawConeGeometry(SColor(1.0f, 0.0f, 0.0f, 0.25f));
+	DrawConeGeometry(SColor(1.0f, 0.0f, 0.0f, 0.25f), coneMVP);
 
 	ctx->SetCullFace(RHI::CullMode::Back);
-	DrawConeGeometry(SColor(0.0f, 1.0f, 0.0f, 0.25f));
+	DrawConeGeometry(SColor(0.0f, 1.0f, 0.0f, 0.25f), coneMVP);
 
 	ctx->SetCullFaceEnabled(false);
-
-	glPopMatrix();
 }
 
 
@@ -4003,12 +4001,8 @@ void CGuiHandler::DrawMapStuff(bool onMiniMap, const CMatrix44f* transform)
 						mvStack.Push();
 						mvStack.LoadMatrix(buildTransform);
 
-						glPushMatrix();
-						glLoadMatrixf(buildTransform);
-
 						unitDrawer->DrawIndividualDefAlpha(bi.def, gu->myTeam, false);
 
-						glPopMatrix();
 						mvStack.Pop();
 						ctx->SetBlendFunc((RHI::BlendFactor)cmdColors.SelectedBlendSrc(), (RHI::BlendFactor)cmdColors.SelectedBlendDst());
 					}
@@ -4091,13 +4085,11 @@ void CGuiHandler::DrawMiniMapMarker(const float3& cameraPos)
 	static float spinTime = 0.0f;
 	spinTime = math::fmod(spinTime + globalRendering->lastFrameTime * 0.001f, 60.0f);
 
-	// Compute marker transform on CPU, flush once via glMultMatrixf
 	CMatrix44f markerTransform;
 	markerTransform.Translate(cameraPos.x, groundLevel, cameraPos.z);
 	markerTransform.RotateY(360.0f * (spinTime / 2.0f) * math::DEG_TO_RAD);
 
-	glPushMatrix();
-	glMultMatrixf(markerTransform);
+	const CMatrix44f markerMVP = camera->GetViewProjectionMatrix() * markerTransform;
 
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::One);
@@ -4128,6 +4120,7 @@ void CGuiHandler::DrawMiniMapMarker(const float3& cameraPos)
 	rb.AddVertex({ {0.0f, 0.0f, 0.0f}, c6 }); rb.AddVertex({ {-w, +h, 0.0f}, c6 }); rb.AddVertex({ {0.0f, +h, -w}, c6 });
 	// face 3: origin, (0,+h,-w), (+w,+h,0) — color from colors[7]
 	rb.AddVertex({ {0.0f, 0.0f, 0.0f}, c7 }); rb.AddVertex({ {0.0f, +h, -w}, c7 }); rb.AddVertex({ {+w, +h, 0.0f}, c7 });
+	rb.SetTransformMatrix(markerMVP);
 	rb.DrawArrays(GL_TRIANGLES);
 
 	// top diamond (fan center = (0,2h,0))
@@ -4139,11 +4132,11 @@ void CGuiHandler::DrawMiniMapMarker(const float3& cameraPos)
 	rb.AddVertex({ {0.0f, h * 2.0f, 0.0f}, c1 }); rb.AddVertex({ {-w, +h, 0.0f}, c1 }); rb.AddVertex({ {0.0f, +h, +w}, c1 });
 	// face 3: (0,2h,0), (0,+h,+w), (+w,+h,0) — color from colors[0]
 	rb.AddVertex({ {0.0f, h * 2.0f, 0.0f}, c0 }); rb.AddVertex({ {0.0f, +h, +w}, c0 }); rb.AddVertex({ {+w, +h, 0.0f}, c0 });
+	rb.SetTransformMatrix(markerMVP);
 	rb.DrawArrays(GL_TRIANGLES);
 	sh.Disable();
 
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
-	glPopMatrix();
 }
 
 
@@ -4465,16 +4458,7 @@ static void StencilDrawSelectBox(const float3& pos0, const float3& pos1,
 static void FullScreenDraw()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// Draw a fullscreen quad using identity matrices via RenderBuffer
-	// The RenderBuffer shader reads gl_ModelViewProjectionMatrix from FFP,
-	// so we set identity matrices temporarily.
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadIdentity();
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	glLoadIdentity();
-
+	// Draw a fullscreen quad in [-1,+1] NDC clip space with identity MVP
 	const SColor white(1.0f, 1.0f, 1.0f, 1.0f);
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
 	auto& sh = rb.GetShader();
@@ -4485,13 +4469,9 @@ static void FullScreenDraw()
 		{ {+1.0f, +1.0f, 0.0f}, white },
 		{ {-1.0f, +1.0f, 0.0f}, white }
 	);
+	rb.SetTransformMatrix(CMatrix44f::Identity());
 	rb.DrawArrays(GL_TRIANGLES);
 	sh.Disable();
-
-	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
 }
 
 

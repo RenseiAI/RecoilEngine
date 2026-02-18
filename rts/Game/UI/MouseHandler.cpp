@@ -990,14 +990,18 @@ void CMouseHandler::DrawCursor()
 			const float xscale = crossSize * globalRendering->pixelX;
 			const float yscale = crossSize * globalRendering->pixelY;
 
-			glPushMatrix();
-			glTranslatef(0.5f - globalRendering->pixelX * 0.5f, 0.5f - globalRendering->pixelY * 0.5f, 0.0f);
-			glScalef(xscale, yscale, 1.0f);
+			const float tx = 0.5f - globalRendering->pixelX * 0.5f;
+			const float ty = 0.5f - globalRendering->pixelY * 0.5f;
+			CMatrix44f cursorMV;
+			cursorMV.Translate(tx, ty, 0.0f);
+			cursorMV.Scale(xscale, yscale, 1.0f);
+			const CMatrix44f cursorMVP = CMatrix44f::ClipOrthoProj01() * cursorMV;
 
 			auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
 			auto& sh = rb.GetShader();
 
 			sh.Enable();
+			rb.SetTransformMatrix(cursorMVP);
 
 			if (gu->fpsMode) {
 				DrawFPSCursor(rb);
@@ -1006,8 +1010,6 @@ void CMouseHandler::DrawCursor()
 			}
 
 			sh.Disable();
-
-			glPopMatrix();
 		}
 
 		return;
