@@ -11,8 +11,8 @@
  * - Migrated: DrawWorldStuff downstream: ProjectileDrawer::DrawProjectilesMiniMap,
  *   ShadowHandler::DrawFrustumDebug, DebugVisibilityDrawer::DrawMinimap, LineDrawer::DrawAll,
  *   GuiHandler::DrawMapStuff all accept optional transform for explicit MVP
- *   Remaining GL: FlushMatrices in DrawWorldStuff (for glExtra, commandDrawer auto-sync),
- *   SetClipPlanes (glClipPlane reads inverse modelview)
+ *   Remaining GL: FlushMatrices in DrawWorldStuff (for glExtra, commandDrawer auto-sync)
+ * - Migrated: SetClipPlanes glClipPlane → ctx->SetClipPlaneEquation with pre-computed eye-space planes
  * - Migrated: DrawBackground bgShader + DrawUnitIcons icons2DShader → explicit transformMatrix uniform
  *   (shaders no longer read gl_ModelViewProjectionMatrix). FlushMatrices removed from
  *   UpdateTextureCache, DrawForReal, DrawBackground, DrawUnitIcons.
@@ -2050,42 +2050,35 @@ void CMiniMap::DrawWorldStuff() const
 void CMiniMap::SetClipPlanes(const bool lua) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* ctx = RHI::GetDevice()->GetContext();
+
 	if (lua) {
-		// prepare ClipPlanes for Lua's DrawInMinimap Modelview matrix
+		// Lua's DrawInMinimap uses MV = Scale(1/curDim.x, 1/curDim.y, 1).
+		// glClipPlane transformed planes by inverse(MV)^T = Scale(curDim.x, curDim.y, 1).
+		// SetClipPlaneEquation uses identity MV, so pre-compute eye-space equations directly.
+		const double w = double(curDim.x);
+		const double h = double(curDim.y);
 
-		// quote from glClipPlane spec:
-		// "When glClipPlane is called, equation is transformed by the inverse of the modelview matrix and stored in the resulting eye coordinates.
-		//  Subsequent changes to the modelview matrix have no effect on the stored plane-equation components."
-		// -> we have to use the same modelview matrix when calling glClipPlane and later draw calls
+		const double plane0[4] = { 0, -h, 0, h}; // clip bottom
+		const double plane1[4] = { 0,  h, 0, 0}; // clip top
+		const double plane2[4] = {-w,  0, 0, w}; // clip right
+		const double plane3[4] = { w,  0, 0, 0}; // clip left
 
-		// set the modelview matrix to the same as used in Lua's DrawInMinimap
-		mvStack.Push();
-		mvStack.LoadIdentity()
-		       .Scale(1.0f / curDim.x, 1.0f / curDim.y, 1.0f);
-		FlushMatrices(); // glClipPlane reads the inverse of the current GL modelview matrix
-
-		const double plane0[4] = { 0, -1, 0, double(curDim.y)};
-		const double plane1[4] = { 0,  1, 0,                0};
-		const double plane2[4] = {-1,  0, 0, double(curDim.x)};
-		const double plane3[4] = { 1,  0, 0,                0};
-
-		glClipPlane(GL_CLIP_PLANE0, plane0); // clip bottom
-		glClipPlane(GL_CLIP_PLANE1, plane1); // clip top
-		glClipPlane(GL_CLIP_PLANE2, plane2); // clip right
-		glClipPlane(GL_CLIP_PLANE3, plane3); // clip left
-
-		mvStack.Pop();
+		ctx->SetClipPlaneEquation(0, plane0);
+		ctx->SetClipPlaneEquation(1, plane1);
+		ctx->SetClipPlaneEquation(2, plane2);
+		ctx->SetClipPlaneEquation(3, plane3);
 	} else {
-		// clip everything outside of the minimap box
+		// clip everything outside of the minimap box (normalized coords, identity MV)
 		const double plane0[4] = { 0,-1, 0, 1};
 		const double plane1[4] = { 0, 1, 0, 0};
 		const double plane2[4] = {-1, 0, 0, 1};
 		const double plane3[4] = { 1, 0, 0, 0};
 
-		glClipPlane(GL_CLIP_PLANE0, plane0); // clip bottom
-		glClipPlane(GL_CLIP_PLANE1, plane1); // clip top
-		glClipPlane(GL_CLIP_PLANE2, plane2); // clip right
-		glClipPlane(GL_CLIP_PLANE3, plane3); // clip left
+		ctx->SetClipPlaneEquation(0, plane0);
+		ctx->SetClipPlaneEquation(1, plane1);
+		ctx->SetClipPlaneEquation(2, plane2);
+		ctx->SetClipPlaneEquation(3, plane3);
 	}
 }
 
