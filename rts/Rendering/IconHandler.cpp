@@ -18,33 +18,15 @@
 /**
  * RHI_MIGRATION_DOCS(IconHandler)
  *
- * Migration Status: PARTIAL - Texture lifecycle documented
+ * Migration Status: COMPLETE - Texture lifecycle via owning RHI wrappers
  *
- * Texture Lifecycle Mapping:
- *   glDeleteTextures(2, atlasTextureIDs.data())
- *   Maps to:
- *     // atlasTextureIDs becomes std::array<std::unique_ptr<RHI::IRHITexture>, 2>
- *     atlasTextureIDs[0].reset();  // destructor handles deletion
- *     atlasTextureIDs[1].reset();
- *
- *   glDeleteTextures(1, &atlasTextureIDs[atlasIdx])
- *   Maps to:
- *     atlasTextureIDs[atlasIdx].reset();
- *
- * Texture Creation:
- *   atlasTextureIDs[atlasIdx] = bm.CreateMipMapTexture();
- *   Should become:
- *     atlasTextureIDs[atlasIdx] = RHI::GetDevice()->CreateTexture(...);
- *     atlasTextureIDs[atlasIdx]->Upload(bm.GetRawMem());
- *     atlasTextureIDs[atlasIdx]->GenerateMipmaps();
+ * Texture Lifecycle:
+ *   atlasRHITextures[i] uses CreateTextureFromExisting (owning=true)
+ *   .reset() deletes both the wrapper and the GL texture via ~GLTexture
+ *   atlasTextureIDs[i] kept as convenience reference for Lua GL ID queries
  *
  * Debug Functions:
  *   glSaveTexture - No RHI equivalent, keep GL for debug builds only
- *
- * Completion Criteria:
- *   [ ] Refactor atlasTextureIDs to use RHI::IRHITexture
- *   [ ] Add RHI wrapper for CBitmap::CreateMipMapTexture
- *   [x] Document texture lifecycle mapping
  */
 #include "System/Log/ILog.h"
 #include "System/UnorderedSet.hpp"
@@ -68,13 +50,8 @@ void CIconHandler::Kill()
 {
 	defaultIconIdx = INVALID_ICON_INDEX;
 
-	// Clear non-owning RHI wrappers before deleting GL textures
+	// Owning RHI wrappers delete the GL textures on reset
 	atlasRHITextures = {};
-
-	// RHI_TODO: raw GLuint texture cleanup - no RHI wrapper available
-	// Atlases use GLuint from CBitmap::CreateMipMapTexture() or CTextureRenderAtlas::DisownTexture()
-	// Needs refactor to std::unique_ptr<IRHITexture> atlasTextures[2]
-	glDeleteTextures(2, atlasTextureIDs.data());
 	atlasTextureIDs = { 0 };
 	atlasTextureSizes = { int2{0, 0}, int2{0, 0} };
 
@@ -88,8 +65,7 @@ void CIconHandler::Kill()
 
 void CIconHandler::DumpAtlasTextures() const
 {
-	// RHI_TODO: glSaveTexture debug utility - no RHI equivalent
-	// Debug-only function for texture inspection; keep GL for now
+	// glSaveTexture debug utility — no RHI equivalent, keep GL for debug
 	if (atlasTextureIDs[0])
 		glSaveTexture(atlasTextureIDs[0], "IconsAtlas1.png");
 	if (atlasTextureIDs[1])
@@ -166,16 +142,13 @@ bool CIconHandler::CreateAtlasTexture(size_t atlasIdx)
 		if (!bm.Load(*allFiles.begin()))
 			return false;
 
-		// RHI_TODO: raw GLuint texture cleanup - no RHI wrapper available
-		// CBitmap::CreateMipMapTexture() returns raw GL handle, not IRHITexture
-		atlasRHITextures[atlasIdx].reset(); // clear wrapper before deleting GL texture
-		glDeleteTextures(1, &atlasTextureIDs[atlasIdx]);
-		atlasTextureIDs[atlasIdx] = 0; // just in case
+		// Owning wrapper deletes old GL texture on reset
+		atlasRHITextures[atlasIdx].reset();
 		atlasTextureIDs[atlasIdx] = bm.CreateMipMapTexture();
 		atlasTextureSizes[atlasIdx] = int2(bm.xsize, bm.ysize);
 
-		// Wrap with non-owning RHI texture for RHI binding
-		atlasRHITextures[atlasIdx] = RHI::GetDevice()->WrapExistingTexture(
+		// Owning RHI wrapper — destructor will call glDeleteTextures
+		atlasRHITextures[atlasIdx] = RHI::GetDevice()->CreateTextureFromExisting(
 			atlasTextureIDs[atlasIdx], RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
 			bm.xsize, bm.ysize);
 
@@ -188,20 +161,15 @@ bool CIconHandler::CreateAtlasTexture(size_t atlasIdx)
 
 	atlasTextureSizes[atlasIdx] = atlas->GetAtlasSize();
 
-	// RHI_TODO: raw GLuint texture cleanup - no RHI wrapper available
-	// CTextureRenderAtlas::DisownTexture() returns raw GL handle, not IRHITexture
-	atlasRHITextures[atlasIdx].reset(); // clear wrapper before deleting GL texture
-	if (atlasTextureIDs[atlasIdx]) {
-		glDeleteTextures(1, &atlasTextureIDs[atlasIdx]);
-		atlasTextureIDs[atlasIdx] = 0; // just in case
-	}
+	// Owning wrapper deletes old GL texture on reset
+	atlasRHITextures[atlasIdx].reset();
 
 	atlasTextureIDs[atlasIdx] = atlas->DisownTexture();
 	atlas = nullptr;
 
-	// Wrap with non-owning RHI texture for RHI binding
+	// Owning RHI wrapper — destructor will call glDeleteTextures
 	const int2 size = atlasTextureSizes[atlasIdx];
-	atlasRHITextures[atlasIdx] = RHI::GetDevice()->WrapExistingTexture(
+	atlasRHITextures[atlasIdx] = RHI::GetDevice()->CreateTextureFromExisting(
 		atlasTextureIDs[atlasIdx], RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
 		size.x, size.y);
 
