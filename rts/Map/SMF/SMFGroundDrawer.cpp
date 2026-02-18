@@ -380,6 +380,7 @@ void CSMFGroundDrawer::DrawBorder(const DrawPass::e drawPass)
 	ctx->SetPolygonMode(wireframe ? RHI::PolygonMode::Line : RHI::PolygonMode::Fill);
 
 	borderShader->Enable();
+	borderShader->SetUniformMatrix4x4<float>("transformMatrix", false, camera->GetViewProjectionMatrix());
 	borderShader->SetUniform("borderMinHeight", std::min(readMap->GetInitMinHeight(), -500.0f));
 	meshDrawer->DrawBorderMesh(drawPass);
 	borderShader->Disable();

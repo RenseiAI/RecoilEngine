@@ -67,7 +67,7 @@ public:
 	virtual void DrawIndividualDefAlpha(const SolidObjectDef* objectDef, int teamID, bool rawState, bool toScreen = false) const = 0;
 
 	// Icons Minimap
-	virtual void DrawUnitMiniMapIcons() const = 0;
+	virtual void DrawUnitMiniMapIcons(const CMatrix44f& mvp) const = 0;
 	        void UpdateUnitIconsByUnitDef(const UnitDef* ud) { modelDrawerData->UpdateUnitIconsByUnitDef(ud); }
 
 	// Icons Map
@@ -146,7 +146,7 @@ public:
 	bool ShowUnitBuildSquare(const BuildInfo& buildInfo, const std::vector<Command>& commands) const override;
 	void DrawBuildIcons(const std::vector<CCursorIcons::BuildIcon>& buildIcons) const override;
 
-	void DrawUnitMiniMapIcons() const override;
+	void DrawUnitMiniMapIcons(const CMatrix44f& mvp) const override;
 	void DrawUnitIcons() const override;
 	void DrawUnitIconsScreen() const override;
 protected:

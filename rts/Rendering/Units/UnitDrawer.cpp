@@ -407,7 +407,7 @@ void CUnitDrawerGLSL::DrawUnitMiniMapIcon(TypedRenderBuffer<VA_TYPE_2DTC3>& rb, 
 	);
 }
 
-void CUnitDrawerGLSL::DrawUnitMiniMapIcons() const
+void CUnitDrawerGLSL::DrawUnitMiniMapIcons(const CMatrix44f& mvp) const
 {
 	ZoneScoped;
 
@@ -506,6 +506,7 @@ void CUnitDrawerGLSL::DrawUnitMiniMapIcons() const
 	if (auto* t1 = icon::iconHandler.GetAtlasRHITexture(1)) t1->Bind(1);
 
 	icons2DShader->Enable();
+	icons2DShader->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
 	icons2DShader->SetUniform("alphaCtrl", 0.0f, 1.0f, 0.0f, 0.0f); // GL_GREATER > 0.0
 
 	rb.Submit(GL_TRIANGLES);
@@ -607,6 +608,7 @@ void CUnitDrawerGLSL::DrawUnitIcons() const
 	if (auto* t1 = icon::iconHandler.GetAtlasRHITexture(1)) t1->Bind(1);
 
 	icons3DShader->Enable();
+	icons3DShader->SetUniformMatrix4x4<float>("transformMatrix", false, camera->GetViewProjectionMatrix());
 	icons3DShader->SetUniform("alphaCtrl", 0.05f, 1.0f, 0.0f, 0.0f); // GL_GREATER > 0.05
 
 	rb.Submit(GL_TRIANGLES);
@@ -754,6 +756,7 @@ void CUnitDrawerGLSL::DrawUnitIconsScreen() const
 	if (auto* t1 = icon::iconHandler.GetAtlasRHITexture(1)) t1->Bind(1);
 
 	icons3DShader->Enable();
+	icons3DShader->SetUniformMatrix4x4<float>("transformMatrix", false, camera->GetViewProjectionMatrix());
 	icons3DShader->SetUniform("alphaCtrl", 0.05f, 1.0f, 0.0f, 0.0f); // GL_GREATER > 0.05
 
 	rb.Submit(GL_TRIANGLES);

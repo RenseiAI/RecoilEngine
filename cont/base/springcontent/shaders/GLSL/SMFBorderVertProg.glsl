@@ -1,5 +1,7 @@
 #version 130
 
+uniform mat4 transformMatrix = mat4(1.0);
+
 in vec3 vertexPos;
 in vec4 vertexCol;
 
@@ -45,6 +47,6 @@ void main() {
 		dot(vertexWorldPos, detailPlaneT)
 	);
 
-	gl_Position = gl_ModelViewProjectionMatrix * vertexWorldPos;
+	gl_Position = transformMatrix * vertexWorldPos;
 }
 

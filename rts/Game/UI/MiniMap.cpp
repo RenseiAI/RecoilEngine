@@ -12,8 +12,10 @@
  *   ShadowHandler::DrawFrustumDebug, DebugVisibilityDrawer::DrawMinimap, LineDrawer::DrawAll,
  *   GuiHandler::DrawMapStuff all accept optional transform for explicit MVP
  *   Remaining GL: FlushMatrices in DrawWorldStuff (for glExtra, commandDrawer auto-sync),
- *   DrawBackground/DrawUnitIcons (bgShader/icons2DShader read gl_ModelViewProjectionMatrix),
  *   SetClipPlanes (glClipPlane reads inverse modelview)
+ * - Migrated: DrawBackground bgShader + DrawUnitIcons icons2DShader → explicit transformMatrix uniform
+ *   (shaders no longer read gl_ModelViewProjectionMatrix). FlushMatrices removed from
+ *   UpdateTextureCache, DrawForReal, DrawBackground, DrawUnitIcons.
  * - Not migrated: GL_TEXTURE_2D (FFP), ApplyConstraintsMatrix (public API), other texture bindings
  */
 
@@ -1214,7 +1216,6 @@ void CMiniMap::UpdateTextureCache()
 	// draws minimap into FBO
 	projStack.Push().LoadMatrix(CMatrix44f::OrthoProj(0.0f, 1.0f, 0.0f, 1.0f, -1.0f, 1.0f));
 	mvStack.Push().LoadIdentity();
-	FlushMatrices();
 
 	{
 		curPos = {0, 0};
@@ -1375,7 +1376,6 @@ void CMiniMap::DrawForReal(bool useNormalizedCoors, bool updateTex, bool luaCall
 			mvStack.Translate(curPos.x * globalRendering->pixelX, curPos.y * globalRendering->pixelY, 0.0f)
 			       .Scale(curDim.x * globalRendering->pixelX, curDim.y * globalRendering->pixelY, 1.0f);
 		}
-		FlushMatrices();
 	}
 
 	cursorIcons.Enable(false);
@@ -1889,7 +1889,6 @@ void CMiniMap::DrawBackground() const
 
 	mvStack.Push().LoadIdentity();
 	projStack.Push().LoadMatrix(projMats[0]);
-	FlushMatrices();
 
 	// draw the map
 	auto state = GL::SubState(
@@ -1901,9 +1900,12 @@ void CMiniMap::DrawBackground() const
 	if (globalRendering->minSampleShadingRate > 0)
 		ctx->SetSampleShading(false);
 
+	const CMatrix44f bgMvp = CMatrix44f(projStack.Top()) * mvStack.Top();
+
 	readMap->BindMiniMapTextures();
 	bgShader->Enable();
 	bgShader->SetUniform("infotexMul", static_cast<float>(infoTextureHandler->IsEnabled()));
+	bgShader->SetUniformMatrix4x4<float>("transformMatrix", false, bgMvp);
 	rb.DrawElements(GL_TRIANGLES);
 	bgShader->Disable();
 
@@ -1924,9 +1926,9 @@ void CMiniMap::DrawUnitIcons() const
 	mvStack.Push();
 	mvStack.Translate(0.0f, +1.0f, 0.0f)
 	       .Scale(+1.0f / (mapDims.mapx * SQUARE_SIZE), -1.0f / (mapDims.mapy * SQUARE_SIZE), 1.0f);
-	FlushMatrices();
 
-	unitDrawer->DrawUnitMiniMapIcons();
+	const CMatrix44f iconsMvp = CMatrix44f(projStack.Top()) * mvStack.Top();
+	unitDrawer->DrawUnitMiniMapIcons(iconsMvp);
 
 	mvStack.Pop();
 
