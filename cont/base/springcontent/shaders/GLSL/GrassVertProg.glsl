@@ -1,5 +1,9 @@
 #version 120
 
+uniform mat4 modelViewMatrix = mat4(1.0);
+uniform mat4 projectionMatrix = mat4(1.0);
+uniform mat3 normalMatrix = mat3(1.0);
+
 uniform vec2 mapSizePO2;     // (1.0 / pwr2map{x,z} * SQUARE_SIZE)
 uniform vec2 mapSize;        // (1.0 /     map{x,z} * SQUARE_SIZE)
 
@@ -22,6 +26,8 @@ varying vec3 normal;
 varying vec4 shadingTexCoords;
 varying vec2 bladeTexCoords;
 varying vec3 ambientDiffuseLightTerm;
+varying float alphaFade;
+varying float fogFactor;
 #if defined(HAVE_SHADOWS) || defined(SHADOW_GEN)
   varying vec4 shadowTexCoords;
 #endif
@@ -77,15 +83,15 @@ void ApplyDetailBending(inout vec3 vPos, vec3 vNormal, float fDetailPhase, float
 
 void main() {
 	vec2 texOffset = vec2(0.);
-	gl_FrontColor = gl_Color;
+	alphaFade = gl_Color.a;
 
 #ifndef DISTANCE_FAR
 	// mesh grass
-	normal = gl_NormalMatrix * gl_Normal;
-	vec4 worldPos = gl_ModelViewMatrix * gl_Vertex;
+	normal = normalMatrix * gl_Normal;
+	vec4 worldPos = modelViewMatrix * gl_Vertex;
 
 	// anim
-	vec3 objPos = mat3(gl_ModelViewMatrix) * gl_Vertex.xyz;
+	vec3 objPos = mat3(modelViewMatrix) * gl_Vertex.xyz;
 	worldPos.xyz += ApplyMainBending(objPos, windSpeed.xz, gl_MultiTexCoord0.s * 0.004 + 0.007) - objPos;
 	ApplyDetailBending(worldPos.xyz, normal,
 			gl_MultiTexCoord0.s,
@@ -100,8 +106,8 @@ void main() {
 	ambientDiffuseLightTerm = ambientLightColor + diffuseTerm * diffuseLightColor;
 #else
 	// billboards
-	gl_FrontColor.a *= gl_Normal.z; // alpha blend far turfs
-	vec4 worldPos = /* gl_ModelViewMatrix * */ gl_Vertex; // MVM is empty in far draw pass
+	alphaFade *= gl_Normal.z; // alpha blend far turfs
+	vec4 worldPos = /* modelViewMatrix * */ gl_Vertex; // MVM is identity in far draw pass
 
 	// get the camera angle on the billboard and select the corresponding sprite
 	float cosCamAngle = normalize(camPos.xyz - worldPos.xyz).y;
@@ -148,7 +154,7 @@ void main() {
 #ifdef SHADOW_GEN
 	{
 		bladeTexCoords = gl_MultiTexCoord0.st + texOffset;
-		gl_Position = gl_ProjectionMatrix * vertexShadowPos;
+		gl_Position = projectionMatrix * vertexShadowPos;
 		return;
 	}
 #endif
@@ -156,9 +162,9 @@ void main() {
 	shadingTexCoords = worldPos.xzxz * vec4(mapSizePO2, mapSize);
 	bladeTexCoords   = gl_MultiTexCoord0.st + texOffset;
 
-	gl_Position = gl_ProjectionMatrix * worldPos;
+	gl_Position = projectionMatrix * worldPos;
 
-	gl_FogFragCoord = distance(camPos, worldPos.xyz);
-	gl_FogFragCoord = (fogParams.y - gl_FogFragCoord) * fogParams.w; // fogParams: .y=end, .w=scale
-	gl_FogFragCoord = clamp(gl_FogFragCoord, 0.0, 1.0);
+	fogFactor = distance(camPos, worldPos.xyz);
+	fogFactor = (fogParams.y - fogFactor) * fogParams.w; // fogParams: .y=end, .w=scale
+	fogFactor = clamp(fogFactor, 0.0, 1.0);
 }

@@ -25,6 +25,8 @@ varying vec3 normal;
 varying vec4 shadingTexCoords;
 varying vec2 bladeTexCoords;
 varying vec3 ambientDiffuseLightTerm;
+varying float alphaFade;
+varying float fogFactor;
 #if defined(HAVE_SHADOWS) || defined(SHADOW_GEN)
 	varying vec4 shadowTexCoords;
 #endif
@@ -53,7 +55,7 @@ void main() {
 	vec3 specular   = textureCube(specularTex, reflectDir).rgb;
 #endif
 	gl_FragColor.rgb = matColor.rgb * ambientDiffuseLightTerm + 0.1 * specular * specularLightColor; //TODO make `0.1` specular distr. customizable?
-	gl_FragColor.a   = matColor.a * gl_Color.a;
+	gl_FragColor.a   = matColor.a * alphaFade;
 
 #ifdef HAVE_SHADOWS
 	float shadowCoeff = mix(1.0, shadow2DProj(shadowMap, shadowTexCoords).r, groundShadowDensity);
@@ -66,5 +68,5 @@ void main() {
 	gl_FragColor.rgb -= (vec3(0.5, 0.5, 0.5) * float(infoTexIntensityMul == 1.0));
 #endif
 
-	gl_FragColor.rgb = mix(fogColor.rgb, gl_FragColor.rgb, gl_FogFragCoord);
+	gl_FragColor.rgb = mix(fogColor.rgb, gl_FragColor.rgb, fogFactor);
 }

@@ -463,7 +463,15 @@ void CGrassDrawer::DrawNear(const std::vector<InviewNearGrass>& inviewGrass)
 				RHI::ScopedMatrixPush mvGuard(mvStack);
 				mvStack.Translate(pos.x, pos.y, pos.z)
 				       .RotateY(p.z * math::DEG_TO_RAD);
-				FlushMatrices();
+
+				// Set per-turf matrix uniforms (replaces FFP FlushMatrices)
+				grassShader->SetUniformMatrix4x4<float>("modelViewMatrix", false, mvStack.Top());
+				{
+					const CMatrix44f& mv = mvStack.Top();
+					const float nm[9] = { mv[0], mv[1], mv[2], mv[4], mv[5], mv[6], mv[8], mv[9], mv[10] };
+					grassShader->SetUniformMatrix3x3<float>("normalMatrix", false, nm);
+				}
+
 				glBindVertexArray(grassBladeVAO);
 				glDrawElements(GL_TRIANGLES, grassBladeIndexCount, GL_UNSIGNED_INT, nullptr);
 				glBindVertexArray(0);
@@ -679,7 +687,15 @@ void CGrassDrawer::SetupGlStateNear()
 	         .LoadMatrix(camera->GetProjectionMatrix())
 	         .MultMatrix(camera->GetViewMatrix());
 	mvStack.Push().LoadIdentity();
-	FlushMatrices();
+
+	// Set explicit matrix uniforms (replaces FFP FlushMatrices, Phase 4.8d)
+	grassShader->SetUniformMatrix4x4<float>("projectionMatrix", false, projStack.Top());
+	grassShader->SetUniformMatrix4x4<float>("modelViewMatrix", false, mvStack.Top());
+	{
+		const CMatrix44f& mv = mvStack.Top();
+		const float nm[9] = { mv[0], mv[1], mv[2], mv[4], mv[5], mv[6], mv[8], mv[9], mv[10] };
+		grassShader->SetUniformMatrix3x3<float>("normalMatrix", false, nm);
+	}
 
 	// RHI dynamic state
 	auto* ctx = RHI::GetDevice()->GetContext();
@@ -701,7 +717,6 @@ void CGrassDrawer::ResetGlStateNear()
 
 	projStack.Pop();
 	mvStack.Pop();
-	FlushMatrices();
 
 	// RHI dynamic state
 	auto* ctx = RHI::GetDevice()->GetContext();
@@ -723,9 +738,17 @@ void CGrassDrawer::SetupGlStateFar()
 	         .LoadMatrix(camera->GetProjectionMatrix())
 	         .MultMatrix(camera->GetViewMatrix());
 	mvStack.Push().LoadIdentity();
-	FlushMatrices();
 
 	EnableShader(GRASS_PROGRAM_DIST);
+
+	// Set explicit matrix uniforms (replaces FFP FlushMatrices, Phase 4.8d)
+	grassShader->SetUniformMatrix4x4<float>("projectionMatrix", false, projStack.Top());
+	grassShader->SetUniformMatrix4x4<float>("modelViewMatrix", false, mvStack.Top());
+	{
+		const CMatrix44f& mv = mvStack.Top();
+		const float nm[9] = { mv[0], mv[1], mv[2], mv[4], mv[5], mv[6], mv[8], mv[9], mv[10] };
+		grassShader->SetUniformMatrix3x3<float>("normalMatrix", false, nm);
+	}
 
 	if (farTex) {
 		farTex->Bind(0);
@@ -752,7 +775,6 @@ void CGrassDrawer::ResetGlStateFar()
 
 	projStack.Pop();
 	mvStack.Pop();
-	FlushMatrices();
 
 	if (shadowHandler.ShadowsLoaded())
 		shadowHandler.ResetShadowTexSamplerRaw();
