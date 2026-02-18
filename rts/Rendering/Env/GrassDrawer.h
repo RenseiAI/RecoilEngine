@@ -19,7 +19,6 @@ namespace RHI {
 	class IRHITexture;
 }
 
-class CVertexArray;
 struct VA_TYPE_TN;
 
 
@@ -84,7 +83,8 @@ protected:
 	void LoadGrassShaders();
 	void CreateGrassBladeTex(unsigned char* buf);
 	void CreateFarTex();
-	void CreateGrassDispList(int listNum);
+	void CreateGrassBladeVBO();
+	void DestroyGrassBladeVBO();
 
 	void EnableShader(const GrassShaderProgram type);
 	void SetupGlStateNear();
@@ -104,7 +104,11 @@ protected:
 	int blocksX;
 	int blocksY;
 
-	unsigned int grassDL;
+	unsigned int grassBladeVAO = 0;
+	unsigned int grassBladeVBO = 0;
+	unsigned int grassBladeEBO = 0;
+	unsigned int grassBladeIndexCount = 0;
+
 	std::unique_ptr<RHI::IRHITexture> grassBladeTex;
 	std::unique_ptr<RHI::IRHITexture> farTex;
 

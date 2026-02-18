@@ -21,9 +21,10 @@
  * - Texture binding: specular cubemap via cubeMapHandler.GetSpecularTexture()->Bind()
  * - Texture binding: shadow color via shadowHandler.GetColorTexture()->Bind()
  *
+ * - Display lists: glGenLists/glNewList/glCallList replaced with VBO/VAO (Phase 4.3)
+ *
  * REMAINING (NOT MIGRATED):
  * - FFP deprecated: GL_ALPHA_TEST, GL_FOG, GL_CLIP_PLANE0, glColor4f
- * - Display lists: glGenLists, glNewList, glCallList (no RHI equivalent, requires vertex buffer)
  * - Shadow depth texture (SetupShadowTexSampler / ResetShadowTexSamplerRaw)
  * - FBO operations: glBindFramebufferEXT, glBlitFramebufferEXT
  * - Texture parameters: glTexParameteri, glTexEnvi
@@ -217,7 +218,6 @@ CGrassDrawer::CGrassDrawer()
 : CEventClient("[GrassDrawer]", 199992, false)
 , blocksX(mapDims.mapx / grassSquareSize / grassBlockSize)
 , blocksY(mapDims.mapy / grassSquareSize / grassBlockSize)
-, grassDL(0)
 , grassBladeTex(nullptr)
 , farTex(nullptr)
 , farnearVA(2048)
@@ -286,10 +286,6 @@ CGrassDrawer::CGrassDrawer()
 	// create shaders and finalize
 	grass.resize(blocksX * blocksY);
 	farnearVA.Initialize();
-	// TODO [RHI cross-cutting]: display lists (glGenLists/glNewList/glCallList)
-	// have no RHI equivalent; need vertex buffer + draw call replacement
-	grassDL = glGenLists(1);
-
 	ChangeDetail(detail);
 	LoadGrassShaders();
 	configHandler->NotifyOnChange(this, {"GrassDetail"});
@@ -305,7 +301,7 @@ CGrassDrawer::~CGrassDrawer()
 	eventHandler.RemoveClient(this);
 	configHandler->RemoveObserver(this);
 
-	glDeleteLists(grassDL, 1);
+	DestroyGrassBladeVBO();
 	// grassBladeTex and farTex are unique_ptr, auto-cleaned
 	shaderHandler->ReleaseProgramObjects("[GrassDrawer]");
 }
@@ -323,7 +319,7 @@ void CGrassDrawer::ChangeDetail(int detail) {
 	strawPerTurf = std::min(50 + int(std::sqrt((float)detail_lim) * 10), mapInfo->grass.maxStrawsPerTurf);
 
 	// recreate textures & XBOs
-	CreateGrassDispList(grassDL);
+	CreateGrassBladeVBO();
 	CreateFarTex();
 
 	// reset  all cached blocks
@@ -438,8 +434,6 @@ void CGrassDrawer::FlushMatrices() const
 }
 
 
-// TODO [RHI cross-cutting]: DrawNear uses display lists (glCallList).
-// Requires instanced rendering with per-turf transform data in a buffer.
 void CGrassDrawer::DrawNear(const std::vector<InviewNearGrass>& inviewGrass)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -462,7 +456,9 @@ void CGrassDrawer::DrawNear(const std::vector<InviewNearGrass>& inviewGrass)
 				mvStack.Translate(pos.x, pos.y, pos.z)
 				       .RotateY(p.z * math::DEG_TO_RAD);
 				FlushMatrices();
-				glCallList(grassDL);
+				glBindVertexArray(grassBladeVAO);
+				glDrawElements(GL_TRIANGLES, grassBladeIndexCount, GL_UNSIGNED_INT, nullptr);
+				glBindVertexArray(0);
 			}
 		}
 	}
@@ -761,15 +757,26 @@ void CGrassDrawer::ResetGlStateFar()
 }
 
 
-void CGrassDrawer::CreateGrassDispList(int listNum)
+void CGrassDrawer::DestroyGrassBladeVBO()
+{
+	if (grassBladeVAO != 0) { glDeleteVertexArrays(1, &grassBladeVAO); grassBladeVAO = 0; }
+	if (grassBladeVBO != 0) { glDeleteBuffers(1, &grassBladeVBO); grassBladeVBO = 0; }
+	if (grassBladeEBO != 0) { glDeleteBuffers(1, &grassBladeEBO); grassBladeEBO = 0; }
+	grassBladeIndexCount = 0;
+}
+
+
+void CGrassDrawer::CreateGrassBladeVBO()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	CVertexArray* va = GetVertexArray();
-	va->Initialize();
+	DestroyGrassBladeVBO();
+
+	std::vector<VA_TYPE_TN> vertices;
+	std::vector<unsigned int> indices;
 	grng.Seed(15);
 
 	for (int a = 0; a < strawPerTurf; ++a) {
-		// draw a single blade
+		// draw a single blade — same vertex generation as the old display list
 		const float lngRnd = grng.NextFloat();
 		const float length = mapInfo->grass.bladeHeight * (1.0f + lngRnd);
 		const float maxAng = mapInfo->grass.bladeAngle * std::max(grng.NextFloat(), 1.0f - smoothstep(0.0f, 1.0f, lngRnd));
@@ -789,9 +796,12 @@ void CGrassDrawer::CreateGrassDispList(int listNum)
 
 		float3 normalBend = -bendVect;
 
+		// track base vertex for this blade's strip
+		const unsigned int baseVertex = static_cast<unsigned int>(vertices.size());
+
 		// start btm
-		va->AddVertexTN(basePos + sideVect - float3(0.0f, 3.0f, 0.0f), xtexCoord              , 0.f, normalBend);
-		va->AddVertexTN(basePos - sideVect - float3(0.0f, 3.0f, 0.0f), xtexCoord + (1.0f / 16), 0.f, normalBend);
+		vertices.push_back({basePos + sideVect - float3(0.0f, 3.0f, 0.0f), xtexCoord              , 0.f, normalBend});
+		vertices.push_back({basePos - sideVect - float3(0.0f, 3.0f, 0.0f), xtexCoord + (1.0f / 16), 0.f, normalBend});
 
 		for (float h = 0.0f; h < 1.0f; h += (1.0f / numSections)) {
 			const float ang = maxAng * h;
@@ -800,22 +810,61 @@ void CGrassDrawer::CreateGrassDispList(int listNum)
 			const float3 edgePosL = edgePos - sideVect * (1.0f - h);
 			const float3 edgePosR = edgePos + sideVect * (1.0f - h);
 
-			va->AddVertexTN(basePos + edgePosR, xtexCoord + (1.0f / 32) * h              , h, (n + sideVect * 0.04f).ANormalize());
-			va->AddVertexTN(basePos + edgePosL, xtexCoord - (1.0f / 32) * h + (1.0f / 16), h, (n - sideVect * 0.04f).ANormalize());
+			vertices.push_back({basePos + edgePosR, xtexCoord + (1.0f / 32) * h              , h, (n + sideVect * 0.04f).ANormalize()});
+			vertices.push_back({basePos + edgePosL, xtexCoord - (1.0f / 32) * h + (1.0f / 16), h, (n - sideVect * 0.04f).ANormalize()});
 		}
 
-		// end top tip (single triangle)
+		// end top tip (single vertex)
 		const float3 edgePos = (UpVector * std::cos(maxAng) + bendVect * std::sin(maxAng)) * length;
 		const float3 n = (normalBend * std::cos(maxAng) + UpVector * std::sin(maxAng)).ANormalize();
-		va->AddVertexTN(basePos + edgePos, xtexCoord + (1.0f / 32), 1.0f, n);
+		vertices.push_back({basePos + edgePos, xtexCoord + (1.0f / 32), 1.0f, n});
 
-		// next blade
-		va->EndStrip();
+		// convert this blade's triangle strip to indexed triangles
+		const unsigned int stripVertCount = static_cast<unsigned int>(vertices.size()) - baseVertex;
+		for (unsigned int i = 0; i + 2 < stripVertCount; ++i) {
+			if (i % 2 == 0) {
+				indices.push_back(baseVertex + i);
+				indices.push_back(baseVertex + i + 1);
+				indices.push_back(baseVertex + i + 2);
+			} else {
+				indices.push_back(baseVertex + i + 1);
+				indices.push_back(baseVertex + i);
+				indices.push_back(baseVertex + i + 2);
+			}
+		}
 	}
 
-	glNewList(listNum, GL_COMPILE);
-	va->DrawArrayTN(GL_TRIANGLE_STRIP);
-	glEndList();
+	grassBladeIndexCount = static_cast<unsigned int>(indices.size());
+	if (grassBladeIndexCount == 0)
+		return;
+
+	// create VAO
+	glGenVertexArrays(1, &grassBladeVAO);
+	glBindVertexArray(grassBladeVAO);
+
+	// upload vertices
+	glGenBuffers(1, &grassBladeVBO);
+	glBindBuffer(GL_ARRAY_BUFFER, grassBladeVBO);
+	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(VA_TYPE_TN), vertices.data(), GL_STATIC_DRAW);
+
+	// upload indices
+	glGenBuffers(1, &grassBladeEBO);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, grassBladeEBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
+
+	// VA_TYPE_TN layout: float3 pos (0), float s (12), float t (16), float3 n (20) — stride 32
+	const GLsizei stride = sizeof(VA_TYPE_TN);
+	// attr 0: position
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
+	// attr 1: texcoord (s, t)
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(offsetof(VA_TYPE_TN, s)));
+	// attr 2: normal
+	glEnableVertexAttribArray(2);
+	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(offsetof(VA_TYPE_TN, n)));
+
+	glBindVertexArray(0);
 }
 
 void CGrassDrawer::CreateGrassBladeTex(unsigned char* buf)
@@ -923,7 +972,9 @@ void CGrassDrawer::CreateFarTex()
 		// cause it uses those an `compiles` them into the clip plane
 		glClipPlane(GL_CLIP_PLANE0, &eq[0]);
 
-		glCallList(grassDL);
+		glBindVertexArray(grassBladeVAO);
+		glDrawElements(GL_TRIANGLES, grassBladeIndexCount, GL_UNSIGNED_INT, nullptr);
+		glBindVertexArray(0);
 	}
 
 	glDisable(GL_CLIP_PLANE0);
