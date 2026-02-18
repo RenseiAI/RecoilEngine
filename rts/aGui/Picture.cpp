@@ -6,6 +6,7 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/Shaders/Shader.h"
+#include "System/Matrix44f.h"
 #include "Rendering/Textures/Bitmap.h"
 #include "System/Log/ILog.h"
 
@@ -58,6 +59,7 @@ namespace agui
 
 			glBindTexture(GL_TEXTURE_2D, texture);
 			sh.Enable();
+			rb.SetTransformMatrix(CMatrix44f::ClipOrthoProj01());
 			rb.DrawElements(GL_TRIANGLES);
 			sh.Disable();
 		}

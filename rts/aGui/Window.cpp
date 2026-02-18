@@ -7,6 +7,7 @@
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "System/Matrix44f.h"
 
 namespace agui
 {
@@ -51,6 +52,7 @@ void Window::DrawSelf()
 		{ pos[0] + size[0], pos[1] + size[1] - titleHeight, color }
 	);
 	sh.Enable();
+	rb.SetTransformMatrix(CMatrix44f::ClipOrthoProj01());
 	rb.DrawElements(GL_TRIANGLES);
 	sh.Disable();
 

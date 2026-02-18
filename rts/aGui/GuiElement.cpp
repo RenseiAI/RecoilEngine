@@ -6,6 +6,7 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/Shaders/Shader.h"
+#include "System/Matrix44f.h"
 
 namespace agui
 {
@@ -139,6 +140,8 @@ void GuiElement::DrawBox(int primType, const SColor& color)
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2DC>();
 	auto& sh = rb.GetShader();
 
+	const CMatrix44f ortho01 = CMatrix44f::ClipOrthoProj01();
+
 	sh.Enable();
 	switch (primType)
 	{
@@ -149,6 +152,7 @@ void GuiElement::DrawBox(int primType, const SColor& color)
 			{ pos[0] + size[0], pos[1] + size[1], color },
 			{ pos[0]          , pos[1] + size[1], color }
 		);
+		rb.SetTransformMatrix(ortho01);
 		rb.DrawElements(GL_TRIANGLES);
 	} break;
 	case GL_LINE_LOOP: {
@@ -158,6 +162,7 @@ void GuiElement::DrawBox(int primType, const SColor& color)
 			{ pos[0] + size[0], pos[1] + size[1], color },
 			{ pos[0]          , pos[1] + size[1], color }
 		});
+		rb.SetTransformMatrix(ortho01);
 		rb.DrawArrays(primType);
 	} break;
 	default:

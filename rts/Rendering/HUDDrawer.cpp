@@ -4,6 +4,7 @@
 
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GlobalRendering.h"
+#include "System/Matrix44f.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/Common/ModelDrawerHelpers.h"
@@ -15,7 +16,7 @@
 #include "Rendering/RHI/RHIFactory.h"
 
 /**
- * RHI Migration Status: MOSTLY COMPLETE
+ * RHI Migration Status: FULLY MIGRATED
  *
  * MIGRATED:
  *   - Immediate mode drawing -> TypedRenderBuffer<VA_TYPE_C>
@@ -26,9 +27,7 @@
  *   - Model shader uniforms (modelMatrix, viewProjMatrix, colorMult) set explicitly
  *   - FFP matrix push/pop/flush removed from Draw() and DrawModel()
  *   - glColor4f replaced by colorMult uniform via SetColorMultiplier()
- *
- * Remaining GL calls:
- *   - FlushMatrices in DrawWeaponStates: font renderer reads FFP matrices.
+ *   - FlushMatrices removed; font uses SetTransform(Identity()) (Phase 4.7)
  */
 #include "Game/Camera.h"
 #include "Game/GlobalUnsynced.h"
@@ -48,14 +47,6 @@ HUDDrawer* HUDDrawer::GetInstance()
 {
 	static HUDDrawer hud;
 	return &hud;
-}
-
-void HUDDrawer::FlushMatrices() const
-{
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(projStack.Top());
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(mvStack.Top());
 }
 
 void HUDDrawer::DrawModel(const CUnit* unit)
@@ -155,7 +146,7 @@ void HUDDrawer::DrawCameraDirectionArrow(const CUnit* unit)
 void HUDDrawer::DrawWeaponStates(const CUnit* unit)
 {
 	projStack.LoadIdentity();
-	FlushMatrices();
+	font->SetTransform(CMatrix44f::Identity());
 
 	font->glFormat(-0.9f, 0.35f, 1.0f, FONT_SCALE | FONT_NORM, "Health: %.0f / %.0f", (float) unit->health, (float) unit->maxHealth);
 
@@ -204,6 +195,8 @@ void HUDDrawer::DrawWeaponStates(const CUnit* unit)
 			}
 		}
 	}
+
+	font->ClearTransform();
 }
 
 void HUDDrawer::DrawTargetReticle(const CUnit* unit)

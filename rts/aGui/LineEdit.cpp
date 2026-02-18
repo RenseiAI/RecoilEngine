@@ -8,6 +8,7 @@
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/Fonts/glFont.h"
 #include "System/Color.h"
+#include "System/Matrix44f.h"
 #include "System/Misc/SpringTime.h"
 
 
@@ -89,6 +90,7 @@ void LineEdit::DrawSelf()
 			);
 			auto& sh = rb.GetShader();
 			sh.Enable();
+			rb.SetTransformMatrix(CMatrix44f::ClipOrthoProj01());
 			rb.DrawElements(GL_TRIANGLES);
 			sh.Disable();
 		}

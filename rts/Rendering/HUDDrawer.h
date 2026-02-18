@@ -17,8 +17,6 @@ public:
 	static HUDDrawer* GetInstance();
 
 private:
-	void FlushMatrices() const;
-
 	void DrawModel(const CUnit*);
 	void DrawUnitDirectionArrow(const CUnit*);
 	void DrawCameraDirectionArrow(const CUnit*);

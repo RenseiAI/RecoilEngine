@@ -6,6 +6,7 @@
 #include <SDL_events.h>
 
 #include "GuiElement.h"
+#include "Rendering/Fonts/glFont.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/RHI/RHIFactory.h"
@@ -32,13 +33,12 @@ void Gui::Draw()
 	auto* ctx = RHI::GetDevice()->GetContext();
 
 	ctx->SetBlendEnabled(true);
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(CMatrix44f::ClipOrthoProj01());
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(CMatrix44f::Identity());
+	const CMatrix44f ortho01 = CMatrix44f::ClipOrthoProj01();
+	font->SetTransform(ortho01);
 	for (ElList::reverse_iterator it = elements.rbegin(); it != elements.rend(); ++it) {
 		(*it).element->Draw();
 	}
+	font->ClearTransform();
 }
 #endif
 

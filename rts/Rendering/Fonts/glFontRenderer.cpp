@@ -26,6 +26,8 @@ static constexpr const char* vsFont330 = R"(
 #version 150 compatibility
 #extension GL_ARB_explicit_attrib_location : enable
 
+uniform mat4 transformMatrix = mat4(1.0);
+
 layout (location = 0) in vec3 pos;
 layout (location = 1) in vec2 uv;
 layout (location = 2) in vec4 col;
@@ -38,7 +40,7 @@ out Data {
 void main() {
 	vCol = col;
 	vUV  = uv;
-	gl_Position = gl_ModelViewProjectionMatrix * vec4(pos, 1.0); // TODO: move to UBO
+	gl_Position = transformMatrix * vec4(pos, 1.0);
 }
 )";
 
@@ -88,6 +90,8 @@ void main() {
 static constexpr const char* vsFont130 = R"(
 #version 130
 
+uniform mat4 transformMatrix = mat4(1.0);
+
 in vec3 pos;
 in vec2 uv;
 in vec4 col;
@@ -98,7 +102,7 @@ out vec2 vUV;
 void main() {
 	vCol = col;
 	vUV  = uv;
-	gl_Position = gl_ModelViewProjectionMatrix * vec4(pos, 1.0); // TODO: move to UBO
+	gl_Position = transformMatrix * vec4(pos, 1.0);
 }
 )";
 
@@ -212,15 +216,11 @@ void CglShaderFontRenderer::AddQuadTrianglesOB(VA_TYPE_TC&& tl, VA_TYPE_TC&& tr,
 void CglShaderFontRenderer::DrawTraingleElements()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// SetTransformMatrix is consumed per draw, so apply before each buffer
-	if (hasWorldTransform) {
-		outlineBufferTC.SetTransformMatrix(worldTransform);
-	}
+	// Always set explicit transform — either world transform or identity for screen-space NDC
+	const CMatrix44f& xform = hasWorldTransform ? worldTransform : CMatrix44f::Identity();
+	outlineBufferTC.SetTransformMatrix(xform);
 	outlineBufferTC.DrawElements(GL_TRIANGLES);
-	if (hasWorldTransform) {
-		primaryBufferTC.SetTransformMatrix(worldTransform);
-		hasWorldTransform = false;
-	}
+	primaryBufferTC.SetTransformMatrix(xform);
 	primaryBufferTC.DrawElements(GL_TRIANGLES);
 }
 
@@ -228,6 +228,11 @@ void CglShaderFontRenderer::SetWorldTransform(const CMatrix44f& mvp)
 {
 	worldTransform = mvp;
 	hasWorldTransform = true;
+}
+
+void CglShaderFontRenderer::ClearWorldTransform()
+{
+	hasWorldTransform = false;
 }
 
 void CglShaderFontRenderer::HandleTextureUpdate(CFontTexture& fnt, bool onlyUpload)

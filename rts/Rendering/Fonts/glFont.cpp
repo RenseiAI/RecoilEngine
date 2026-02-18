@@ -200,6 +200,9 @@ void CglFont::DrawWorldBuffered(bool userDefinedBlending) {}
 
 void CglFont::glWorldPrint(const float3& p, const float size, const std::string& str, int options) {}
 
+void CglFont::SetTransform(const CMatrix44f& mvp) {}
+void CglFont::ClearTransform() {}
+
 CMatrix44f CglFont::DefViewMatrix() { return CMatrix44f::Identity(); }
 CMatrix44f CglFont::DefProjMatrix() { return CMatrix44f::Identity(); }
 
@@ -717,6 +720,7 @@ void CglFont::DrawWorldBuffered(bool userDefinedBlending)
 	fontRenderer->SetWorldTransform(worldMVP);
 
 	DrawBuffered(userDefinedBlending);
+	fontRenderer->ClearWorldTransform();
 }
 
 template<int shiftXC, int shiftYC, bool outline>
@@ -828,6 +832,7 @@ void CglFont::glWorldPrint(const float3& p, const float size, const std::string&
 		glPrint(pos.x, pos.y, size, options, str);
 		SetTextDepth(     ); SetOutlineDepth(     );
 		End();
+		fontRenderer->ClearWorldTransform();
 	}
 	else {
 		CMatrix44f bm = camera->GetBillBoardMatrix();
@@ -844,6 +849,15 @@ void CglFont::glWorldPrint(const float3& p, const float size, const std::string&
 CMatrix44f CglFont::DefViewMatrix() { return CMatrix44f::Identity(); }
 CMatrix44f CglFont::DefProjMatrix() { return CMatrix44f::ClipOrthoProj01(); }
 
+void CglFont::SetTransform(const CMatrix44f& mvp)
+{
+	fontRenderer->SetWorldTransform(mvp);
+}
+
+void CglFont::ClearTransform()
+{
+	fontRenderer->ClearWorldTransform();
+}
 
 
 void CglFont::glPrint(float x, float y, float s, const int options, const std::string& text)

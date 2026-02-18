@@ -18,6 +18,7 @@ public:
 	virtual void AddQuadTrianglesOB(VA_TYPE_TC&& tl, VA_TYPE_TC&& tr, VA_TYPE_TC&& br, VA_TYPE_TC&& bl) = 0;
 	virtual void DrawTraingleElements() = 0;
 	virtual void SetWorldTransform(const CMatrix44f& mvp) {}
+	virtual void ClearWorldTransform() {}
 	virtual void HandleTextureUpdate(CFontTexture& font, bool onlyUpload) = 0;
 	virtual void PushGLState(const CglFont& font) = 0;
 	virtual void PopGLState(const CglFont& font) = 0;
@@ -49,6 +50,7 @@ public:
 	void AddQuadTrianglesOB(VA_TYPE_TC&& tl, VA_TYPE_TC&& tr, VA_TYPE_TC&& br, VA_TYPE_TC&& bl) override;
 	void DrawTraingleElements() override;
 	void SetWorldTransform(const CMatrix44f& mvp) override;
+	void ClearWorldTransform() override;
 	void HandleTextureUpdate(CFontTexture& font, bool onlyUpload) override;
 	void PushGLState(const CglFont& font) override;
 	void PopGLState(const CglFont& font) override;
