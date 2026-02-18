@@ -3,8 +3,8 @@
 
 #include "Picture.h"
 
-#include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "Rendering/Shaders/Shader.h"
 #include "System/Matrix44f.h"
 #include "Rendering/Textures/Bitmap.h"
@@ -15,15 +15,12 @@ namespace agui
 
 	Picture::Picture(GuiElement* parent)
 		: GuiElement(parent)
-		, texture(0)
 	{
 	}
 
 	Picture::~Picture()
 	{
-		if (texture) {
-			glDeleteTextures(1, &texture);
-		}
+		rhiTexture.reset();
 	}
 
 	void Picture::Load(const std::string& _file)
@@ -32,11 +29,11 @@ namespace agui
 
 		CBitmap bmp;
 		if (bmp.Load(file)) {
-			texture = bmp.CreateTexture();
+			rhiTexture = bmp.CreateTextureRHI();
 		}
 		else {
 			LOG_L(L_WARNING, "Failed to load: %s", file.c_str());
-			texture = 0;
+			rhiTexture.reset();
 		}
 	}
 
@@ -45,7 +42,7 @@ namespace agui
 #else
 	void Picture::DrawSelf()
 	{
-		if (texture) {
+		if (rhiTexture) {
 			auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2DTC>();
 			auto& sh = rb.GetShader();
 			const SColor color = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -57,7 +54,7 @@ namespace agui
 				{ pos[0]          , pos[1] + size[1], 0.0f, 0.0f, color }
 			);
 
-			glBindTexture(GL_TEXTURE_2D, texture);
+			rhiTexture->Bind(0);
 			sh.Enable();
 			rb.SetTransformMatrix(CMatrix44f::ClipOrthoProj01());
 			rb.DrawElements(GL_TRIANGLES);

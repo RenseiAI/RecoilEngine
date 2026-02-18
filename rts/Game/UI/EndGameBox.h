@@ -2,12 +2,14 @@
 
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "InputReceiver.h"
-#include "Rendering/GL/myGL.h"
 #include "System/Rectangle.h"
 #include "Rendering/GL/RenderBuffers.h"
 
-#include <vector>
+namespace RHI { class IRHITexture; }
 
 
 class CEndGameBox : public CInputReceiver
@@ -73,5 +75,5 @@ protected:
 	std::vector<unsigned char> winners;
 	std::vector<Stat> stats;
 
-	GLuint graphTex = 0;
+	std::unique_ptr<RHI::IRHITexture> rhiGraphTex;
 };

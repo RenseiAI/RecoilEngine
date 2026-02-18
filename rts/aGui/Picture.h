@@ -3,9 +3,12 @@
 #ifndef PICTURE_H
 #define PICTURE_H
 
+#include <memory>
 #include <string>
 
 #include "GuiElement.h"
+
+namespace RHI { class IRHITexture; }
 
 namespace agui
 {
@@ -20,8 +23,8 @@ public:
 
 private:
 	virtual void DrawSelf();
-	
-	unsigned texture;
+
+	std::unique_ptr<RHI::IRHITexture> rhiTexture;
 	std::string file;
 };
 

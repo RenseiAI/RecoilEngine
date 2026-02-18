@@ -6,6 +6,7 @@
 #include "MouseHandler.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "Game/Game.h"
 #include "Game/GameSetup.h"
 #include "Game/GlobalUnsynced.h"
@@ -83,14 +84,13 @@ CEndGameBox::CEndGameBox(const std::vector<unsigned char>& winningAllyTeams)
 	if (!bm.Load("bitmaps/graphPaper.bmp"))
 		bm.AllocDummy(SColor(255, 255, 255, 255));
 
-	graphTex = bm.CreateTexture();
+	rhiGraphTex = bm.CreateTextureRHI();
 }
 
 CEndGameBox::~CEndGameBox()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	if (graphTex != 0)
-		glDeleteTextures(1, &graphTex);
+	rhiGraphTex.reset();
 
 	endGameBox = nullptr;
 }
@@ -375,7 +375,7 @@ void CEndGameBox::Draw()
 		rbT.AddVertex({{box.x1 + 0.15f, box.y1 + 0.62f, 0.0f}, 0.0f, 4.0f}); // bl
 		rbT.AddVertex({{box.x1 + 0.15f, box.y1 + 0.08f, 0.0f}, 0.0f, 0.0f}); // tl
 
-		glBindTexture(GL_TEXTURE_2D, graphTex);
+		rhiGraphTex->Bind(0);
 		shaderT.Enable();
 		rbT.Submit(GL_TRIANGLES);
 		shaderT.Disable();

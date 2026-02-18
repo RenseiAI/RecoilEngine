@@ -6,9 +6,9 @@
 
 #include "SplashScreen.hpp"
 #include "Rendering/GlobalRendering.h"
-#include "Rendering/GL/myGL.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/Textures/Bitmap.h"
@@ -55,7 +55,7 @@ void ShowSplashScreen(
 	memset(versionStrBuf, 0, sizeof(versionStrBuf));
 	snprintf(versionStrBuf, sizeof(versionStrBuf), fmtStrs[3], springVersionStr.c_str());
 
-	const unsigned int splashTex = bmp.CreateTexture();
+	auto splashTex = bmp.CreateTextureRHI();
 	const unsigned int fontFlags = FONT_NORM | FONT_SCALE;
 
 	const float4 color = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -76,9 +76,7 @@ void ShowSplashScreen(
 		auto* ctx = RHI::GetDevice()->GetContext();
 		ctx->Clear(true, false, false);
 
-		// RHI_TODO: raw GLuint texture binding - no RHI wrapper available
-		// CBitmap::CreateTexture() returns raw GL handle, not IRHITexture
-		glBindTexture(GL_TEXTURE_2D, splashTex);
+		splashTex->Bind(0);
 
 		rb.AddQuadTriangles(
 			{ quadElems[0].x, quadElems[0].y, quadElems[0].s, quadElems[0].t },
@@ -115,9 +113,7 @@ void ShowSplashScreen(
 		Watchdog::ClearTimer(WDT_MAIN);
 	}
 
-	// RHI_TODO: raw GLuint texture cleanup - no RHI wrapper available
-	// CBitmap::CreateTexture() returns raw GL handle, not IRHITexture
-	glDeleteTextures(1, &splashTex);
+	splashTex.reset();
 }
 #endif
 
