@@ -9,10 +9,10 @@
 // glslang headers
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/Public/ResourceLimits.h>
-#include <glslang/SPIRV/GlslangToSpv.h>
+#include <SPIRV/GlslangToSpv.h>
 
 // SPIRV-Cross headers
-#include <spirv_cross/spirv_msl.hpp>
+#include <spirv_msl.hpp>
 
 #include "System/Log/ILog.h"
 

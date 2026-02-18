@@ -80,8 +80,14 @@ list(APPEND engineIncludes ${ENGINE_SRC_ROOT_DIR}/lib/cereal/include)
 include_directories(${engineIncludes})
 
 ### Build the executable
-add_executable(engine-legacy ${EXE_FLAGS} ${engineSources} ${engineMetalSources} ${ENGINE_ICON} ${engineHeaders})
+add_executable(engine-legacy ${EXE_FLAGS} ${engineSources} ${engineMetalSources} ${engineShaderCompilerSources} ${ENGINE_ICON} ${engineHeaders})
 target_link_libraries(engine-legacy ${engineLibraries} ${engineMetalFrameworks} Game)
+
+# Shader compiler (GLSL->MSL pipeline) — needs glslang + SPIRV-Cross
+if(engineShaderCompilerSources)
+	target_include_directories(engine-legacy PRIVATE ${engineShaderCompilerIncludes})
+	target_link_libraries(engine-legacy ${engineShaderCompilerLibs})
+endif()
 
 # Enable Metal RHI backend when Metal sources are available
 if(engineMetalSources)

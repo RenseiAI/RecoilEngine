@@ -819,7 +819,7 @@ void CglFont::glWorldPrint(const float3& p, const float size, const std::string&
 	RECOIL_DETAILED_TRACY_ZONE;
 	const bool buffered = (options & FONT_BUFFERED) == FONT_BUFFERED;
 	if (!buffered) {
-		const CMatrix44f tbM = camera->GetBillBoardMatrix();
+		CMatrix44f tbM = camera->GetBillBoardMatrix();
 		const float3 pos = tbM.Transpose() * p;
 
 		// Compute explicit MVP: proj * (view * billboard), bypassing FFP matrix stack

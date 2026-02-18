@@ -61,8 +61,8 @@ DebugCubeMapTexture::DebugCubeMapTexture()
 			cubeTexture->UploadCubeFace(
 				static_cast<RHI::CubeFace>(faceIdx),
 				0, // mipLevel
-				debugColorVec.data(),
-				debugColorVec.size() * sizeof(SColor)
+				FALLBACK_DIM, FALLBACK_DIM,
+				debugColorVec.data()
 			);
 		}
 	} else {
@@ -147,7 +147,7 @@ void DebugCubeMapTexture::Draw(uint32_t face) const
 	}
 
 	// Bind cubemap via RHI
-	ctx->BindTexture(0, cubeTexture.get());
+	ctx->BindTexture(cubeTexture.get(), 0);
 
 	vao.Bind();
 	assert(shader->IsValid());
@@ -165,7 +165,7 @@ void DebugCubeMapTexture::Draw(uint32_t face) const
 	shader->Disable();
 	vao.Unbind();
 
-	ctx->BindTexture(0, nullptr);
+	ctx->BindTexture(nullptr, 0);
 #endif
 }
 

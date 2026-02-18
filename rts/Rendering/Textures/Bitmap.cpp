@@ -2008,7 +2008,7 @@ std::unique_ptr<RHI::IRHITexture> CBitmap::CreateDDSTextureRHI() const
 	// Upload compressed mip levels
 	for (uint32_t level = 0; level <= static_cast<uint32_t>(ddsimage.get_num_mipmaps()); ++level) {
 		const auto& mip = ddsimage.get_mipmap(level);
-		texture->UploadCompressed(level, 0, 0, mip.width, mip.height, mip.size, mip);
+		texture->UploadCompressed(level, 0, 0, mip.get_width(), mip.get_height(), mip.get_size(), mip);
 	}
 
 	texture->SetWrapS(RHI::TextureWrap::Repeat);

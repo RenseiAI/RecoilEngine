@@ -227,7 +227,7 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 
 	shader = shaderHandler->CreateProgramObject("[SkyBox]", "SkyBox");
 	shader->AttachShaderObject(shaderHandler->CreateShaderObject("GLSL/CubeMapVS.glsl", "", GL_VERTEX_SHADER));
-	shader->AttachShaderObject(shaderHandler->CreateShaderObject("GLSL/CubeMapFS.glsl", "", GL_FRAGMENT_SHADER"));
+	shader->AttachShaderObject(shaderHandler->CreateShaderObject("GLSL/CubeMapFS.glsl", "", GL_FRAGMENT_SHADER));
 	shader->Link();
 	shader->Enable();
 	shader->SetUniform("uvFlip", 1.0f, -1.0f, 1.0f);
