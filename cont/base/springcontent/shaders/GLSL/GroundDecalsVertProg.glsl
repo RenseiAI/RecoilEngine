@@ -1,5 +1,7 @@
 #version 130
 
+uniform mat4 modelViewProjectionMatrix = mat4(1.0);
+
 in vec4 forcedHeight;
 in vec4 posT; //posTL, posTR
 in vec4 posB; //posBR, posBL
@@ -333,5 +335,5 @@ void main() {
 
 	worldPos += relPos.y * height * groundNormal;
 
-	gl_Position = gl_ModelViewProjectionMatrix * vec4(worldPos, 1.0);
+	gl_Position = modelViewProjectionMatrix * vec4(worldPos, 1.0);
 }

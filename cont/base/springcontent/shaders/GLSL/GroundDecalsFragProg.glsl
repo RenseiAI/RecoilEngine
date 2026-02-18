@@ -1,5 +1,7 @@
 #version 400 compatibility
 
+uniform mat4 modelViewProjectionMatrixInverse = mat4(1.0);
+
 #ifdef HIGH_QUALITY
 	uniform sampler2DMS depthTex;
 #else
@@ -240,7 +242,7 @@ vec3 GetWorldPos(vec2 texCoord, float sampledDepth) {
 		projPosition.xyz = NORM2SNORM(vec3(texCoord, sampledDepth));
 	#endif
 
-	vec4 pos = gl_ModelViewProjectionMatrixInverse * projPosition;
+	vec4 pos = modelViewProjectionMatrixInverse * projPosition;
 
 	return pos.xyz / pos.w;
 }

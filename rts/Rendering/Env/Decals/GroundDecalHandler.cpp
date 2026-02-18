@@ -828,6 +828,8 @@ void CGroundDecalHandler::Draw()
 	decalShader->SetFlag("HAVE_INFOTEX", infoTextureHandler->IsEnabled());
 	decalShader->SetFlag("SMF_WATER_ABSORPTION", visWater);
 	decalShader->Enable();
+	decalShader->SetUniformMatrix4x4<float>("modelViewProjectionMatrix", false, camera->GetViewProjectionMatrix());
+	decalShader->SetUniformMatrix4x4<float>("modelViewProjectionMatrixInverse", false, camera->GetViewProjectionMatrixInverse());
 
 	if (visWater) {
 		decalShader->SetUniform("waterMinColor", waterRendering->minColor.x, waterRendering->minColor.y, waterRendering->minColor.z);
