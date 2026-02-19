@@ -30,8 +30,12 @@ uniform float frame;
 uniform vec3 eyePos;
 uniform vec4 fogColor;
 uniform vec4 fogParams; //%.x=start, .y=end, .z=unused, .w=scale (1/(end-start))
+uniform mat4 projectionMatrix = mat4(1.0);
 
 in float eyeVertexZ;
+in float fogCoord;
+
+out vec4 fragColor;
 in vec3 eyeVec;
 in vec3 ligVec;
 in vec3 worldPos;
@@ -50,8 +54,8 @@ vec2 reftexcoord = screenPos * ScreenInverse;
 //////////////////////////////////////////////////
 // Depth conversion
 #ifdef opt_depth
-  float pm14 = gl_ProjectionMatrix[3].z;
-  float pm10 = gl_ProjectionMatrix[2].z;
+  float pm14 = projectionMatrix[3].z;
+  float pm10 = projectionMatrix[2].z;
 
   float ConvertDepthToEyeZ(float d) {
     return (pm14 / (d * -2.0 + 1.0 - pm10));
@@ -255,11 +259,11 @@ vec3 GetReflection(float angle, vec3 normal, inout float fresnel)
 
 void main()
 {
-   gl_FragColor.a = 1.0; //note: only rendered with blending iff !opt_refraction
+   fragColor.a = 1.0; //note: only rendered with blending iff !opt_refraction
 
 //#define dbg_coastmap
 #ifdef dbg_coastmap
-    gl_FragColor = vec4(texture2D(coastmap, texCoords[0].st).g);
+    fragColor = vec4(texture2D(coastmap, texCoords[0].st).g);
     return;
 #endif
 
@@ -315,10 +319,10 @@ void main()
     // Replace the distorted screencopy with the original if the fragment is above the water. 
     refrColor = mix(refrColor, origRefrColor, mixback);
 
-    gl_FragColor.rgb = mix(refrColor, waterSurface, 0.1 + surfaceMix * 0.100);
+    fragColor.rgb = mix(refrColor, waterSurface, 0.1 + surfaceMix * 0.100);
 #else
-    gl_FragColor.rgb = waterSurface;
-    gl_FragColor.a   = surfaceMix + specular;
+    fragColor.rgb = waterSurface;
+    fragColor.a   = surfaceMix + specular;
 #endif
 
 
@@ -328,28 +332,28 @@ void main()
       vec3 caust = texture2D(caustic, texCoords[0].pq * CausticsResolution).rgb;
   #ifdef opt_refraction
       float caustBlend = smoothstep(CausticRange, 0.0, abs(waterdepth - CausticDepth));
-      gl_FragColor.rgb += caust * caustBlend * CausticsStrength;
+      fragColor.rgb += caust * caustBlend * CausticsStrength;
   #else
-      gl_FragColor.a *= min(waterdepth * 4.0, 1.0);
-      gl_FragColor.rgb += caust * (1.0 - waterdepth) * 7.5 * CausticsStrength;
+      fragColor.a *= min(waterdepth * 4.0, 1.0);
+      fragColor.rgb += caust * (1.0 - waterdepth) * 7.5 * CausticsStrength;
   #endif
     }
 
 
 
   // SHORE WAVES
-    gl_FragColor.rgb += shadowOcc * GetShorewaves(coast, octave, waterdepth, invwaterdepth);
+    fragColor.rgb += shadowOcc * GetShorewaves(coast, octave, waterdepth, invwaterdepth);
 
   // REFLECTION
     // Schlick's approx. for Fresnel term
     float fresnel = 0.0;
     vec3 reflColor = GetReflection(angle, normal, fresnel);
-    gl_FragColor.rgb = mix(gl_FragColor.rgb, reflColor, fresnel * shallowScale);
+    fragColor.rgb = mix(fragColor.rgb, reflColor, fresnel * shallowScale);
 
   // SPECULAR
-    gl_FragColor.rgb += shadowOcc * specular * SpecularColor;
+    fragColor.rgb += shadowOcc * specular * SpecularColor;
 
   // FOG
-    float fog = clamp( (fogParams.y - abs(gl_FogFragCoord)) * fogParams.w ,0.0,1.0);
-    gl_FragColor.rgb = mix(fogColor.rgb, gl_FragColor.rgb, fog );
+    float fog = clamp( (fogParams.y - abs(fogCoord)) * fogParams.w ,0.0,1.0);
+    fragColor.rgb = mix(fogColor.rgb, fragColor.rgb, fog );
 }

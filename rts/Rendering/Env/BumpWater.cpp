@@ -988,6 +988,11 @@ void CBumpWater::Draw()
 	waterShader->SetUniform("eyePos", camera->GetPos().x, camera->GetPos().y, camera->GetPos().z);
 	waterShader->SetUniform("frame", (gs->frameNum + globalRendering->timeOffset) / 15000.0f);
 
+	// Upload view matrices (replaces FFP gl_ModelView* builtins, Phase 5.0b)
+	waterShader->SetUniformMatrix4x4<float>("viewMatrix", false, camera->GetViewMatrix());
+	waterShader->SetUniformMatrix4x4<float>("viewProjectionMatrix", false, camera->GetViewProjectionMatrix());
+	waterShader->SetUniformMatrix4x4<float>("projectionMatrix", false, camera->GetProjectionMatrix());
+
 	// Set fog uniforms (replaces FFP glFog* state, Phase 4.4)
 	{
 		float4 fc, fp;

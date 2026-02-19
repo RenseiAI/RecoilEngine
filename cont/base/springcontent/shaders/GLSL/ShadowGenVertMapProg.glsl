@@ -11,6 +11,8 @@ uniform sampler2D heightMapTex;
 uniform float borderMinHeight;
 uniform ivec2 texSquare;
 uniform vec4 mapSize; // mapSize, 1.0/mapSize
+uniform mat4 shadowViewMatrix = mat4(1.0);
+uniform mat4 shadowProjectionMatrix = mat4(1.0);
 
 const float SMF_TEXSQR_SIZE = 1024.0;
 
@@ -35,12 +37,12 @@ void main() {
 	else
 		vertexWorldPos.y = borderMinHeight;
 	*/
-	vec4 lightVertexPos = gl_ModelViewMatrix * vertexWorldPos;
+	vec4 lightVertexPos = shadowViewMatrix * vertexWorldPos;
 
 	lightVertexPos.xy += vec2(0.5);
 	//lightVertexPos.z  -= 2e-3; // glEnable(GL_POLYGON_OFFSET_FILL); is in use
 
-	gl_Position = gl_ProjectionMatrix * lightVertexPos;
+	gl_Position = shadowProjectionMatrix * lightVertexPos;
 
 	gl_ClipVertex  = vertexWorldPos;
 	gl_TexCoord[0] = gl_MultiTexCoord0;

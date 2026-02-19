@@ -283,6 +283,10 @@ void SMFRenderStateGLSL::Enable(const CSMFGroundDrawer* smfGroundDrawer, const D
 		currShader->SetUniform4v("fogParams", &fp.x);
 	}
 
+	// Upload view matrices (replaces FFP gl_ModelView* builtins, Phase 5.0a)
+	currShader->SetUniformMatrix4x4<float>("viewMatrix", false, camera->GetViewMatrix());
+	currShader->SetUniformMatrix4x4<float>("viewProjectionMatrix", false, camera->GetViewProjectionMatrix());
+
 	if (isAdv) {
 		currShader->SetUniform3v("cameraPos", &camera->GetPos()[0]);
 		if (shadowHandler.ShadowsLoaded())

@@ -420,6 +420,9 @@ void CSMFGroundDrawer::DrawShadowPass()
 		usedGLFallback = true;
 	}
 	shadowShader->Enable();
+	// Upload shadow camera matrices (replaces FFP gl_ModelView/ProjectionMatrix builtins, Phase 5.0c)
+	shadowShader->SetUniformMatrix4x4<float>("shadowViewMatrix", false, camera->GetViewMatrix());
+	shadowShader->SetUniformMatrix4x4<float>("shadowProjectionMatrix", false, camera->GetProjectionMatrix());
 	shadowShader->SetUniform("borderMinHeight", std::min(readMap->GetInitMinHeight(), -500.0f));
 		meshDrawer->DrawMesh(DrawPass::Shadow);
 		// also render the border geometry to prevent light-visible backfaces

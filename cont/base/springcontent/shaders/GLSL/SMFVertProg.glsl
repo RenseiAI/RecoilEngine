@@ -8,6 +8,8 @@ uniform vec4 lightDir;       // mapInfo->light.sunDir
 uniform vec2 specularTexGen; // 1.0/mapSize
 uniform sampler2D heightMapTex;
 uniform vec4 fogParams; //%.x=start, .y=end, .z=unused, .w=scale (1/(end-start))
+uniform mat4 viewMatrix = mat4(1.0);
+uniform mat4 viewProjectionMatrix = mat4(1.0);
 
 out vec3 halfDir;
 out float fogFactor;
@@ -32,7 +34,7 @@ float HeightAtWorldPos(vec2 wxz){
 
 void main() {
 	// calc some lighting variables
-	vec3 viewDir = vec3(gl_ModelViewMatrixInverse * vec4(0.0, 0.0, 0.0, 1.0));
+	vec3 viewDir = cameraPos;
 
 	vertexWorldPos = vec4(vertexPos, 1.0);
 	vertexWorldPos.xz += vec2(texSquare) * SMF_TEXSQR_SIZE;
@@ -45,8 +47,8 @@ void main() {
 	diffuseTexCoords = (vertexWorldPos.xz / SMF_TEXSQR_SIZE) - vec2(texSquare);
 
 	// transform vertex pos
-	gl_Position = gl_ModelViewProjectionMatrix * vertexWorldPos;
-	gl_ClipVertex = gl_ModelViewMatrix * vertexWorldPos;
+	gl_Position = viewProjectionMatrix * vertexWorldPos;
+	gl_ClipVertex = viewMatrix * vertexWorldPos;
 
 #ifndef DEFERRED_MODE
 	// emulate linear fog

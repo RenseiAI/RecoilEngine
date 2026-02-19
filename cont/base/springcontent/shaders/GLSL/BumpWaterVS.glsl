@@ -63,8 +63,11 @@ in vec3 pos;
 uniform float frame;
 uniform vec3 eyePos;
 uniform vec2 windVector;
+uniform mat4 viewMatrix = mat4(1.0);
+uniform mat4 viewProjectionMatrix = mat4(1.0);
 
 out float eyeVertexZ;
+out float fogCoord;
 out vec3 eyeVec;
 out vec3 ligVec;
 out vec3 worldPos;
@@ -104,13 +107,13 @@ void main()
 
 	// FOG
 	worldPos = waveVertex.xyz;
-	gl_FogFragCoord = (gl_ModelViewMatrix * waveVertex).z;
+	fogCoord = (viewMatrix * waveVertex).z;
 
-	gl_Position = gl_ModelViewProjectionMatrix * waveVertex;
+	gl_Position = viewProjectionMatrix * waveVertex;
 
 	#if 0
 	// distance to unperturbed vertex
-	eyeVertexZ = (gl_ModelViewMatrix * pos4).z;
+	eyeVertexZ = (viewMatrix * pos4).z;
 	#endif
 }
 
