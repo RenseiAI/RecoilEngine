@@ -1,3 +1,5 @@
+#version 130
+
 //#define FLAT_SHADING
 
 uniform sampler2D shadingTex;
@@ -21,24 +23,25 @@ uniform vec3 ambientLightColor;
 uniform vec3 camDir;
 uniform vec4 fogColor;
 
-varying vec3 normal;
-varying vec4 shadingTexCoords;
-varying vec2 bladeTexCoords;
-varying vec3 ambientDiffuseLightTerm;
-varying float alphaFade;
-varying float fogFactor;
+in vec3 normal;
+in vec4 shadingTexCoords;
+in vec2 bladeTexCoords;
+in vec3 ambientDiffuseLightTerm;
+in float alphaFade;
+in float fogFactor;
 #if defined(HAVE_SHADOWS) || defined(SHADOW_GEN)
-	varying vec4 shadowTexCoords;
+	in vec4 shadowTexCoords;
 #endif
 
+out vec4 fragColor;
 
 void main() {
 #ifdef SHADOW_GEN
 	{
   #ifdef DISTANCE_FAR
-		gl_FragColor = texture2D(bladeTex, bladeTexCoords);
+		fragColor = texture2D(bladeTex, bladeTexCoords);
   #else
-		gl_FragColor = vec4(1.0);
+		fragColor = vec4(1.0);
   #endif
 		return;
 	}
@@ -54,19 +57,19 @@ void main() {
 	vec3 reflectDir = reflect(camDir, normalize(normal));
 	vec3 specular   = textureCube(specularTex, reflectDir).rgb;
 #endif
-	gl_FragColor.rgb = matColor.rgb * ambientDiffuseLightTerm + 0.1 * specular * specularLightColor; //TODO make `0.1` specular distr. customizable?
-	gl_FragColor.a   = matColor.a * alphaFade;
+	fragColor.rgb = matColor.rgb * ambientDiffuseLightTerm + 0.1 * specular * specularLightColor; //TODO make `0.1` specular distr. customizable?
+	fragColor.a   = matColor.a * alphaFade;
 
 #ifdef HAVE_SHADOWS
 	float shadowCoeff = mix(1.0, shadow2DProj(shadowMap, shadowTexCoords).r, groundShadowDensity);
 
-	gl_FragColor.rgb *= mix(ambientLightColor, vec3(1.0), shadowCoeff);
+	fragColor.rgb *= mix(ambientLightColor, vec3(1.0), shadowCoeff);
 #endif
 
 #ifdef HAVE_INFOTEX
-	gl_FragColor.rgb += (texture2D(infoMap, shadingTexCoords.st).rgb * infoTexIntensityMul);
-	gl_FragColor.rgb -= (vec3(0.5, 0.5, 0.5) * float(infoTexIntensityMul == 1.0));
+	fragColor.rgb += (texture2D(infoMap, shadingTexCoords.st).rgb * infoTexIntensityMul);
+	fragColor.rgb -= (vec3(0.5, 0.5, 0.5) * float(infoTexIntensityMul == 1.0));
 #endif
 
-	gl_FragColor.rgb = mix(fogColor.rgb, gl_FragColor.rgb, fogFactor);
+	fragColor.rgb = mix(fogColor.rgb, fragColor.rgb, fogFactor);
 }

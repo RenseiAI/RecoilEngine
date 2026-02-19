@@ -1,4 +1,4 @@
-#version 120
+#version 130
 
 uniform mat4 modelViewMatrix = mat4(1.0);
 uniform mat4 projectionMatrix = mat4(1.0);
@@ -22,14 +22,14 @@ uniform vec3 ambientLightColor;
 uniform vec3 diffuseLightColor;
 uniform vec4 fogParams; //%.x=start, .y=end, .z=unused, .w=scale (1/(end-start))
 
-varying vec3 normal;
-varying vec4 shadingTexCoords;
-varying vec2 bladeTexCoords;
-varying vec3 ambientDiffuseLightTerm;
-varying float alphaFade;
-varying float fogFactor;
+out vec3 normal;
+out vec4 shadingTexCoords;
+out vec2 bladeTexCoords;
+out vec3 ambientDiffuseLightTerm;
+out float alphaFade;
+out float fogFactor;
 #if defined(HAVE_SHADOWS) || defined(SHADOW_GEN)
-  varying vec4 shadowTexCoords;
+  out vec4 shadowTexCoords;
 #endif
 
 
