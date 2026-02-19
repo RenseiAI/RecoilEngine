@@ -9,6 +9,8 @@ precision mediump float;
 	layout(depth_unchanged) out float gl_FragDepth;
 #endif
 
+in vec2 texCoord0;
+
 uniform sampler2D alphaMaskTex;
 uniform vec2 alphaParams;
 uniform vec4 alphaCtrl = vec4(0.0, 0.0, 0.0, 1.0); //always pass
@@ -26,7 +28,7 @@ void main() {
 	// This shader is shared by MODEL, MAP, and PROJECTILE shadow programs.
 	// Only MODEL sets alphaCtrl; others use the default and skip this block.
 	if (alphaCtrl.w < 1.0) {
-		if (AlphaDiscard(texture2D(alphaMaskTex, gl_TexCoord[0].st).a))
+		if (AlphaDiscard(texture2D(alphaMaskTex, texCoord0).a))
 			discard;
 	}
 }

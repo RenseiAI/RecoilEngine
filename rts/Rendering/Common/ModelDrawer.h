@@ -36,7 +36,10 @@
 #include "Rendering/Env/ISky.h"
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Shaders/Shader.h"
+#include "Rendering/ShadowHandler.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Game/CameraHandler.h"
+#include "Game/Camera.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/Textures/3DOTextureHandler.h"
 #include "Rendering/Textures/S3OTextureHandler.h"
@@ -431,6 +434,14 @@ inline void CModelDrawerBase<TDrawerData, TDrawer>::DrawShadowPassImpl() const
 	Shader::IProgramObject* po = shadowHandler.GetShadowGenProg(shadowGenProgram);
 	if (po && po->IsValid()) {
 		po->Enable();
+
+		if constexpr (legacy) {
+			// Upload shadow camera matrices for legacy GLSL path
+			// (replaces FFP gl_ModelViewMatrix / gl_ProjectionMatrix)
+			const CCamera* shadowCam = CCameraHandler::GetActiveCamera();
+			po->SetUniformMatrix4x4<float>("shadowViewMatrix", false, shadowCam->GetViewMatrix());
+			po->SetUniformMatrix4x4<float>("shadowProjectionMatrix", false, shadowCam->GetProjectionMatrix());
+		}
 
 		// 3DO's have clockwise-wound faces and
 		// (usually) holes, so disable backface

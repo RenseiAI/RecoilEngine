@@ -5,14 +5,23 @@ precision highp float;
 precision mediump float;
 #endif
 
+out vec2 texCoord0;
+
+uniform mat4 shadowViewMatrix = mat4(1.0);
+uniform mat4 shadowProjectionMatrix = mat4(1.0);
+uniform vec4 clipPlaneEquation0 = vec4(0.0, 0.0, 0.0, 1.0);
+uniform vec4 clipPlaneEquation1 = vec4(0.0, 0.0, 0.0, 1.0);
+
+out float gl_ClipDistance[2];
+
 void main() {
 	#if 0
-		mat3 normalMatrix = mat3(transpose(inverse(gl_ModelViewMatrix)));
+		mat3 normalMatrix = mat3(transpose(inverse(shadowViewMatrix)));
 	#else
-		mat3 normalMatrix = mat3(gl_ModelViewMatrix);
+		mat3 normalMatrix = mat3(shadowViewMatrix);
 	#endif
 
-	vec4 lightVertexPos = gl_ModelViewMatrix * gl_Vertex;
+	vec4 lightVertexPos = shadowViewMatrix * gl_Vertex;
 	vec3 lightVertexNormal = normalize(normalMatrix * gl_Normal);
 
 	float NdotL = clamp(dot(lightVertexNormal, vec3(0.0, 0.0, 1.0)), 0.0, 1.0);
@@ -25,8 +34,9 @@ void main() {
 	lightVertexPos.xy += vec2(0.5);
 	lightVertexPos.z  += bias;
 
-	gl_Position = gl_ProjectionMatrix * lightVertexPos;
+	gl_Position = shadowProjectionMatrix * lightVertexPos;
 
-	gl_ClipVertex  = gl_Vertex;
-	gl_TexCoord[0] = gl_MultiTexCoord0;
+	gl_ClipDistance[0] = dot(gl_Vertex, clipPlaneEquation0);
+	gl_ClipDistance[1] = dot(gl_Vertex, clipPlaneEquation1);
+	texCoord0 = gl_MultiTexCoord0.st;
 }

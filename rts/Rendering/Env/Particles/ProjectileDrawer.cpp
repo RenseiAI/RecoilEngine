@@ -878,6 +878,14 @@ void CProjectileDrawer::DrawShadowOpaque()
 
 	po->Enable();
 
+	// Upload shadow camera matrices for legacy GLSL path
+	// (replaces FFP gl_ModelViewMatrix / gl_ProjectionMatrix)
+	{
+		const CCamera* shadowCam = CCameraHandler::GetActiveCamera();
+		po->SetUniformMatrix4x4<float>("shadowViewMatrix", false, shadowCam->GetViewMatrix());
+		po->SetUniformMatrix4x4<float>("shadowProjectionMatrix", false, shadowCam->GetProjectionMatrix());
+	}
+
 	for (int modelType = MODELTYPE_3DO; modelType < MODELTYPE_CNT; modelType++) {
 		CModelDrawerHelper::PushModelRenderState(modelType);
 

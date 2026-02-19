@@ -1106,6 +1106,13 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltShadow(const CUnit* unit, bool noLu
 		DrawModelFlatBuildStageShadow(unit, upperPlanes[BUILDSTAGE_FLAT], lowerPlanes[BUILDSTAGE_FLAT], noLuaCall);
 	}
 
+	// Reset clip plane uniforms to safe defaults (always pass) before disabling
+	{
+		Shader::IProgramObject* po = shadowHandler.GetShadowGenProg(CShadowHandler::SHADOWGEN_PROGRAM_MODEL);
+		po->SetUniform("clipPlaneEquation0", 0.0f, 0.0f, 0.0f, 1.0f);
+		po->SetUniform("clipPlaneEquation1", 0.0f, 0.0f, 0.0f, 1.0f);
+	}
+
 	ctx->SetClipDistanceEnabled(1, false);
 	ctx->SetClipDistanceEnabled(0, false);
 
@@ -1119,6 +1126,7 @@ void CUnitDrawerGLSL::DrawModelWireBuildStageShadow(const CUnit* unit, const dou
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	auto* ctx = RHI::GetDevice()->GetContext();
+	Shader::IProgramObject* po = shadowHandler.GetShadowGenProg(CShadowHandler::SHADOWGEN_PROGRAM_MODEL);
 
 	if (globalRendering->amdHacks) {
 		ctx->SetClipDistanceEnabled(0, false);
@@ -1126,6 +1134,8 @@ void CUnitDrawerGLSL::DrawModelWireBuildStageShadow(const CUnit* unit, const dou
 	} else {
 		ctx->SetClipPlaneEquation(0, upperPlane);
 		ctx->SetClipPlaneEquation(1, lowerPlane);
+		po->SetUniform("clipPlaneEquation0", (float)upperPlane[0], (float)upperPlane[1], (float)upperPlane[2], (float)upperPlane[3]);
+		po->SetUniform("clipPlaneEquation1", (float)lowerPlane[0], (float)lowerPlane[1], (float)lowerPlane[2], (float)lowerPlane[3]);
 	}
 
 	ctx->SetPolygonMode(RHI::PolygonMode::Line);
@@ -1144,6 +1154,10 @@ void CUnitDrawerGLSL::DrawModelFlatBuildStageShadow(const CUnit* unit, const dou
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetClipPlaneEquation(0, upperPlane);
 	ctx->SetClipPlaneEquation(1, lowerPlane);
+
+	Shader::IProgramObject* po = shadowHandler.GetShadowGenProg(CShadowHandler::SHADOWGEN_PROGRAM_MODEL);
+	po->SetUniform("clipPlaneEquation0", (float)upperPlane[0], (float)upperPlane[1], (float)upperPlane[2], (float)upperPlane[3]);
+	po->SetUniform("clipPlaneEquation1", (float)lowerPlane[0], (float)lowerPlane[1], (float)lowerPlane[2], (float)lowerPlane[3]);
 
 	DrawUnitModel(unit, noLuaCall);
 }

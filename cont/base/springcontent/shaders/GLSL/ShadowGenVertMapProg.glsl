@@ -7,12 +7,17 @@ precision mediump float;
 
 in vec3 vertexPos;
 
+out vec2 texCoord0;
+
 uniform sampler2D heightMapTex;
 uniform float borderMinHeight;
 uniform ivec2 texSquare;
 uniform vec4 mapSize; // mapSize, 1.0/mapSize
 uniform mat4 shadowViewMatrix = mat4(1.0);
 uniform mat4 shadowProjectionMatrix = mat4(1.0);
+uniform vec4 clipPlaneEquation = vec4(0.0, 0.0, 0.0, 1.0);
+
+out float gl_ClipDistance[1];
 
 const float SMF_TEXSQR_SIZE = 1024.0;
 
@@ -44,6 +49,6 @@ void main() {
 
 	gl_Position = shadowProjectionMatrix * lightVertexPos;
 
-	gl_ClipVertex  = vertexWorldPos;
-	gl_TexCoord[0] = gl_MultiTexCoord0;
+	gl_ClipDistance[0] = dot(vertexWorldPos, clipPlaneEquation);
+	texCoord0 = gl_MultiTexCoord0.st;
 }

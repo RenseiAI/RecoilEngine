@@ -21,6 +21,7 @@
 #include "Units/UnitDrawer.h"
 #include "Common/ModelDrawerState.hpp"
 #include "Game/Camera.h"
+#include "Game/CameraHandler.h"
 #include "Game/Game.h" // drawMode
 #include "Lua/LuaMaterial.h"
 #include "Rendering/Env/IWater.h"
@@ -185,6 +186,12 @@ static void SetupShadowUnitDrawState(unsigned int modelType, bool deferredPass) 
 
 	Shader::IProgramObject* po = shadowHandler.GetShadowGenProg(CShadowHandler::SHADOWGEN_PROGRAM_MODEL);
 	po->Enable();
+
+	// Upload shadow camera matrices for legacy GLSL path
+	// (replaces FFP gl_ModelViewMatrix / gl_ProjectionMatrix)
+	const CCamera* shadowCam = CCameraHandler::GetActiveCamera();
+	po->SetUniformMatrix4x4<float>("shadowViewMatrix", false, shadowCam->GetViewMatrix());
+	po->SetUniformMatrix4x4<float>("shadowProjectionMatrix", false, shadowCam->GetProjectionMatrix());
 }
 
 static void ResetShadowUnitDrawState(unsigned int modelType, bool deferredPass) {
