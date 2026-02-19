@@ -1,3 +1,6 @@
+#version 130
+#extension GL_ARB_explicit_attrib_location : require
+
 #define textureS3o1 diffuseTex
 #define textureS3o2 shadingTex
 	uniform sampler2D textureS3o1;
@@ -10,7 +13,7 @@
 	uniform vec3 sunAmbient;
 	uniform vec3 sunSpecular;
 #if (USE_SHADOWS == 1)
-	varying vec4 shadowVertexPos;
+	in vec4 shadowVertexPos;
 	uniform sampler2DShadow shadowTex;
 	uniform sampler2D shadowColorTex;
 	uniform float shadowDensity;
@@ -33,10 +36,22 @@ bool AlphaDiscard(float a) {
 	return ((alphaTestGT + alphaTestLT + alphaCtrl.w) == 0.0);
 }
 
-varying vec4 vertexWorldPos;
-varying vec3 cameraDir;
-varying float fogFactor;
-varying vec3 normalv;
+in vec4 vertexWorldPos;
+in vec3 cameraDir;
+in float fogFactor;
+in vec3 normalv;
+in vec2 texCoord0;
+
+// Fragment outputs
+#if (DEFERRED_MODE == 1)
+layout(location = GBUFFER_NORMTEX_IDX) out vec4 gbufferNormal;
+layout(location = GBUFFER_DIFFTEX_IDX) out vec4 gbufferDiffuse;
+layout(location = GBUFFER_SPECTEX_IDX) out vec4 gbufferSpecular;
+layout(location = GBUFFER_EMITTEX_IDX) out vec4 gbufferEmissive;
+layout(location = GBUFFER_MISCTEX_IDX) out vec4 gbufferMisc;
+#else
+out vec4 fragColor;
+#endif
 
 vec3 GetShadowMult(float NdotL) {
 	#if (USE_SHADOWS == 1)
@@ -94,8 +109,8 @@ void main(void)
 	float NdotL = max(NdotLu, 1e-3);
 	vec3 light = NdotL * sunDiffuse + sunAmbient;
 
-	vec4 diffuse     = texture2D(textureS3o1, gl_TexCoord[0].st);
-	vec4 extraColor  = texture2D(textureS3o2, gl_TexCoord[0].st);
+	vec4 diffuse     = texture2D(textureS3o1, texCoord0);
+	vec4 extraColor  = texture2D(textureS3o2, texCoord0);
 
 	vec3 reflectDir = reflect(cameraDir, normal);
 	vec3 specular   = textureCube(specularTex, reflectDir).rgb * sunSpecular;
@@ -117,30 +132,29 @@ void main(void)
 	reflection += extraColor.rrr; // self-illum
 
 #if (DEFERRED_MODE == 0)
-	gl_FragColor     = diffuse;
-	gl_FragColor.rgb = mix(gl_FragColor.rgb, teamColor.rgb, gl_FragColor.a); // teamcolor
-	gl_FragColor.rgb = gl_FragColor.rgb * reflection + specular;
+	fragColor     = diffuse;
+	fragColor.rgb = mix(fragColor.rgb, teamColor.rgb, fragColor.a); // teamcolor
+	fragColor.rgb = fragColor.rgb * reflection + specular;
 #endif
 
 #if (DEFERRED_MODE == 0 && MAX_DYNAMIC_MODEL_LIGHTS > 0)
-	gl_FragColor.rgb += DynamicLighting(normal, diffuse.rgb, specular);
+	fragColor.rgb += DynamicLighting(normal, diffuse.rgb, specular);
 #endif
 
 #if (DEFERRED_MODE == 1)
-	gl_FragData[GBUFFER_NORMTEX_IDX] = vec4((normal + vec3(1.0, 1.0, 1.0)) * 0.5, 1.0);
-	gl_FragData[GBUFFER_DIFFTEX_IDX] = colorMult * vec4(mix(                         diffuse.rgb, teamColor.rgb,   diffuse.a), alpha);
-	gl_FragData[GBUFFER_DIFFTEX_IDX] = vec4(mix(gl_FragData[GBUFFER_DIFFTEX_IDX].rgb, nanoColor.rgb, nanoColor.a), alpha);
+	gbufferNormal  = vec4((normal + vec3(1.0, 1.0, 1.0)) * 0.5, 1.0);
+	gbufferDiffuse = colorMult * vec4(mix(                         diffuse.rgb, teamColor.rgb,   diffuse.a), alpha);
+	gbufferDiffuse = vec4(mix(gbufferDiffuse.rgb, nanoColor.rgb, nanoColor.a), alpha);
 	// do not premultiply reflection, leave it to the deferred lighting pass
-	// gl_FragData[GBUFFER_DIFFTEX_IDX] = vec4(mix(diffuse.rgb, teamColor.rgb, diffuse.a) * reflection, alpha);
+	// gbufferDiffuse = vec4(mix(diffuse.rgb, teamColor.rgb, diffuse.a) * reflection, alpha);
 	// allows standard-lighting reconstruction by lazy LuaMaterials using us
-	gl_FragData[GBUFFER_SPECTEX_IDX] = vec4(extraColor.rgb, alpha);
-	gl_FragData[GBUFFER_EMITTEX_IDX] = vec4(0.0, 0.0, 0.0, 0.0);
-	gl_FragData[GBUFFER_MISCTEX_IDX] = vec4(0.0, 0.0, 0.0, 0.0);
+	gbufferSpecular = vec4(extraColor.rgb, alpha);
+	gbufferEmissive = vec4(0.0, 0.0, 0.0, 0.0);
+	gbufferMisc     = vec4(0.0, 0.0, 0.0, 0.0);
 #else
-	gl_FragColor.rgb = mix(fogColor.rgb, gl_FragColor.rgb, fogFactor); // fog
-	gl_FragColor.rgb = mix(gl_FragColor.rgb, nanoColor.rgb, nanoColor.a); // wireframe or polygon color
-	gl_FragColor.a   = alpha;
-	gl_FragColor    *= colorMult; // ghost dimming, build preview alpha
+	fragColor.rgb = mix(fogColor.rgb, fragColor.rgb, fogFactor); // fog
+	fragColor.rgb = mix(fragColor.rgb, nanoColor.rgb, nanoColor.a); // wireframe or polygon color
+	fragColor.a   = alpha;
+	fragColor    *= colorMult; // ghost dimming, build preview alpha
 #endif
 }
-

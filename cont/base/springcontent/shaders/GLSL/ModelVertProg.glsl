@@ -1,4 +1,4 @@
-#version 120
+#version 130
 
 // Explicit uniforms replacing FFP built-ins
 // Note: modelMatrix contains the MODEL matrix only (not view).
@@ -8,15 +8,17 @@ uniform mat4 viewProjMatrix;
 uniform vec3 cameraPosW;
 uniform vec4 fogParams; //%.x=start, .y=end, .z=unused, .w=scale (1/(end-start))
 
-varying vec4 vertexWorldPos;
-varying vec3 cameraDir;
-varying float fogFactor;
-varying vec3 normalv;
+out vec4 vertexWorldPos;
+out vec3 cameraDir;
+out float fogFactor;
+out vec3 normalv;
 
 #if (USE_SHADOWS == 1)
 	uniform mat4 shadowMatrix;
-	varying vec4 shadowVertexPos;
+	out vec4 shadowVertexPos;
 #endif
+
+out vec2 texCoord0;
 
 void main(void)
 {
@@ -37,7 +39,7 @@ void main(void)
 	shadowVertexPos.xy += vec2(0.5);
 #endif
 
-	gl_TexCoord[0].st = gl_MultiTexCoord0.st;
+	texCoord0 = gl_MultiTexCoord0.st;
 
 #if (DEFERRED_MODE == 0)
 	float fogCoord = length(cameraDir.xyz);
