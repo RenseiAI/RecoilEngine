@@ -23,6 +23,7 @@
  *
  * - Display lists: glGenLists/glNewList/glCallList replaced with VBO/VAO (Phase 4.3)
  * - Vertex attribs: CreateGrassBladeVBO attrib setup via SetVertexLayout (Phase 5.8)
+ * - Buffer/Draw: VAO/VBO/EBO → RHI IRHIBuffer + DrawIndexed, headless GL fallback (Phase 5.10)
  *
  * REMAINING (NOT MIGRATED):
  * - FFP deprecated: GL_ALPHA_TEST, glColor4f
@@ -48,6 +49,7 @@
 #include "Rendering/GL/myGL.h"  // transitional: GL types still needed for fixed-function
 #include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/GL/FBO.h"
+#include "Rendering/RHI/RHIBuffer.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/RHI/RHIFactory.h"
@@ -452,6 +454,23 @@ void CGrassDrawer::FlushMatrices() const
 void CGrassDrawer::DrawNear(const std::vector<InviewNearGrass>& inviewGrass)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	auto* rhiDevice = RHI::GetDevice();
+	const bool useRHI = (rhiDevice && grassBladeVB);
+
+	// Bind RHI buffers + vertex layout once for all grass turfs
+	if (useRHI) {
+		auto* ctx = rhiDevice->GetContext();
+		grassBladeVB->Bind();
+		grassBladeIB->Bind();
+		const RHI::VertexAttribute attrs[] = {
+			{0, 0,                                              RHI::VertexFormat::Float3, 0},
+			{1, static_cast<uint32_t>(offsetof(VA_TYPE_TN, s)), RHI::VertexFormat::Float2, 0},
+			{2, static_cast<uint32_t>(offsetof(VA_TYPE_TN, n)), RHI::VertexFormat::Float3, 0},
+		};
+		const RHI::VertexLayout layout{attrs, 3, sizeof(VA_TYPE_TN)};
+		ctx->SetVertexLayout(layout);
+	}
+
 	for (const InviewNearGrass& g: inviewGrass) {
 		grng.Seed(g.y * mapDims.mapx / grassSquareSize + g.x);
 
@@ -479,11 +498,23 @@ void CGrassDrawer::DrawNear(const std::vector<InviewNearGrass>& inviewGrass)
 					grassShader->SetUniformMatrix3x3<float>("normalMatrix", false, nm);
 				}
 
-				glBindVertexArray(grassBladeVAO);
-				glDrawElements(GL_TRIANGLES, grassBladeIndexCount, GL_UNSIGNED_INT, nullptr);
-				glBindVertexArray(0);
+				if (useRHI) {
+					rhiDevice->GetContext()->DrawIndexed(RHI::PrimitiveType::Triangles, grassBladeIndexCount);
+				} else {
+					glBindVertexArray(grassBladeVAO);
+					glDrawElements(GL_TRIANGLES, grassBladeIndexCount, GL_UNSIGNED_INT, nullptr);
+					glBindVertexArray(0);
+				}
 			}
 		}
+	}
+
+	// Unbind RHI buffers + vertex layout
+	if (useRHI) {
+		auto* ctx = rhiDevice->GetContext();
+		ctx->ClearVertexLayout();
+		grassBladeIB->Unbind();
+		grassBladeVB->Unbind();
 	}
 }
 
@@ -794,6 +825,9 @@ void CGrassDrawer::ResetGlStateFar()
 
 void CGrassDrawer::DestroyGrassBladeVBO()
 {
+	grassBladeVB.reset();
+	grassBladeIB.reset();
+	// Headless fallback cleanup
 	if (grassBladeVAO != 0) { glDeleteVertexArrays(1, &grassBladeVAO); grassBladeVAO = 0; }
 	if (grassBladeVBO != 0) { glDeleteBuffers(1, &grassBladeVBO); grassBladeVBO = 0; }
 	if (grassBladeEBO != 0) { glDeleteBuffers(1, &grassBladeEBO); grassBladeEBO = 0; }
@@ -873,34 +907,29 @@ void CGrassDrawer::CreateGrassBladeVBO()
 	if (grassBladeIndexCount == 0)
 		return;
 
-	// create VAO
-	glGenVertexArrays(1, &grassBladeVAO);
-	glBindVertexArray(grassBladeVAO);
-
-	// upload vertices
-	glGenBuffers(1, &grassBladeVBO);
-	glBindBuffer(GL_ARRAY_BUFFER, grassBladeVBO);
-	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(VA_TYPE_TN), vertices.data(), GL_STATIC_DRAW);
-
-	// upload indices
-	glGenBuffers(1, &grassBladeEBO);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, grassBladeEBO);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
-
-	// VA_TYPE_TN layout: float3 pos (0), float s (12), float t (16), float3 n (20) — stride 32
-	// RHI MIGRATED (Phase 5.8): vertex attribute setup via SetVertexLayout
 	auto* device = RHI::GetDevice();
 	if (device) {
-		auto* ctx = device->GetContext();
-		const RHI::VertexAttribute attrs[] = {
-			{0, 0,                                              RHI::VertexFormat::Float3, 0}, // position
-			{1, static_cast<uint32_t>(offsetof(VA_TYPE_TN, s)), RHI::VertexFormat::Float2, 0}, // texcoord
-			{2, static_cast<uint32_t>(offsetof(VA_TYPE_TN, n)), RHI::VertexFormat::Float3, 0}, // normal
-		};
-		const RHI::VertexLayout layout{attrs, 3, sizeof(VA_TYPE_TN)};
-		ctx->SetVertexLayout(layout);
+		// RHI path: create vertex and index buffers (vertex layout applied at draw time)
+		grassBladeVB = device->CreateBuffer(
+			RHI::BufferType::Vertex, RHI::BufferUsage::Static,
+			vertices.size() * sizeof(VA_TYPE_TN), vertices.data());
+		grassBladeIB = device->CreateBuffer(
+			RHI::BufferType::Index, RHI::BufferUsage::Static,
+			indices.size() * sizeof(unsigned int), indices.data());
 	} else {
-		// Headless fallback: use raw GL
+		// Headless fallback: raw GL VAO/VBO/EBO
+		glGenVertexArrays(1, &grassBladeVAO);
+		glBindVertexArray(grassBladeVAO);
+
+		glGenBuffers(1, &grassBladeVBO);
+		glBindBuffer(GL_ARRAY_BUFFER, grassBladeVBO);
+		glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(VA_TYPE_TN), vertices.data(), GL_STATIC_DRAW);
+
+		glGenBuffers(1, &grassBladeEBO);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, grassBladeEBO);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
+
+		// VA_TYPE_TN layout: float3 pos (0), float s (12), float t (16), float3 n (20) — stride 32
 		const GLsizei stride = sizeof(VA_TYPE_TN);
 		glEnableVertexAttribArray(0);
 		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
@@ -908,9 +937,9 @@ void CGrassDrawer::CreateGrassBladeVBO()
 		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(offsetof(VA_TYPE_TN, s)));
 		glEnableVertexAttribArray(2);
 		glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(offsetof(VA_TYPE_TN, n)));
-	}
 
-	glBindVertexArray(0);
+		glBindVertexArray(0);
+	}
 }
 
 void CGrassDrawer::CreateGrassBladeTex(unsigned char* buf)
@@ -1005,6 +1034,21 @@ void CGrassDrawer::CreateFarTex()
 	static const GLdouble eq[4] = {0.0, 1.0, 0.0, 0.0};
 
 	// render turf from different vertical angles
+	auto* rhiDevice = RHI::GetDevice();
+	const bool useRHI = (rhiDevice && grassBladeVB);
+
+	if (useRHI) {
+		grassBladeVB->Bind();
+		grassBladeIB->Bind();
+		const RHI::VertexAttribute attrs[] = {
+			{0, 0,                                              RHI::VertexFormat::Float3, 0},
+			{1, static_cast<uint32_t>(offsetof(VA_TYPE_TN, s)), RHI::VertexFormat::Float2, 0},
+			{2, static_cast<uint32_t>(offsetof(VA_TYPE_TN, n)), RHI::VertexFormat::Float3, 0},
+		};
+		const RHI::VertexLayout layout{attrs, 3, sizeof(VA_TYPE_TN)};
+		ctx->SetVertexLayout(layout);
+	}
+
 	for (int a=0;a<numAngles;++a) {
 		ctx->SetViewport(RHI::Viewport{static_cast<float>(a * billboardSize * sizeMod), 0.0f, static_cast<float>(billboardSize * sizeMod), static_cast<float>(billboardSize * sizeMod)});
 		mvStack.LoadIdentity()
@@ -1023,9 +1067,19 @@ void CGrassDrawer::CreateFarTex()
 		};
 		ctx->SetClipPlaneEquation(0, eyeEq);
 
-		glBindVertexArray(grassBladeVAO);
-		glDrawElements(GL_TRIANGLES, grassBladeIndexCount, GL_UNSIGNED_INT, nullptr);
-		glBindVertexArray(0);
+		if (useRHI) {
+			ctx->DrawIndexed(RHI::PrimitiveType::Triangles, grassBladeIndexCount);
+		} else {
+			glBindVertexArray(grassBladeVAO);
+			glDrawElements(GL_TRIANGLES, grassBladeIndexCount, GL_UNSIGNED_INT, nullptr);
+			glBindVertexArray(0);
+		}
+	}
+
+	if (useRHI) {
+		ctx->ClearVertexLayout();
+		grassBladeIB->Unbind();
+		grassBladeVB->Unbind();
 	}
 
 	ctx->SetClipDistanceEnabled(0, false);

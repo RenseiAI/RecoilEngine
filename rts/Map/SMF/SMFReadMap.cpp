@@ -13,6 +13,9 @@
  *
  * Remaining:
  *   - glDrawBuffers (FBO state, not texture-specific)
+ *
+ * Phase 5.10b: Removed dead if(!rhiTex) GL fallback branches — all terrain textures
+ * always have RHI wrappers (heightmap, minimap, shading, detail via CreateTexture/WrapMapTexture).
  */
 
 #include <cstring> // mem{set,cpy}
@@ -619,15 +622,10 @@ void CSMFReadMap::UpdateHeightMapTexture(const SRectangle& update)
 		std::copy(src, src + sizeX, dst);
 	}
 
-	// Upload subregion via RHI
-	if (auto* rhiTex = heightMapTexture.GetRawRHITexture()) {
-		rhiTex->Upload(0, update.x1, update.z1, sizeX, sizeZ, heightBuf.data());
-	} else {
-		// Fallback (should not happen — RHI texture created in CreateHeightMapTex)
-		glBindTexture(GL_TEXTURE_2D, heightMapTexture.GetID());
-		glTexSubImage2D(GL_TEXTURE_2D, 0, update.x1, update.z1, sizeX, sizeZ, GL_RED, GL_FLOAT, heightBuf.data());
-		glBindTexture(GL_TEXTURE_2D, 0);
-	}
+	// Upload subregion via RHI (always available — created in CreateHeightMapTex)
+	auto* rhiTexHM = heightMapTexture.GetRawRHITexture();
+	assert(rhiTexHM);
+	rhiTexHM->Upload(0, update.x1, update.z1, sizeX, sizeZ, heightBuf.data());
 }
 
 
@@ -807,11 +805,9 @@ void CSMFReadMap::UpdateVisNormalsAndShadingTexture(const SRectangle& update)
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetViewport({0.0f, 0.0f, static_cast<float>(mapDims.mapxp1), static_cast<float>(mapDims.mapyp1)});
 
-	if (auto* rhiTex = heightMapTexture.GetRawRHITexture()) {
-		rhiTex->Bind(0);
-	} else {
-		glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, heightMapTexture.GetID());
-	}
+	auto* rhiTexBind = heightMapTexture.GetRawRHITexture();
+	assert(rhiTexBind);
+	rhiTexBind->Bind(0);
 
 	shadingShader->Enable();
 
@@ -830,11 +826,9 @@ void CSMFReadMap::UpdateVisNormalsAndShadingTexture(const SRectangle& update)
 	shadingFBO->Unbind();
 	globalRendering->LoadViewport();
 
-	if (auto* rhiTex = heightMapTexture.GetRawRHITexture()) {
-		rhiTex->Unbind(0);
-	} else {
-		glBindTexture(GL_TEXTURE_2D, 0);
-	}
+	auto* rhiTexUnbind = heightMapTexture.GetRawRHITexture();
+	assert(rhiTexUnbind);
+	rhiTexUnbind->Unbind(0);
 }
 
 void CSMFReadMap::SunChanged()
@@ -915,13 +909,10 @@ void CSMFReadMap::BindMiniMapTextures() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	// tc (0,0) - (1,1)
-	// Minimap texture may be raw GL (compressed DXT1), fall back to GL binding
-	if (auto* rhiTex = minimapTex.GetRawRHITexture()) {
-		rhiTex->Bind(1);
-	} else {
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, minimapTex.GetID());
-	}
+	// Minimap always has RHI wrapper (LoadMinimap creates via CreateTexture or WrapMapTexture)
+	auto* rhiMinimap = minimapTex.GetRawRHITexture();
+	assert(rhiMinimap);
+	rhiMinimap->Bind(1);
 
 	// tc (0,0) - (isx,isy)
 	if (infoTextureHandler->IsEnabled()) {
@@ -930,21 +921,15 @@ void CSMFReadMap::BindMiniMapTextures() const
 	}
 	else {
 		// just bind this since HAVE_INFOTEX is not available to the minimap shader
-		if (auto* rhiTex = shadingTex.GetRawRHITexture()) {
-			rhiTex->Bind(2);
-		} else {
-			glActiveTexture(GL_TEXTURE2);
-			glBindTexture(GL_TEXTURE_2D, shadingTex.GetID());
-		}
+		auto* rhiShading2 = shadingTex.GetRawRHITexture();
+		assert(rhiShading2);
+		rhiShading2->Bind(2);
 	}
 
 	// tc (0,0) - (isx,isy)
-	if (auto* rhiTex = shadingTex.GetRawRHITexture()) {
-		rhiTex->Bind(0);
-	} else {
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, shadingTex.GetID());
-	}
+	auto* rhiShading0 = shadingTex.GetRawRHITexture();
+	assert(rhiShading0);
+	rhiShading0->Bind(0);
 }
 
 

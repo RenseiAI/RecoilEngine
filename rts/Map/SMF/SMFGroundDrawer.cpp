@@ -358,21 +358,15 @@ void CSMFGroundDrawer::DrawBorder(const DrawPass::e drawPass)
 	ctx->SetCullFaceEnabled(true);
 	ctx->SetCullFace(RHI::CullMode::Back);
 
-	// Bind detail texture (unit 2) via RHI wrapper
-	if (auto* rhiTex = smfMap->GetRHITexture(MAP_BASE_DETAIL_TEX)) {
-		rhiTex->Bind(2);
-	} else {
-		glActiveTexture(GL_TEXTURE2);
-		glBindTexture(GL_TEXTURE_2D, smfMap->GetDetailTexture());
-	}
+	// Bind detail texture (unit 2) — always has RHI wrapper (WrapMapTexture at init, clearAndWrap on reload)
+	auto* rhiDetail = smfMap->GetRHITexture(MAP_BASE_DETAIL_TEX);
+	assert(rhiDetail);
+	rhiDetail->Bind(2);
 
-	// Bind heightmap texture (unit 1)
-	if (auto* rhiTex = smfMap->GetHeightMapTextureObj().GetRawRHITexture()) {
-		rhiTex->Bind(1);
-	} else {
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, smfMap->GetHeightMapTexture());
-	}
+	// Bind heightmap texture (unit 1) — always has RHI wrapper (CreateHeightMapTex)
+	auto* rhiHeight = smfMap->GetHeightMapTextureObj().GetRawRHITexture();
+	assert(rhiHeight);
+	rhiHeight->Bind(1);
 
 	//for CSMFGroundTextures::BindSquareTexture()
 	glActiveTexture(GL_TEXTURE0);
@@ -412,13 +406,11 @@ void CSMFGroundDrawer::DrawShadowPass()
 	//#pragma message "REMOVE ME, WHEN NOT NEEDED"
 	//ctx->SetCullFaceEnabled(false);
 
-	bool usedGLFallback = false;
-	if (auto* rhiTex = smfMap->GetHeightMapTextureObj().GetRawRHITexture()) {
-		rhiTex->Bind(1);
-	} else {
-		glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, smfMap->GetHeightMapTexture());
-		usedGLFallback = true;
-	}
+	// Heightmap always has RHI wrapper (CreateHeightMapTex)
+	auto* rhiHeightShadow = smfMap->GetHeightMapTextureObj().GetRawRHITexture();
+	assert(rhiHeightShadow);
+	rhiHeightShadow->Bind(1);
+
 	shadowShader->Enable();
 	// Upload shadow camera matrices (replaces FFP gl_ModelView/ProjectionMatrix builtins, Phase 5.0c)
 	shadowShader->SetUniformMatrix4x4<float>("shadowViewMatrix", false, camera->GetViewMatrix());
@@ -428,8 +420,6 @@ void CSMFGroundDrawer::DrawShadowPass()
 		// also render the border geometry to prevent light-visible backfaces
 		meshDrawer->DrawBorderMesh(DrawPass::Shadow);
 	shadowShader->Disable();
-	if (usedGLFallback)
-		glActiveTexture(GL_TEXTURE0);
 
 	ctx->SetPolygonOffset(false);
 	//ctx->SetCullFaceEnabled(true);
