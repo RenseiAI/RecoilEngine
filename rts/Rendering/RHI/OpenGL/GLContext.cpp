@@ -267,6 +267,81 @@ void GLContext::SetVertexAttribDivisor(uint32_t index, uint32_t divisor) {
 	glVertexAttribDivisor(index, divisor);
 }
 
+// --- Vertex layout helpers ---
+
+static bool IsIntegerFormat(VertexFormat fmt) {
+	switch (fmt) {
+		case VertexFormat::Int1:
+		case VertexFormat::Int2:
+		case VertexFormat::Int3:
+		case VertexFormat::Int4:
+			return true;
+		default:
+			return false;
+	}
+}
+
+static void GetGLFormatInfo(VertexFormat fmt, GLenum& type, GLint& components, GLboolean& normalized) {
+	normalized = GL_FALSE;
+	switch (fmt) {
+		case VertexFormat::Float1:     type = GL_FLOAT;          components = 1; break;
+		case VertexFormat::Float2:     type = GL_FLOAT;          components = 2; break;
+		case VertexFormat::Float3:     type = GL_FLOAT;          components = 3; break;
+		case VertexFormat::Float4:     type = GL_FLOAT;          components = 4; break;
+		case VertexFormat::UByte4:     type = GL_UNSIGNED_BYTE;  components = 4; break;
+		case VertexFormat::UByte4Norm: type = GL_UNSIGNED_BYTE;  components = 4; normalized = GL_TRUE; break;
+		case VertexFormat::Short2:     type = GL_SHORT;          components = 2; break;
+		case VertexFormat::Short2Norm: type = GL_SHORT;          components = 2; normalized = GL_TRUE; break;
+		case VertexFormat::Short4:     type = GL_SHORT;          components = 4; break;
+		case VertexFormat::Short4Norm: type = GL_SHORT;          components = 4; normalized = GL_TRUE; break;
+		case VertexFormat::Int1:       type = GL_INT;            components = 1; break;
+		case VertexFormat::Int2:       type = GL_INT;            components = 2; break;
+		case VertexFormat::Int3:       type = GL_INT;            components = 3; break;
+		case VertexFormat::Int4:       type = GL_INT;            components = 4; break;
+	}
+}
+
+void GLContext::SetVertexLayout(const VertexLayout& layout) {
+	// Disable any previously enabled attributes first
+	ClearVertexLayout();
+
+	for (uint32_t i = 0; i < layout.attributeCount; ++i) {
+		const auto& attr = layout.attributes[i];
+		const uint32_t loc = attr.location;
+
+		glEnableVertexAttribArray(loc);
+
+		const void* offset = reinterpret_cast<const void*>(static_cast<uintptr_t>(attr.offset));
+
+		if (IsIntegerFormat(attr.format)) {
+			GLenum type; GLint components; GLboolean normalized;
+			GetGLFormatInfo(attr.format, type, components, normalized);
+			glVertexAttribIPointer(loc, components, type, layout.stride, offset);
+		} else {
+			GLenum type; GLint components; GLboolean normalized;
+			GetGLFormatInfo(attr.format, type, components, normalized);
+			glVertexAttribPointer(loc, components, type, normalized, layout.stride, offset);
+		}
+
+		if (attr.divisor != 0)
+			glVertexAttribDivisor(loc, attr.divisor);
+
+		enabledAttribMask |= (1u << loc);
+	}
+}
+
+void GLContext::ClearVertexLayout() {
+	uint32_t mask = enabledAttribMask;
+	while (mask) {
+		const uint32_t bit = mask & (~mask + 1); // isolate lowest set bit
+		const uint32_t loc = __builtin_ctz(bit);
+		glDisableVertexAttribArray(loc);
+		glVertexAttribDivisor(loc, 0);
+		mask &= ~bit;
+	}
+	enabledAttribMask = 0;
+}
+
 // --- Global state ---
 
 void GLContext::SetDepthTestEnabled(bool enabled) {

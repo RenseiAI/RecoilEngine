@@ -79,6 +79,17 @@ public:
 	// --- Vertex attribute ---
 	virtual void SetVertexAttribDivisor(uint32_t index, uint32_t divisor) = 0;
 
+	/// Configure vertex attribute layout for the currently bound vertex buffer.
+	/// Enables the specified attributes and sets format/offset/stride/divisor.
+	/// GL: calls glEnableVertexAttribArray + glVertexAttrib[I]Pointer + glVertexAttribDivisor
+	/// Metal: stores layout for pipeline descriptor construction at next draw
+	virtual void SetVertexLayout(const VertexLayout& layout) = 0;
+
+	/// Disable all vertex attributes previously enabled by SetVertexLayout.
+	/// GL: calls glDisableVertexAttribArray + resets divisors to 0
+	/// Metal: clears stored vertex descriptor
+	virtual void ClearVertexLayout() = 0;
+
 	// --- Global state ---
 	virtual void SetDepthTestEnabled(bool enabled) = 0;
 	virtual void SetDepthFunc(CompareFunc func) = 0;

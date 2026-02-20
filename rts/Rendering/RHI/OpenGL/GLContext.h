@@ -38,6 +38,8 @@ public:
 	void SetClipPlaneEquation(uint32_t index, const double* equation) override;
 
 	void SetVertexAttribDivisor(uint32_t index, uint32_t divisor) override;
+	void SetVertexLayout(const VertexLayout& layout) override;
+	void ClearVertexLayout() override;
 
 	void SetDepthTestEnabled(bool enabled) override;
 	void SetDepthFunc(CompareFunc func) override;
@@ -83,6 +85,7 @@ public:
 
 private:
 	IndexType currentIndexType = IndexType::UInt32;
+	uint32_t enabledAttribMask = 0;  // Bitmask tracking which attributes SetVertexLayout enabled
 };
 
 } // namespace RHI

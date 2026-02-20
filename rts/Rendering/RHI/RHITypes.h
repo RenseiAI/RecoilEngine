@@ -326,15 +326,16 @@ enum class VertexFormat : uint8_t {
 };
 
 struct VertexAttribute {
-	uint32_t     location;
-	uint32_t     offset;
-	VertexFormat  format;
+	uint32_t     location;      // Shader attribute location
+	uint32_t     offset;        // Byte offset within the vertex buffer
+	VertexFormat format;        // Data type and component count
+	uint32_t     divisor = 0;   // 0 = per-vertex, 1+ = per-N-instances
 };
 
 struct VertexLayout {
-	VertexAttribute* attributes;
-	uint32_t         attributeCount;
-	uint32_t         stride;
+	const VertexAttribute* attributes = nullptr; // Non-owning pointer to attribute array
+	uint32_t         attributeCount = 0;
+	uint32_t         stride = 0;                 // Byte stride between consecutive vertices
 };
 
 // --- Blend state ---

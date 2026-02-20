@@ -464,6 +464,27 @@ void MTLContext::SetVertexAttribDivisor(uint32_t index, uint32_t divisor) {
 	(void)divisor;
 }
 
+void MTLContext::SetVertexLayout(const VertexLayout& layout) {
+	// Metal uses vertex descriptors at pipeline creation time, not runtime state.
+	// Store the layout so it can be consumed when building the next pipeline descriptor.
+	const uint32_t count = (layout.attributeCount <= MaxVertexAttribs)
+		? layout.attributeCount : MaxVertexAttribs;
+
+	for (uint32_t i = 0; i < count; ++i) {
+		storedAttributes[i] = layout.attributes[i];
+	}
+
+	currentVertexLayout.attributes = storedAttributes;
+	currentVertexLayout.attributeCount = count;
+	currentVertexLayout.stride = layout.stride;
+	hasVertexLayout = true;
+}
+
+void MTLContext::ClearVertexLayout() {
+	currentVertexLayout = {};
+	hasVertexLayout = false;
+}
+
 void MTLContext::ClearColor(float r, float g, float b, float a) {
 	clearColor.r = r;
 	clearColor.g = g;

@@ -80,6 +80,8 @@ public:
 	void SetClipDistanceEnabled(uint32_t index, bool enabled) override;
 	void SetClipPlaneEquation(uint32_t index, const double* equation) override {} // Metal: shader-based clipping TBD
 	void SetVertexAttribDivisor(uint32_t index, uint32_t divisor) override;
+	void SetVertexLayout(const VertexLayout& layout) override;
+	void ClearVertexLayout() override;
 
 	// --- Global state (Metal handles via pipeline descriptors — no-ops) ---
 	void SetDepthTestEnabled(bool enabled) override {}
@@ -202,6 +204,12 @@ private:
 	Viewport    currentViewport;
 	ScissorRect currentScissor;
 	bool        scissorEnabled = false;
+
+	// Vertex layout state (stored for pipeline descriptor construction)
+	static constexpr uint32_t MaxVertexAttribs = 16;
+	VertexAttribute storedAttributes[MaxVertexAttribs] = {};
+	VertexLayout currentVertexLayout{};
+	bool hasVertexLayout = false;
 
 	// Render pass state
 	bool        inRenderPass = false;
