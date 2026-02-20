@@ -19,6 +19,4 @@ public:
 };
 
 struct S3DModelHelpers {
-	static void BindLegacyAttrVBOs();
-	static void UnbindLegacyAttrVBOs();
 };

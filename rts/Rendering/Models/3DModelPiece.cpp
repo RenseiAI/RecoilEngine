@@ -16,7 +16,7 @@ void S3DModelPiece::DrawStaticLegacy(bool bind, bool bindPosMat) const
 	if (!HasGeometryData())
 		return;
 
-	if (bind) S3DModelHelpers::BindLegacyAttrVBOs();
+	if (bind) S3DModelVAO::GetInstance().Bind();
 
 	if (bindPosMat) {
 		auto& mvStack = CModelDrawerHelper::GetModelViewStack();
@@ -31,14 +31,14 @@ void S3DModelPiece::DrawStaticLegacy(bool bind, bool bindPosMat) const
 		DrawElements();
 	}
 
-	if (bind) S3DModelHelpers::UnbindLegacyAttrVBOs();
+	if (bind) S3DModelVAO::GetInstance().Unbind();
 }
 
 // only used by projectiles with the PF_Recursive flag
 void S3DModelPiece::DrawStaticLegacyRec() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	S3DModelHelpers::BindLegacyAttrVBOs();
+	S3DModelVAO::GetInstance().Bind();
 
 	DrawStaticLegacy(false, false);
 
@@ -46,7 +46,7 @@ void S3DModelPiece::DrawStaticLegacyRec() const
 		childPiece->DrawStaticLegacy(false, false);
 	}
 
-	S3DModelHelpers::UnbindLegacyAttrVBOs();
+	S3DModelVAO::GetInstance().Unbind();
 }
 
 

@@ -1,4 +1,9 @@
 #version 130
+#extension GL_ARB_explicit_attrib_location : enable
+
+layout(location = 0) in vec3 vertexPos;
+layout(location = 1) in vec2 vertexTexCoord;
+layout(location = 2) in vec3 vertexNormal;
 
 uniform mat4 modelViewMatrix = mat4(1.0);
 uniform mat4 projectionMatrix = mat4(1.0);
@@ -83,21 +88,21 @@ void ApplyDetailBending(inout vec3 vPos, vec3 vNormal, float fDetailPhase, float
 
 void main() {
 	vec2 texOffset = vec2(0.);
-	alphaFade = gl_Color.a;
+	alphaFade = 1.0;
 
 #ifndef DISTANCE_FAR
 	// mesh grass
-	normal = normalMatrix * gl_Normal;
-	vec4 worldPos = modelViewMatrix * gl_Vertex;
+	normal = normalMatrix * vertexNormal;
+	vec4 worldPos = modelViewMatrix * vec4(vertexPos, 1.0);
 
 	// anim
-	vec3 objPos = mat3(modelViewMatrix) * gl_Vertex.xyz;
-	worldPos.xyz += ApplyMainBending(objPos, windSpeed.xz, gl_MultiTexCoord0.s * 0.004 + 0.007) - objPos;
+	vec3 objPos = mat3(modelViewMatrix) * vertexPos;
+	worldPos.xyz += ApplyMainBending(objPos, windSpeed.xz, vertexTexCoord.s * 0.004 + 0.007) - objPos;
 	ApplyDetailBending(worldPos.xyz, normal,
-			gl_MultiTexCoord0.s,
+			vertexTexCoord.s,
 			frame / 30.0,
 			0.3,
-			gl_MultiTexCoord0.t * 0.4);
+			vertexTexCoord.t * 0.4);
 
 	// compute ambient & diffuse lighting per-vertex, specular is per-pixel
 	float fNdotL  = dot(normal, sunDir);
@@ -106,8 +111,8 @@ void main() {
 	ambientDiffuseLightTerm = ambientLightColor + diffuseTerm * diffuseLightColor;
 #else
 	// billboards
-	alphaFade *= gl_Normal.z; // alpha blend far turfs
-	vec4 worldPos = /* modelViewMatrix * */ gl_Vertex; // MVM is identity in far draw pass
+	alphaFade *= vertexNormal.z; // alpha blend far turfs
+	vec4 worldPos = vec4(vertexPos, 1.0); // MVM is identity in far draw pass
 
 	// get the camera angle on the billboard and select the corresponding sprite
 	float cosCamAngle = normalize(camPos.xyz - worldPos.xyz).y;
@@ -115,7 +120,7 @@ void main() {
 	texOffset.s = clamp(floor((ang + PI / 16.0 - PI / 2.0) / PI * 30.0), 0.0, 15.0) / 16.0;
 
 	// billboard size
-	vec2 billboardSize = gl_Normal.xy;
+	vec2 billboardSize = vertexNormal.xy;
 
 	// cut of lower half in horizontal views (the fartexture is empty in lower 50% in horizontal view!)
 	billboardSize.y = max(billboardSize.y, billboardSize.y * cosCamAngle);
@@ -125,17 +130,17 @@ void main() {
 	worldPos.xyz += camUp    * billboardSize.y;
 
 	// adjust texcoord for cut of billboard
-	texOffset.t = max((0.5 * cosCamAngle - 0.5), -gl_MultiTexCoord0.t);
+	texOffset.t = max((0.5 * cosCamAngle - 0.5), -vertexTexCoord.t);
 
 	// anim
-	float seed = fract(abs(dot(gl_Vertex.xyz, vec3(1.0))));
-	vec3 objPos = (worldPos.xyz - gl_Vertex.xyz);
+	float seed = fract(abs(dot(vertexPos, vec3(1.0))));
+	vec3 objPos = (worldPos.xyz - vertexPos);
 	worldPos.xyz += ApplyMainBending(objPos, windSpeed.xz, seed * 0.006 + 0.01) - objPos;
 	ApplyDetailBending(worldPos.xyz, vec3(1., 0., 1.),
 			seed,
 			frame / 30.0,
 			0.3,
-			0.5 * max(1.0 - gl_MultiTexCoord0.t, cosCamAngle));
+			0.5 * max(1.0 - vertexTexCoord.t, cosCamAngle));
 
 	// move up when looking down (to fix clipping issues)
 	worldPos.y   += 5.0 * cosCamAngle;
@@ -153,14 +158,14 @@ void main() {
 
 #ifdef SHADOW_GEN
 	{
-		bladeTexCoords = gl_MultiTexCoord0.st + texOffset;
+		bladeTexCoords = vertexTexCoord + texOffset;
 		gl_Position = projectionMatrix * vertexShadowPos;
 		return;
 	}
 #endif
 
 	shadingTexCoords = worldPos.xzxz * vec4(mapSizePO2, mapSize);
-	bladeTexCoords   = gl_MultiTexCoord0.st + texOffset;
+	bladeTexCoords   = vertexTexCoord + texOffset;
 
 	gl_Position = projectionMatrix * worldPos;
 

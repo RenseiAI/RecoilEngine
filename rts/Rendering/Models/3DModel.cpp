@@ -6,6 +6,7 @@
 
 #include "3DModelMisc.hpp"
 #include "3DModelPiece.hpp"
+#include "3DModelVAO.hpp"
 #include "System/Misc/TracyDefs.h"
 
 
@@ -124,14 +125,14 @@ void S3DModel::FlattenPieceTree(S3DModelPiece* root)
 
 void S3DModel::DrawStatic() const
 {
-	S3DModelHelpers::BindLegacyAttrVBOs();
+	S3DModelVAO::GetInstance().Bind();
 
 	// draw pieces in their static bind-pose (ie. without script-transforms)
 	for (const S3DModelPiece* pieceObj : pieceObjects) {
 		pieceObj->DrawStaticLegacy(false, true);
 	}
 
-	S3DModelHelpers::UnbindLegacyAttrVBOs();
+	S3DModelVAO::GetInstance().Unbind();
 }
 
 void S3DModel::UpdatePiecesMinMaxExtents()

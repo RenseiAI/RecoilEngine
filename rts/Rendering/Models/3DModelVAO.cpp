@@ -1,13 +1,14 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 /**
- * RHI Migration Status: PARTIALLY MIGRATED (Phase 5.5)
+ * RHI Migration Status: PARTIALLY MIGRATED (Phase 5.6)
  *
- * 1. Vertex attribute setup (EnableAttribs/DisableAttribs): MIGRATED
+ * 1. Vertex attribute setup (EnableAttribs/DisableAttribs): MIGRATED (Phase 5.5)
  *    -> Uses RHI SetVertexLayout/ClearVertexLayout (with GL fallback for headless)
  *
- * 2. Legacy FFP client state (BindLegacyVertexAttribsAndVBOs) — ~20 calls:
- *    -> DEPRECATED. Used only by GLSL legacy path. Not migrated.
+ * 2. Legacy FFP client state: REMOVED (Phase 5.6)
+ *    -> BindLegacyVertexAttribsAndVBOs/UnbindLegacyVertexAttribsAndVBOs deleted.
+ *    -> All call sites now use VAO Bind()/Unbind() with generic attributes.
  *
  * 3. Draw calls (DrawElements/Submit/SubmitImmediately) — ~3 calls:
  *    -> NOT migrated. Requires VBO -> IRHIBuffer.
@@ -31,9 +32,9 @@
 
 #include "System/Misc/TracyDefs.h"
 
-// RHI Migration Status: PARTIALLY MIGRATED (Phase 5.5)
+// RHI Migration Status: PARTIALLY MIGRATED (Phase 5.6)
 // - EnableAttribs/DisableAttribs: MIGRATED to RHI SetVertexLayout/ClearVertexLayout
-// - BindLegacyVertexAttribsAndVBOs: NOT migrated (deprecated FFP client state path)
+// - BindLegacyVertexAttribsAndVBOs: REMOVED (Phase 5.6 — all callers use VAO Bind/Unbind)
 // - Draw calls (glDrawElements, glMultiDrawElementsIndirect): NOT migrated (needs IRHIBuffer)
 // - VBO/VAO GL wrapper classes: NOT migrated (needs IRHIBuffer)
 
@@ -275,59 +276,6 @@ void S3DModelVAO::Unbind() const
 	RECOIL_DETAILED_TRACY_ZONE;
 	assert(vao.GetIdRaw() > 0);
 	vao.Unbind();
-}
-
-void S3DModelVAO::BindLegacyVertexAttribsAndVBOs() const
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: Legacy FFP client state (glEnableClientState, glVertexPointer, etc.)
-	// has no RHI equivalent. This path should be removed once GL4 handles all rendering.
-	vertVBO.Bind();
-	indxVBO.Bind();
-
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glVertexPointer(3, GL_FLOAT, sizeof(SVertexData), vertVBO.GetPtr(offsetof(SVertexData, pos)));
-
-	glEnableClientState(GL_NORMAL_ARRAY);
-	glNormalPointer(GL_FLOAT, sizeof(SVertexData), vertVBO.GetPtr(offsetof(SVertexData, normal)));
-
-	glClientActiveTexture(GL_TEXTURE0);
-	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	glTexCoordPointer(2, GL_FLOAT, sizeof(SVertexData), vertVBO.GetPtr(offsetof(SVertexData, texCoords[0])));
-
-	glClientActiveTexture(GL_TEXTURE1);
-	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	glTexCoordPointer(2, GL_FLOAT, sizeof(SVertexData), vertVBO.GetPtr(offsetof(SVertexData, texCoords[1])));
-
-	glClientActiveTexture(GL_TEXTURE5);
-	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	glTexCoordPointer(3, GL_FLOAT, sizeof(SVertexData), vertVBO.GetPtr(offsetof(SVertexData, sTangent)));
-
-	glClientActiveTexture(GL_TEXTURE6);
-	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	glTexCoordPointer(3, GL_FLOAT, sizeof(SVertexData), vertVBO.GetPtr(offsetof(SVertexData, tTangent)));
-}
-
-void S3DModelVAO::UnbindLegacyVertexAttribsAndVBOs() const
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	glClientActiveTexture(GL_TEXTURE6);
-	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-
-	glClientActiveTexture(GL_TEXTURE5);
-	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-
-	glClientActiveTexture(GL_TEXTURE1);
-	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-
-	glClientActiveTexture(GL_TEXTURE0);
-	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-
-	glDisableClientState(GL_VERTEX_ARRAY);
-	glDisableClientState(GL_NORMAL_ARRAY);
-
-	indxVBO.Unbind();
-	vertVBO.Unbind();
 }
 
 void S3DModelVAO::DrawElements(GLenum prim, uint32_t vboIndxStart, uint32_t vboIndxCount) const

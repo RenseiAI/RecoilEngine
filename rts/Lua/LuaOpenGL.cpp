@@ -149,6 +149,7 @@
 #include "Rendering/GL/TexBind.h"
 #include "Rendering/Models/3DModelMisc.hpp"
 #include "Rendering/Models/3DModelPiece.hpp"
+#include "Rendering/Models/3DModelVAO.hpp"
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/Textures/Bitmap.h"
 #include "Rendering/Textures/TextureAtlas.h"
@@ -1585,9 +1586,9 @@ static void GLObjectPiece(lua_State* L, const CSolidObject* obj)
 		return;
 
 	assert(lmp->original);
-	S3DModelHelpers::BindLegacyAttrVBOs();
+	S3DModelVAO::GetInstance().Bind();
 	lmp->original->DrawElements();
-	S3DModelHelpers::UnbindLegacyAttrVBOs();
+	S3DModelVAO::GetInstance().Unbind();
 }
 
 static void GLObjectPieceMultMatrix(lua_State* L, const CSolidObject* obj)

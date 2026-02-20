@@ -1,4 +1,9 @@
 #version 130
+#extension GL_ARB_explicit_attrib_location : enable
+
+layout(location = 0) in vec3 vertexPos;
+layout(location = 1) in vec3 vertexNormal;
+layout(location = 4) in vec4 vertexTexCoord;
 
 // Explicit uniforms replacing FFP built-ins
 // Note: modelMatrix contains the MODEL matrix only (not view).
@@ -29,11 +34,11 @@ void main(void)
 	// mat3(modelMatrix) works as normal matrix because unit transforms are
 	// rotation+translation only (no non-uniform scale). The normals are
 	// normalize()'d in the fragment shader, so uniform scale cancels out.
-	normalv = mat3(modelMatrix) * gl_Normal;
+	normalv = mat3(modelMatrix) * vertexNormal;
 
-	vec4 worldPos  = modelMatrix * gl_Vertex;
-	gl_ClipDistance[0] = dot(gl_Vertex, clipPlane0); //model space (construction upper)
-	gl_ClipDistance[1] = dot(gl_Vertex, clipPlane1); //model space (construction lower)
+	vec4 worldPos  = modelMatrix * vec4(vertexPos, 1.0);
+	gl_ClipDistance[0] = dot(vec4(vertexPos, 1.0), clipPlane0); //model space (construction upper)
+	gl_ClipDistance[1] = dot(vec4(vertexPos, 1.0), clipPlane1); //model space (construction lower)
 	gl_ClipDistance[2] = dot(worldPos, clipPlane2);  //world space (water)
 	gl_Position    = viewProjMatrix * worldPos;
 
@@ -45,7 +50,7 @@ void main(void)
 	shadowVertexPos.xy += vec2(0.5);
 #endif
 
-	texCoord0 = gl_MultiTexCoord0.st;
+	texCoord0 = vertexTexCoord.st;
 
 #if (DEFERRED_MODE == 0)
 	float fogCoord = length(cameraDir.xyz);

@@ -1,6 +1,7 @@
 #include "LocalModelPiece.hpp"
 
 #include "3DModelPiece.hpp"
+#include "3DModelVAO.hpp"
 #include "LocalModel.hpp"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/Common/ModelDrawerHelpers.h"
@@ -273,9 +274,9 @@ void LocalModelPiece::Draw() const
 	mvStack.MultMatrix(GetModelSpaceMatrix());
 	CModelDrawerHelper::SyncModelMatrixUniform();
 
-	S3DModelHelpers::BindLegacyAttrVBOs();
+	S3DModelVAO::GetInstance().Bind();
 	original->DrawElements();
-	S3DModelHelpers::UnbindLegacyAttrVBOs();
+	S3DModelVAO::GetInstance().Unbind();
 
 	mvStack.Pop();
 }
@@ -295,9 +296,9 @@ void LocalModelPiece::DrawLOD(uint32_t lod) const
 	CModelDrawerHelper::SyncModelMatrixUniform();
 
 	if (const auto ldl = lodDispLists[lod]; ldl == 0) {
-		S3DModelHelpers::BindLegacyAttrVBOs();
+		S3DModelVAO::GetInstance().Bind();
 		original->DrawElements();
-		S3DModelHelpers::UnbindLegacyAttrVBOs();
+		S3DModelVAO::GetInstance().Unbind();
 	} else {
 		glCallList(ldl);
 	}

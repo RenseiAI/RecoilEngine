@@ -5,6 +5,12 @@ precision highp float;
 precision mediump float;
 #endif
 
+#extension GL_ARB_explicit_attrib_location : enable
+
+layout(location = 0) in vec3 vertexPos;
+layout(location = 1) in vec3 vertexNormal;
+layout(location = 4) in vec4 vertexTexCoord;
+
 out vec2 texCoord0;
 
 uniform mat4 shadowViewMatrix = mat4(1.0);
@@ -21,8 +27,8 @@ void main() {
 		mat3 normalMatrix = mat3(shadowViewMatrix);
 	#endif
 
-	vec4 lightVertexPos = shadowViewMatrix * gl_Vertex;
-	vec3 lightVertexNormal = normalize(normalMatrix * gl_Normal);
+	vec4 lightVertexPos = shadowViewMatrix * vec4(vertexPos, 1.0);
+	vec3 lightVertexNormal = normalize(normalMatrix * vertexNormal);
 
 	float NdotL = clamp(dot(lightVertexNormal, vec3(0.0, 0.0, 1.0)), 0.0, 1.0);
 
@@ -36,7 +42,7 @@ void main() {
 
 	gl_Position = shadowProjectionMatrix * lightVertexPos;
 
-	gl_ClipDistance[0] = dot(gl_Vertex, clipPlaneEquation0);
-	gl_ClipDistance[1] = dot(gl_Vertex, clipPlaneEquation1);
-	texCoord0 = gl_MultiTexCoord0.st;
+	gl_ClipDistance[0] = dot(vec4(vertexPos, 1.0), clipPlaneEquation0);
+	gl_ClipDistance[1] = dot(vec4(vertexPos, 1.0), clipPlaneEquation1);
+	texCoord0 = vertexTexCoord.st;
 }

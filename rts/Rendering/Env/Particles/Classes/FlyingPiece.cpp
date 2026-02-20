@@ -9,6 +9,7 @@
 #include "Rendering/Common/ModelDrawerHelpers.h"
 #include "Rendering/Units/UnitDrawer.h"
 #include "Rendering/Models/3DModelPiece.hpp"
+#include "Rendering/Models/3DModelVAO.hpp"
 #include "Rendering/Textures/S3OTextureHandler.h"
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/RHI/RHIFactory.h"
@@ -218,7 +219,7 @@ void FlyingPiece::BeginDraw()
 	RECOIL_DETAILED_TRACY_ZONE;
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetCullFaceEnabled(false);
-	S3DModelHelpers::BindLegacyAttrVBOs();
+	S3DModelVAO::GetInstance().Bind();
 }
 
 void FlyingPiece::EndDraw()
@@ -226,7 +227,7 @@ void FlyingPiece::EndDraw()
 	RECOIL_DETAILED_TRACY_ZONE;
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetCullFaceEnabled(true);
-	S3DModelHelpers::UnbindLegacyAttrVBOs();
+	S3DModelVAO::GetInstance().Unbind();
 
 	CModelDrawerHelper::UnbindModelTypeTexture(MODELTYPE_S3O); // all model types do the same thing
 }
