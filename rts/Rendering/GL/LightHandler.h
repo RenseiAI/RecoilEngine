@@ -3,21 +3,10 @@
 /**
  * GL Light Handler - Dynamic Light Management
  *
- * RHI Migration Status: REQUIRES ARCHITECTURAL REDESIGN
- * ------------------------------------------------------
- * Uses OpenGL fixed-function pipeline lighting which has NO equivalent
- * in Metal, Vulkan, or GL Core 3.2+.
- *
- * Current GL calls: glGetIntegerv(GL_MAX_LIGHTS), glEnable/glDisable(GL_LIGHT*),
- * glLightfv(POSITION/AMBIENT/DIFFUSE/SPECULAR/SPOT_DIRECTION), glLightf(CUTOFF/ATTENUATION)
- *
- * Migration Strategy (NOT YET IMPLEMENTED):
- *   1. Create uniform buffer with struct GPULightData[] + numActiveLights
- *   2. Upload via IRHIBuffer::Upload() each frame
- *   3. Bind UBO in shaders via IRHIContext::BindUniformBuffer()
- *   4. Sample light data in fragment shaders instead of FFP
- *
- * Until migration: Only functions with OpenGL backend.
+ * RHI Migration Status: MIGRATED (Phase 5.7)
+ * -------------------------------------------
+ * Light data is packed into float4 arrays and uploaded as shader uniforms
+ * each frame via SetUniform4v(). No FFP glLight* calls remain.
  */
 
 #ifndef _GL_LIGHTHANDLER_H
@@ -34,10 +23,10 @@ namespace Shader {
 namespace GL {
 	struct LightHandler {
 	public:
-		LightHandler(): baseLight(0), maxLights(0), numLights(0), lightHandle(0) {}
+		LightHandler(): maxLights(0), numLights(0), lightHandle(0) {}
 		~LightHandler() { Kill(); }
 
-		void Init(unsigned int, unsigned int);
+		void Init(unsigned int cfgMaxLights);
 		void Kill() { lights.clear(); }
 		void Update(Shader::IProgramObject*);
 
@@ -46,13 +35,19 @@ namespace GL {
 
 		GL::Light* GetLight(unsigned int lgtHandle);
 
-		unsigned int GetBaseLight() const { return baseLight; }
 		unsigned int GetMaxLights() const { return maxLights; }
 
 	private:
 		std::vector<GL::Light> lights;
 
-		unsigned int baseLight;
+		// Packed arrays for uniform upload (6 x vec4 arrays)
+		std::vector<float4> lightPositions;
+		std::vector<float4> lightAmbients;
+		std::vector<float4> lightDiffuses;
+		std::vector<float4> lightSpeculars;
+		std::vector<float4> lightSpotParams;    // xyz=dir, w=cosCutoff
+		std::vector<float4> lightAttenuations;  // x=radius (or constAtten), y=linear, z=quad
+
 		unsigned int maxLights;
 		unsigned int numLights;
 		unsigned int lightHandle;

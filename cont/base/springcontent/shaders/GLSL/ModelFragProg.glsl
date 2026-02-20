@@ -19,6 +19,16 @@
 	uniform float shadowDensity;
 #endif
 
+// Dynamic point/spot lights (replaces gl_LightSource[] FFP built-in)
+#if (MAX_DYNAMIC_MODEL_LIGHTS > 0)
+	uniform vec4 dynLightPosition[MAX_DYNAMIC_MODEL_LIGHTS];    // .xyz = world position
+	uniform vec4 dynLightAmbient[MAX_DYNAMIC_MODEL_LIGHTS];     // .rgb = ambient color
+	uniform vec4 dynLightDiffuse[MAX_DYNAMIC_MODEL_LIGHTS];     // .rgb = diffuse color
+	uniform vec4 dynLightSpecular[MAX_DYNAMIC_MODEL_LIGHTS];    // .rgb = specular color
+	uniform vec4 dynLightSpotParams[MAX_DYNAMIC_MODEL_LIGHTS];  // .xyz = spotDirection, .w = spotCosCutoff
+	uniform vec4 dynLightAttenuation[MAX_DYNAMIC_MODEL_LIGHTS]; // .x = radius (or constAtten), .y = linearAtten, .z = quadAtten
+#endif
+
 // in opaque passes tc.a is always 1.0 [all objects], and alphaPass is 0.0
 // in alpha passes tc.a is either one of alphaValues.xyzw [for units] *or*
 // contains a distance fading factor [for features], and alphaPass is 1.0
@@ -68,34 +78,38 @@ vec3 DynamicLighting(vec3 normal, vec3 diffuse, vec3 specular) {
 	vec3 rgb = vec3(0.0);
 
 	for (int i = 0; i < MAX_DYNAMIC_MODEL_LIGHTS; i++) {
-		vec3 lightVec = gl_LightSource[BASE_DYNAMIC_MODEL_LIGHT + i].position.xyz - vertexWorldPos.xyz;
-		vec3 halfVec = gl_LightSource[BASE_DYNAMIC_MODEL_LIGHT + i].halfVector.xyz;
-
-		float lightRadius   = gl_LightSource[BASE_DYNAMIC_MODEL_LIGHT + i].constantAttenuation;
+		vec3 lightVec = dynLightPosition[i].xyz - vertexWorldPos.xyz;
 		float lightDistance = length(lightVec);
+		vec3 lightDir = lightVec / max(lightDistance, 1e-6);
+
+		// compute half-vector from light direction + view direction (replaces FFP halfVector)
+		vec3 viewDir = normalize(-cameraDir);
+		vec3 halfVec = normalize(lightDir + viewDir);
+
+		float lightRadius   = dynLightAttenuation[i].x;
 		float lightScale    = float(lightDistance <= lightRadius);
 
-		float lightCosAngDiff = clamp(dot(normal, lightVec / lightDistance), 0.0, 1.0);
-		float lightCosAngSpec = clamp(dot(normal, normalize(halfVec)), 0.0, 1.0);
+		float lightCosAngDiff = clamp(dot(normal, lightDir), 0.0, 1.0);
+		float lightCosAngSpec = clamp(dot(normal, halfVec), 0.0, 1.0);
 		#ifdef OGL_SPEC_ATTENUATION
 		float lightAttenuation =
-			(gl_LightSource[BASE_DYNAMIC_MODEL_LIGHT + i].constantAttenuation) +
-			(gl_LightSource[BASE_DYNAMIC_MODEL_LIGHT + i].linearAttenuation * lightDistance) +
-			(gl_LightSource[BASE_DYNAMIC_MODEL_LIGHT + i].quadraticAttenuation * lightDistance * lightDistance);
+			(dynLightAttenuation[i].x) +
+			(dynLightAttenuation[i].y * lightDistance) +
+			(dynLightAttenuation[i].z * lightDistance * lightDistance);
 
 		lightAttenuation = 1.0 / max(lightAttenuation, 1.0);
 		#else
 		float lightAttenuation = 1.0 - min(1.0, ((lightDistance * lightDistance) / (lightRadius * lightRadius)));
 		#endif
 
-		float vectorDot = dot((-lightVec / lightDistance), gl_LightSource[BASE_DYNAMIC_MODEL_LIGHT + i].spotDirection);
-		float cutoffDot = gl_LightSource[BASE_DYNAMIC_MODEL_LIGHT + i].spotCosCutoff;
+		float vectorDot = dot(-lightDir, dynLightSpotParams[i].xyz);
+		float cutoffDot = dynLightSpotParams[i].w;
 
 		lightScale *= float(vectorDot >= cutoffDot);
 
-		rgb += (lightScale *                                    gl_LightSource[BASE_DYNAMIC_MODEL_LIGHT + i].ambient.rgb);
-		rgb += (lightScale * lightAttenuation * (diffuse.rgb  * gl_LightSource[BASE_DYNAMIC_MODEL_LIGHT + i].diffuse.rgb * lightCosAngDiff));
-		rgb += (lightScale * lightAttenuation * (specular.rgb * gl_LightSource[BASE_DYNAMIC_MODEL_LIGHT + i].specular.rgb * pow(lightCosAngSpec, 4.0)));
+		rgb += (lightScale *                                    dynLightAmbient[i].rgb);
+		rgb += (lightScale * lightAttenuation * (diffuse.rgb  * dynLightDiffuse[i].rgb * lightCosAngDiff));
+		rgb += (lightScale * lightAttenuation * (specular.rgb * dynLightSpecular[i].rgb * pow(lightCosAngSpec, 4.0)));
 	}
 
 	return rgb;

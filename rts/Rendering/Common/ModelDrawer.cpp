@@ -17,7 +17,7 @@ void CModelDrawerConcept::InitStatic()
 	cubeMapHandler.Init();
 	wireFrameMode = false;
 
-	lightHandler.Init(2U, configHandler->GetInt("MaxDynamicModelLights"));
+	lightHandler.Init(configHandler->GetInt("MaxDynamicModelLights"));
 
 	deferredAllowed = configHandler->GetBool("AllowDeferredModelRendering");
 

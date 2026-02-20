@@ -50,5 +50,5 @@ void main() {
 	gl_Position = shadowProjectionMatrix * lightVertexPos;
 
 	gl_ClipDistance[0] = dot(vertexWorldPos, clipPlaneEquation);
-	texCoord0 = gl_MultiTexCoord0.st;
+	texCoord0 = vec2(0.0); // terrain VAO has no texcoord; value unused by MAP shadow program
 }

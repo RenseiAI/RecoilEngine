@@ -146,7 +146,6 @@ CModelDrawerStateGLSL::CModelDrawerStateGLSL()
 		"ModelShaderGLSL-ShadowedDeferred",
 	};
 	const std::string extraDefs =
-		("#define BASE_DYNAMIC_MODEL_LIGHT " + IntToString(lightHandler->GetBaseLight()) + "\n") +
 		("#define MAX_DYNAMIC_MODEL_LIGHTS " + IntToString(lightHandler->GetMaxLights()) + "\n");
 
 	for (uint32_t n = MODEL_SHADER_NOSHADOW_STANDARD; n <= MODEL_SHADER_SHADOWED_DEFERRED; n++) {

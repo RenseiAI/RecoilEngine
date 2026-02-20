@@ -3,53 +3,43 @@
 /**
  * GL Light Handler - Implementation
  *
- * RHI Migration Status: REQUIRES ARCHITECTURAL REDESIGN
+ * RHI Migration Status: MIGRATED (Phase 5.7)
  * See LightHandler.h for full migration notes.
  *
- * GL calls: Init() queries GL_MAX_LIGHTS and initializes FFP light slots.
- * Update() per-frame per-light: glEnable(lightID), glLightfv for all properties,
- * then glDisable(lightID). The code note says it "communicates properties via
- * the FFP to save uniforms" - after RHI migration, pack into UBO instead.
+ * Light data is packed into float4 arrays and uploaded as shader uniforms
+ * each frame. No FFP glLight* calls remain.
  */
 
-#include "myGL.h"
 #include "LightHandler.h"
 #include "Game/GlobalUnsynced.h"
 #include "Rendering/Shaders/Shader.h"
 #include "Sim/Misc/GlobalSynced.h"
 #include "Sim/Misc/LosHandler.h"
 #include "Sim/Projectiles/Projectile.h"
+#include "System/MathConstants.h"
 
 #include "System/Misc/TracyDefs.h"
+
+#include <cmath>
 
 //automatically initialized to zeros
 static constexpr float4 ZeroVector4;
 
-void GL::LightHandler::Init(unsigned int cfgBaseLight, unsigned int cfgMaxLights) {
-	glGetIntegerv(GL_MAX_LIGHTS, reinterpret_cast<int*>(&maxLights));
-
-	baseLight = cfgBaseLight;
-	maxLights -= baseLight;
-	maxLights = std::min(maxLights, cfgMaxLights);
+void GL::LightHandler::Init(unsigned int cfgMaxLights) {
+	maxLights = cfgMaxLights;
 
 	lights.resize(maxLights);
 
+	// Resize uniform data arrays
+	lightPositions.resize(maxLights, ZeroVector4);
+	lightAmbients.resize(maxLights, ZeroVector4);
+	lightDiffuses.resize(maxLights, ZeroVector4);
+	lightSpeculars.resize(maxLights, ZeroVector4);
+	lightSpotParams.resize(maxLights, ZeroVector4);
+	lightAttenuations.resize(maxLights, ZeroVector4);
+
 	for (unsigned int i = 0; i < maxLights; i++) {
-		const unsigned int lightID = GL_LIGHT0 + baseLight + i;
-
-		glEnable(lightID);
-		glLightfv(lightID, GL_POSITION, &ZeroVector4.x);
-		glLightfv(lightID, GL_AMBIENT,  &ZeroVector4.x);
-		glLightfv(lightID, GL_DIFFUSE,  &ZeroVector4.x);
-		glLightfv(lightID, GL_SPECULAR, &ZeroVector4.x);
-		glLightfv(lightID, GL_SPOT_DIRECTION, &ZeroVector4.x);
-		glLightf(lightID, GL_SPOT_CUTOFF, 180.0f);
-		glLightf(lightID, GL_CONSTANT_ATTENUATION,  1.0f);
-		glLightf(lightID, GL_LINEAR_ATTENUATION,    0.0f);
-		glLightf(lightID, GL_QUADRATIC_ATTENUATION, 0.0f);
-		glDisable(lightID);
-
-		lights[i].SetID(lightID);
+		lights[i].SetID(i);
 	}
 }
 
@@ -118,10 +108,6 @@ void GL::LightHandler::Update(Shader::IProgramObject* shader) {
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (lights.size() != numLights) {
 		numLights = lights.size();
-
-		// update the active light-count (note: unused, number of lights
-		// to iterate over needs to be known at shader compilation-time)
-		// shader->SetUniform1i(uniformIndex, numLights);
 	}
 
 	if (numLights == 0)
@@ -138,16 +124,17 @@ void GL::LightHandler::Update(Shader::IProgramObject* shader) {
 		maxWeight = float3::max(maxWeight, light.GetIntensityWeight());
 	}
 
-	for (GL::Light& light: lights) {
-		const unsigned int lightID = light.GetID();
+	for (unsigned int i = 0; i < numLights; i++) {
+		GL::Light& light = lights[i];
 
-		// dead light, ignore (but kill its contribution)
+		// dead light, zero its contribution
 		if (light.GetTTL() == 0) {
-			glEnable(lightID);
-			glLightfv(lightID, GL_AMBIENT,  &ZeroVector4.x);
-			glLightfv(lightID, GL_DIFFUSE,  &ZeroVector4.x);
-			glLightfv(lightID, GL_SPECULAR, &ZeroVector4.x);
-			glDisable(lightID);
+			lightPositions[i]   = ZeroVector4;
+			lightAmbients[i]    = ZeroVector4;
+			lightDiffuses[i]    = ZeroVector4;
+			lightSpeculars[i]   = ZeroVector4;
+			lightSpotParams[i]  = ZeroVector4;
+			lightAttenuations[i] = ZeroVector4;
 			continue;
 		}
 
@@ -201,39 +188,52 @@ void GL::LightHandler::Update(Shader::IProgramObject* shader) {
 		}
 
 		if (light.GetRelativeTime() > light.GetTTL()) {
-			// mark light as dead
+			// mark light as dead, zero its contribution
 			light.SetTTL(0);
+			lightPositions[i]   = ZeroVector4;
+			lightAmbients[i]    = ZeroVector4;
+			lightDiffuses[i]    = ZeroVector4;
+			lightSpeculars[i]   = ZeroVector4;
+			lightSpotParams[i]  = ZeroVector4;
+			lightAttenuations[i] = ZeroVector4;
 			continue;
 		}
 
-		// communicate properties via the FFP to save uniforms
-		// note: we want MV to be identity here
-		glEnable(lightID);
-		glLightfv(lightID, GL_POSITION, &lightPos.x);
+		// Pack light data into uniform arrays
+		lightPositions[i] = lightPos;
 
 		if (gu->spectatingFullView || light.IgnoreLOS() || losHandler->InLos(lightPos, gu->myAllyTeam)) {
 			// light is visible
-			glLightfv(lightID, GL_AMBIENT,  &weightedAmbientCol.x);
-			glLightfv(lightID, GL_DIFFUSE,  &weightedDiffuseCol.x);
-			glLightfv(lightID, GL_SPECULAR, &weightedSpecularCol.x);
+			lightAmbients[i]  = weightedAmbientCol;
+			lightDiffuses[i]  = weightedDiffuseCol;
+			lightSpeculars[i] = weightedSpecularCol;
 		} else {
 			// zero contribution from this light if not in LOS
-			// (whether or not camera can see it is irrelevant
-			// since the light always takes up a slot anyway)
-			glLightfv(lightID, GL_AMBIENT,  &ZeroVector4.x);
-			glLightfv(lightID, GL_DIFFUSE,  &ZeroVector4.x);
-			glLightfv(lightID, GL_SPECULAR, &ZeroVector4.x);
+			lightAmbients[i]  = ZeroVector4;
+			lightDiffuses[i]  = ZeroVector4;
+			lightSpeculars[i] = ZeroVector4;
 		}
 
-		glLightfv(lightID, GL_SPOT_DIRECTION, &lightDir.x);
-		glLightf(lightID, GL_SPOT_CUTOFF, light.GetFOV());
-		glLightf(lightID, GL_CONSTANT_ATTENUATION, light.GetRadius()); //!
-		#if (OGL_SPEC_ATTENUATION == 1)
-		glLightf(lightID, GL_CONSTANT_ATTENUATION,  light.GetAttenuation().x);
-		glLightf(lightID, GL_LINEAR_ATTENUATION,    light.GetAttenuation().y);
-		glLightf(lightID, GL_QUADRATIC_ATTENUATION, light.GetAttenuation().z);
-		#endif
-		glDisable(lightID);
-	}
-}
+		// spotDirection (xyz) + cos(fov) as spotCosCutoff (w)
+		lightSpotParams[i] = float4(lightDir.x, lightDir.y, lightDir.z,
+			std::cos(light.GetFOV() * math::DEG_TO_RAD));
 
+		// Pack attenuation: x=radius (or constAtten in OGL_SPEC), y=linear, z=quad
+		lightAttenuations[i] = float4(light.GetRadius(), 0.0f, 0.0f, 0.0f);
+		#if (OGL_SPEC_ATTENUATION == 1)
+		lightAttenuations[i] = float4(
+			light.GetAttenuation().x,
+			light.GetAttenuation().y,
+			light.GetAttenuation().z,
+			0.0f);
+		#endif
+	}
+
+	// Upload all 6 uniform arrays to the active shader
+	shader->SetUniform4v("dynLightPosition",    static_cast<int>(maxLights), &lightPositions[0].x);
+	shader->SetUniform4v("dynLightAmbient",     static_cast<int>(maxLights), &lightAmbients[0].x);
+	shader->SetUniform4v("dynLightDiffuse",     static_cast<int>(maxLights), &lightDiffuses[0].x);
+	shader->SetUniform4v("dynLightSpecular",    static_cast<int>(maxLights), &lightSpeculars[0].x);
+	shader->SetUniform4v("dynLightSpotParams",  static_cast<int>(maxLights), &lightSpotParams[0].x);
+	shader->SetUniform4v("dynLightAttenuation", static_cast<int>(maxLights), &lightAttenuations[0].x);
+}
