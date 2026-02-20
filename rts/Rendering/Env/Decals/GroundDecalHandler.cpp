@@ -1,5 +1,5 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
-// RHI migration status: Partial (atlasTex, depth buffer, shadow color bindings migrated to RHI)
+// RHI migration status: Partial (atlasTex, depth buffer, shadow color, vertex attribs migrated to RHI)
 
 #include <algorithm>
 #include <cctype>
@@ -386,35 +386,58 @@ uint32_t CGroundDecalHandler::GetNextId()
 	return 0;
 }
 
-// RHI_TODO [RHI cross-cutting]: vertex attribute setup uses raw GL calls
-// (glEnableVertexAttribArray, glVertexAttribPointer, glVertexAttribDivisor).
-// Needs RHI vertex layout / input description abstraction (P3: Vertex Buffers).
+// RHI MIGRATED (Phase 5.8): vertex attribute setup via SetVertexLayout/ClearVertexLayout
 void CGroundDecalHandler::BindVertexAtrribs()
 {
-	// RHI_TODO: replace with RHI vertex layout API when available
-	for (int i = 0; i <= 8; ++i) {
-		glEnableVertexAttribArray(i);
-		glVertexAttribDivisor(i, 1);
+	auto* device = RHI::GetDevice();
+	if (!device) {
+		// Headless fallback: use raw GL
+		for (int i = 0; i <= 8; ++i) {
+			glEnableVertexAttribArray(i);
+			glVertexAttribDivisor(i, 1);
+		}
+		for (const AttributeDef& ad : GroundDecal::attributeDefs) {
+			glEnableVertexAttribArray(ad.index);
+			glVertexAttribDivisor(ad.index, 1);
+			if (ad.type == GL_FLOAT || ad.normalize)
+				glVertexAttribPointer(ad.index, ad.count, ad.type, ad.normalize, ad.stride, ad.data);
+			else
+				glVertexAttribIPointer(ad.index, ad.count, ad.type, ad.stride, ad.data);
+		}
+		return;
 	}
 
-	for (const AttributeDef& ad : GroundDecal::attributeDefs) {
-		glEnableVertexAttribArray(ad.index);
-		glVertexAttribDivisor(ad.index, 1);
-
-		if (ad.type == GL_FLOAT || ad.normalize)
-			glVertexAttribPointer(ad.index, ad.count, ad.type, ad.normalize, ad.stride, ad.data);
-		else //assume int types
-			glVertexAttribIPointer(ad.index, ad.count, ad.type, ad.stride, ad.data);
-	}
+	auto* ctx = device->GetContext();
+	const RHI::VertexAttribute attrs[] = {
+		{ 0, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(GroundDecal::attributeDefs[ 0].data)), RHI::VertexFormat::Float4, 1},
+		{ 1, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(GroundDecal::attributeDefs[ 1].data)), RHI::VertexFormat::Float4, 1},
+		{ 2, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(GroundDecal::attributeDefs[ 2].data)), RHI::VertexFormat::Float4, 1},
+		{ 3, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(GroundDecal::attributeDefs[ 3].data)), RHI::VertexFormat::Float4, 1},
+		{ 4, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(GroundDecal::attributeDefs[ 4].data)), RHI::VertexFormat::Float4, 1},
+		{ 5, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(GroundDecal::attributeDefs[ 5].data)), RHI::VertexFormat::Float4, 1},
+		{ 6, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(GroundDecal::attributeDefs[ 6].data)), RHI::VertexFormat::Float4, 1},
+		{ 7, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(GroundDecal::attributeDefs[ 7].data)), RHI::VertexFormat::Float4, 1},
+		{ 8, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(GroundDecal::attributeDefs[ 8].data)), RHI::VertexFormat::Float4, 1},
+		{ 9, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(GroundDecal::attributeDefs[ 9].data)), RHI::VertexFormat::UInt4,  1},
+		{10, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(GroundDecal::attributeDefs[10].data)), RHI::VertexFormat::Float4, 1},
+		{11, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(GroundDecal::attributeDefs[11].data)), RHI::VertexFormat::Float4, 1},
+	};
+	const RHI::VertexLayout layout{attrs, 12, sizeof(GroundDecal)};
+	ctx->SetVertexLayout(layout);
 }
 
 void CGroundDecalHandler::UnbindVertexAtrribs()
 {
-	// RHI_TODO: replace with RHI vertex layout API when available
-	for (const AttributeDef& ad : GroundDecal::attributeDefs) {
-		glDisableVertexAttribArray(ad.index);
-		glVertexAttribDivisor(ad.index, 0);
+	auto* device = RHI::GetDevice();
+	if (!device) {
+		// Headless fallback: use raw GL
+		for (const AttributeDef& ad : GroundDecal::attributeDefs) {
+			glDisableVertexAttribArray(ad.index);
+			glVertexAttribDivisor(ad.index, 0);
+		}
+		return;
 	}
+	device->GetContext()->ClearVertexLayout();
 }
 
 uint32_t CGroundDecalHandler::GetDepthBufferTextureTarget() const

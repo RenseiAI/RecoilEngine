@@ -22,6 +22,7 @@
  * - Texture binding: shadow color via shadowHandler.GetColorTexture()->Bind()
  *
  * - Display lists: glGenLists/glNewList/glCallList replaced with VBO/VAO (Phase 4.3)
+ * - Vertex attribs: CreateGrassBladeVBO attrib setup via SetVertexLayout (Phase 5.8)
  *
  * REMAINING (NOT MIGRATED):
  * - FFP deprecated: GL_ALPHA_TEST, glColor4f
@@ -882,16 +883,27 @@ void CGrassDrawer::CreateGrassBladeVBO()
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
 
 	// VA_TYPE_TN layout: float3 pos (0), float s (12), float t (16), float3 n (20) — stride 32
-	const GLsizei stride = sizeof(VA_TYPE_TN);
-	// attr 0: position
-	glEnableVertexAttribArray(0);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
-	// attr 1: texcoord (s, t)
-	glEnableVertexAttribArray(1);
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(offsetof(VA_TYPE_TN, s)));
-	// attr 2: normal
-	glEnableVertexAttribArray(2);
-	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(offsetof(VA_TYPE_TN, n)));
+	// RHI MIGRATED (Phase 5.8): vertex attribute setup via SetVertexLayout
+	auto* device = RHI::GetDevice();
+	if (device) {
+		auto* ctx = device->GetContext();
+		const RHI::VertexAttribute attrs[] = {
+			{0, 0,                                              RHI::VertexFormat::Float3, 0}, // position
+			{1, static_cast<uint32_t>(offsetof(VA_TYPE_TN, s)), RHI::VertexFormat::Float2, 0}, // texcoord
+			{2, static_cast<uint32_t>(offsetof(VA_TYPE_TN, n)), RHI::VertexFormat::Float3, 0}, // normal
+		};
+		const RHI::VertexLayout layout{attrs, 3, sizeof(VA_TYPE_TN)};
+		ctx->SetVertexLayout(layout);
+	} else {
+		// Headless fallback: use raw GL
+		const GLsizei stride = sizeof(VA_TYPE_TN);
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(offsetof(VA_TYPE_TN, s)));
+		glEnableVertexAttribArray(2);
+		glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(offsetof(VA_TYPE_TN, n)));
+	}
 
 	glBindVertexArray(0);
 }
