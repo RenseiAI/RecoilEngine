@@ -1,35 +1,16 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 /**
- * RHI Migration Status: BLOCKED — Central model VBO/VAO infrastructure
+ * RHI Migration Status: PARTIALLY MIGRATED (Phase 5.5)
  *
- * This file is the core model geometry system. It manages vertex/index/instance
- * buffers and all model draw calls. Full migration requires replacing the VBO/VAO
- * GL wrapper classes with IRHIBuffer, which is a significant infrastructure change.
- *
- * GL calls by category:
- *
- * 1. Vertex attribute setup (EnableAttribs/DisableAttribs) — ~14 calls:
- *    glEnableVertexAttribArray, glVertexAttribDivisor, glVertexAttribPointer,
- *    glVertexAttribIPointer, glDisableVertexAttribArray
- *    -> Needs RHI vertex input layout in PipelineDesc. The GL4 VAO handles this.
+ * 1. Vertex attribute setup (EnableAttribs/DisableAttribs): MIGRATED
+ *    -> Uses RHI SetVertexLayout/ClearVertexLayout (with GL fallback for headless)
  *
  * 2. Legacy FFP client state (BindLegacyVertexAttribsAndVBOs) — ~20 calls:
- *    glEnableClientState, glVertexPointer, glNormalPointer, glClientActiveTexture,
- *    glTexCoordPointer, glDisableClientState
- *    -> DEPRECATED. Used only by GLSL legacy path. Should be removed once GL4
- *       path handles all rendering.
+ *    -> DEPRECATED. Used only by GLSL legacy path. Not migrated.
  *
  * 3. Draw calls (DrawElements/Submit/SubmitImmediately) — ~3 calls:
- *    glDrawElements -> IRHIContext::DrawIndexed (with GLenum to RHI::PrimitiveType)
- *    glMultiDrawElementsIndirect -> IRHIContext::DrawIndexedIndirect
- *    -> IRHIContext already has DrawIndexedIndirect. Migration requires VBO -> IRHIBuffer
- *       for the command buffer, then ctx->DrawIndexedIndirect(primitive, cmdBuffer, ...).
- *
- * Dependencies blocking full migration:
- *   - VBO/VAO classes -> IRHIBuffer (Wave 2, Unit H: gl-utilities-scatter)
- *   - RHI vertex input layout descriptions in PipelineDesc
- *   - Legacy FFP path removal (after GL4 path handles all rendering)
+ *    -> NOT migrated. Requires VBO -> IRHIBuffer.
  */
 
 #include "3DModelVAO.hpp"
@@ -42,58 +23,81 @@
 #include "IModelParser.h"
 #include "Rendering/ModelsDataUploader.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Units/UnitDef.h"
 #include "Sim/Features/Feature.h"
 
 #include "System/Misc/TracyDefs.h"
 
-// RHI_TODO: This file is the central model VAO/VBO system. It relies heavily on:
-// - VBO/VAO GL wrapper classes (not yet migrated to RHI IRHIBuffer)
-// - glVertexAttribPointer/glVertexAttribIPointer for vertex layout (needs RHI vertex input desc)
-// - glMultiDrawElementsIndirect for batched instanced rendering (not in RHI IRHIContext)
-// - glDrawElements for simple draw calls (maps to IRHIContext::DrawIndexed)
-// - Legacy FFP client state (glEnableClientState etc.) for backward compat
-// Full migration requires: IRHIBuffer to replace VBO, vertex input descriptions in
-// PipelineDesc, and indirect draw support in IRHIContext.
+// RHI Migration Status: PARTIALLY MIGRATED (Phase 5.5)
+// - EnableAttribs/DisableAttribs: MIGRATED to RHI SetVertexLayout/ClearVertexLayout
+// - BindLegacyVertexAttribsAndVBOs: NOT migrated (deprecated FFP client state path)
+// - Draw calls (glDrawElements, glMultiDrawElementsIndirect): NOT migrated (needs IRHIBuffer)
+// - VBO/VAO GL wrapper classes: NOT migrated (needs IRHIBuffer)
 
 
 void S3DModelVAO::EnableAttribs(bool inst) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: vertex attribute setup should become part of PipelineDesc vertex input layout
-	// once VBO/VAO are replaced with IRHIBuffer + vertex input descriptions.
-	if (!inst) {
-		for (int i = 0; i <= 5; ++i) {
-			glEnableVertexAttribArray(i);
-			glVertexAttribDivisor(i, 0);
+	auto* device = RHI::GetDevice();
+	if (!device) {
+		// Headless: device not initialized, fall through to GL stubs
+		if (!inst) {
+			for (int i = 0; i <= 5; ++i) {
+				glEnableVertexAttribArray(i);
+				glVertexAttribDivisor(i, 0);
+			}
+			glVertexAttribPointer (0, 3, GL_FLOAT       , false, sizeof(SVertexData), (const void*)offsetof(SVertexData, pos         ));
+			glVertexAttribPointer (1, 3, GL_FLOAT       , false, sizeof(SVertexData), (const void*)offsetof(SVertexData, normal      ));
+			glVertexAttribPointer (2, 3, GL_FLOAT       , false, sizeof(SVertexData), (const void*)offsetof(SVertexData, sTangent    ));
+			glVertexAttribPointer (3, 3, GL_FLOAT       , false, sizeof(SVertexData), (const void*)offsetof(SVertexData, tTangent    ));
+			glVertexAttribPointer (4, 4, GL_FLOAT       , false, sizeof(SVertexData), (const void*)offsetof(SVertexData, texCoords[0]));
+			glVertexAttribIPointer(5, 3, GL_UNSIGNED_INT,        sizeof(SVertexData), (const void*)offsetof(SVertexData, boneIDsLow  ));
+		} else {
+			glEnableVertexAttribArray(6);
+			glVertexAttribDivisor(6, 1);
+			glVertexAttribIPointer(6, 4, GL_UNSIGNED_INT, sizeof(SInstanceData), (const void*)offsetof(SInstanceData, matOffset));
 		}
-
-		glVertexAttribPointer (0, 3, GL_FLOAT       , false, sizeof(SVertexData), (const void*)offsetof(SVertexData, pos         ));
-		glVertexAttribPointer (1, 3, GL_FLOAT       , false, sizeof(SVertexData), (const void*)offsetof(SVertexData, normal      ));
-		glVertexAttribPointer (2, 3, GL_FLOAT       , false, sizeof(SVertexData), (const void*)offsetof(SVertexData, sTangent    ));
-		glVertexAttribPointer (3, 3, GL_FLOAT       , false, sizeof(SVertexData), (const void*)offsetof(SVertexData, tTangent    ));
-		glVertexAttribPointer (4, 4, GL_FLOAT       , false, sizeof(SVertexData), (const void*)offsetof(SVertexData, texCoords[0]));
-		glVertexAttribIPointer(5, 3, GL_UNSIGNED_INT,        sizeof(SVertexData), (const void*)offsetof(SVertexData, boneIDsLow  ));
+		return;
 	}
-	else {
-		for (int i = 6; i <= 6; ++i) {
-			glEnableVertexAttribArray(i);
-			glVertexAttribDivisor(i, 1);
-		}
 
-		// covers all 4 uints of SInstanceData
-		glVertexAttribIPointer(6, 4, GL_UNSIGNED_INT, sizeof(SInstanceData), (const void*)offsetof(SInstanceData, matOffset));
+	auto* ctx = device->GetContext();
+
+	if (!inst) {
+		static const RHI::VertexAttribute baseAttribs[] = {
+			{0, offsetof(SVertexData, pos),          RHI::VertexFormat::Float3, 0},
+			{1, offsetof(SVertexData, normal),       RHI::VertexFormat::Float3, 0},
+			{2, offsetof(SVertexData, sTangent),     RHI::VertexFormat::Float3, 0},
+			{3, offsetof(SVertexData, tTangent),     RHI::VertexFormat::Float3, 0},
+			{4, offsetof(SVertexData, texCoords[0]), RHI::VertexFormat::Float4, 0},
+			{5, offsetof(SVertexData, boneIDsLow),   RHI::VertexFormat::UInt3,  0},
+		};
+		static const RHI::VertexLayout baseLayout = {baseAttribs, 6, sizeof(SVertexData)};
+		ctx->SetVertexLayout(baseLayout);
+	} else {
+		static const RHI::VertexAttribute instAttribs[] = {
+			{6, offsetof(SInstanceData, matOffset), RHI::VertexFormat::UInt4, 1},
+		};
+		static const RHI::VertexLayout instLayout = {instAttribs, 1, sizeof(SInstanceData)};
+		ctx->SetVertexLayout(instLayout);
 	}
 }
 
 void S3DModelVAO::DisableAttribs() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	for (int i = 0; i <= 6; ++i) {
-		glDisableVertexAttribArray(i);
-		glVertexAttribDivisor(i, 0);
+	auto* device = RHI::GetDevice();
+	if (!device) {
+		// Headless: device not initialized, fall through to GL stubs
+		for (int i = 0; i <= 6; ++i) {
+			glDisableVertexAttribArray(i);
+			glVertexAttribDivisor(i, 0);
+		}
+		return;
 	}
+	device->GetContext()->ClearVertexLayout();
 }
 
 S3DModelVAO::S3DModelVAO()

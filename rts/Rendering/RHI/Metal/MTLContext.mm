@@ -467,15 +467,19 @@ void MTLContext::SetVertexAttribDivisor(uint32_t index, uint32_t divisor) {
 void MTLContext::SetVertexLayout(const VertexLayout& layout) {
 	// Metal uses vertex descriptors at pipeline creation time, not runtime state.
 	// Store the layout so it can be consumed when building the next pipeline descriptor.
-	const uint32_t count = (layout.attributeCount <= MaxVertexAttribs)
-		? layout.attributeCount : MaxVertexAttribs;
+	// Additive: append new attributes after any previously stored ones.
+	const uint32_t base = currentVertexLayout.attributeCount;
+	const uint32_t count = (layout.attributeCount + base <= MaxVertexAttribs)
+		? layout.attributeCount : (MaxVertexAttribs - base);
 
 	for (uint32_t i = 0; i < count; ++i) {
-		storedAttributes[i] = layout.attributes[i];
+		storedAttributes[base + i] = layout.attributes[i];
 	}
 
 	currentVertexLayout.attributes = storedAttributes;
-	currentVertexLayout.attributeCount = count;
+	currentVertexLayout.attributeCount = base + count;
+	// Use the latest stride (caller sets stride per-call; the last call's stride
+	// is typically the instance stride, but Metal uses per-buffer strides anyway)
 	currentVertexLayout.stride = layout.stride;
 	hasVertexLayout = true;
 }

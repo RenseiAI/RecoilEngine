@@ -8,8 +8,8 @@
  * glDrawVolume: FULLY MIGRATED to RHI dynamic state context
  *   (depth, cull, color mask, stencil test/func/op/mask, depth clamp)
  *
- * GL::Shapes (~8 GL calls): glDrawElements, vertex attrib setup
- *   RHI: Use IRHIBuffer + IRHIContext::DrawIndexed()
+ * GL::Shapes vertex attribs: MIGRATED to RHI SetVertexLayout/ClearVertexLayout
+ * GL::Shapes draw calls (~5 glDrawElements): NOT migrated (needs IRHIBuffer)
  *
  * glSurfaceCircle/glBallisticCircle: FULLY MIGRATED to TypedRenderBuffer
  *   (including Lua variants)
@@ -439,15 +439,29 @@ Shader::ShaderEnabledToken GL::Shapes::FillShaderUniforms(const CMatrix44f& m, c
 
 void GL::Shapes::EnableAttribs()
 {
-	glEnableVertexAttribArray(0);
-	glVertexAttribDivisor(0, 0);
-	glVertexAttribPointer(0, 3, GL_FLOAT, false, sizeof(float3), 0);
+	auto* device = RHI::GetDevice();
+	if (!device) {
+		glEnableVertexAttribArray(0);
+		glVertexAttribDivisor(0, 0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, false, sizeof(float3), 0);
+		return;
+	}
+	static const RHI::VertexAttribute shapeAttrib[] = {
+		{0, 0, RHI::VertexFormat::Float3, 0},
+	};
+	static const RHI::VertexLayout shapeLayout = {shapeAttrib, 1, sizeof(float3)};
+	device->GetContext()->SetVertexLayout(shapeLayout);
 }
 
 void GL::Shapes::DisableAttribs()
 {
-	glDisableVertexAttribArray(0);
-	glVertexAttribDivisor(0, 0);
+	auto* device = RHI::GetDevice();
+	if (!device) {
+		glDisableVertexAttribArray(0);
+		glVertexAttribDivisor(0, 0);
+		return;
+	}
+	device->GetContext()->ClearVertexLayout();
 }
 
 size_t GL::Shapes::CreateGLObjects(

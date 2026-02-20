@@ -275,6 +275,10 @@ static bool IsIntegerFormat(VertexFormat fmt) {
 		case VertexFormat::Int2:
 		case VertexFormat::Int3:
 		case VertexFormat::Int4:
+		case VertexFormat::UInt1:
+		case VertexFormat::UInt2:
+		case VertexFormat::UInt3:
+		case VertexFormat::UInt4:
 			return true;
 		default:
 			return false;
@@ -298,12 +302,16 @@ static void GetGLFormatInfo(VertexFormat fmt, GLenum& type, GLint& components, G
 		case VertexFormat::Int2:       type = GL_INT;            components = 2; break;
 		case VertexFormat::Int3:       type = GL_INT;            components = 3; break;
 		case VertexFormat::Int4:       type = GL_INT;            components = 4; break;
+		case VertexFormat::UInt1:      type = GL_UNSIGNED_INT;   components = 1; break;
+		case VertexFormat::UInt2:      type = GL_UNSIGNED_INT;   components = 2; break;
+		case VertexFormat::UInt3:      type = GL_UNSIGNED_INT;   components = 3; break;
+		case VertexFormat::UInt4:      type = GL_UNSIGNED_INT;   components = 4; break;
 	}
 }
 
 void GLContext::SetVertexLayout(const VertexLayout& layout) {
-	// Disable any previously enabled attributes first
-	ClearVertexLayout();
+	// Additive: do NOT clear previously enabled attributes.
+	// This allows callers to configure base + instance attribs with separate calls.
 
 	for (uint32_t i = 0; i < layout.attributeCount; ++i) {
 		const auto& attr = layout.attributes[i];
@@ -323,8 +331,7 @@ void GLContext::SetVertexLayout(const VertexLayout& layout) {
 			glVertexAttribPointer(loc, components, type, normalized, layout.stride, offset);
 		}
 
-		if (attr.divisor != 0)
-			glVertexAttribDivisor(loc, attr.divisor);
+		glVertexAttribDivisor(loc, attr.divisor);
 
 		enabledAttribMask |= (1u << loc);
 	}

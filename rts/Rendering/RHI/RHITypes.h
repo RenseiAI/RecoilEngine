@@ -322,7 +322,11 @@ enum class VertexFormat : uint8_t {
 	Int1,
 	Int2,
 	Int3,
-	Int4
+	Int4,
+	UInt1,
+	UInt2,
+	UInt3,
+	UInt4
 };
 
 struct VertexAttribute {
