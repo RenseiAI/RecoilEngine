@@ -162,6 +162,7 @@ public:
 	void Disable(bool deferredPass) const override;
 
 	void SetColorMultiplier(float r, float g, float b, float a) const override;
+	void SetClipPlane(uint8_t idx, const float4& cp = {0.0f, 0.0f, 0.0f, 1.0f}) const override;
 private:
 	void SetNanoColor(const float4& color) const override;
 

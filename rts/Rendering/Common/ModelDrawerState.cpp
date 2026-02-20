@@ -265,6 +265,19 @@ void CModelDrawerStateGLSL::Enable(bool deferredPass, bool alphaPass) const
 	float gtThreshold = mix(0.5f, 0.1f, static_cast<float>(alphaPass));
 	modelShader->SetUniform("alphaCtrl", gtThreshold, 1.0f, 0.0f, 0.0f);
 
+	// Water clip plane for gl_ClipDistance (Phase 5.3a)
+	switch (game->GetDrawMode()) {
+	case CGame::GameDrawMode::gameReflectionDraw:
+		SetClipPlane(2, {0.0f, 1.0f, 0.0f, 0.0f});
+		break;
+	case CGame::GameDrawMode::gameRefractionDraw:
+		SetClipPlane(2, {0.0f, -1.0f, 0.0f, 0.0f});
+		break;
+	default:
+		SetClipPlane(2); // default (0,0,0,1) — no clip
+		break;
+	}
+
 	CModelDrawerConcept::GetLightHandler()->Update(modelShader);
 }
 
@@ -295,6 +308,19 @@ void CModelDrawerStateGLSL::SetColorMultiplier(float r, float g, float b, float 
 	assert(modelShader->IsBound());
 #endif
 	modelShader->SetUniform("colorMult", r, g, b, a);
+}
+
+void CModelDrawerStateGLSL::SetClipPlane(uint8_t idx, const float4& cp) const
+{
+	RECOIL_DETAILED_TRACY_ZONE;
+	assert(modelShader != nullptr);
+	assert(modelShader->IsBound());
+	switch (idx) {
+	case 0: modelShader->SetUniform("clipPlane0", cp.x, cp.y, cp.z, cp.w); break;
+	case 1: modelShader->SetUniform("clipPlane1", cp.x, cp.y, cp.z, cp.w); break;
+	case 2: modelShader->SetUniform("clipPlane2", cp.x, cp.y, cp.z, cp.w); break;
+	default: assert(false); break;
+	}
 }
 
 void CModelDrawerStateGLSL::EnableTextures() const { CModelDrawerHelper::EnableTexturesCommon(); }

@@ -1227,6 +1227,8 @@ void CUnitDrawerGLSL::DrawUnitModelBeingBuiltOpaque(const CUnit* unit, bool noLu
 	}
 
 	SetNanoColor(float4(1.0f, 1.0f, 1.0f, 0.0f)); // turn off in any case
+	modelDrawerState->SetClipPlane(0); // reset to default (0,0,0,1) — no clip
+	modelDrawerState->SetClipPlane(1); // reset to default (0,0,0,1) — no clip
 	ctx->SetClipDistanceEnabled(0, false);
 }
 
@@ -1241,6 +1243,8 @@ void CUnitDrawerGLSL::DrawModelWireBuildStageOpaque(const CUnit* unit, const dou
 	} else {
 		ctx->SetClipPlaneEquation(0, upperPlane);
 		ctx->SetClipPlaneEquation(1, lowerPlane);
+		modelDrawerState->SetClipPlane(0, float4((float)upperPlane[0], (float)upperPlane[1], (float)upperPlane[2], (float)upperPlane[3]));
+		modelDrawerState->SetClipPlane(1, float4((float)lowerPlane[0], (float)lowerPlane[1], (float)lowerPlane[2], (float)lowerPlane[3]));
 	}
 
 	ctx->SetPolygonMode(RHI::PolygonMode::Line);
@@ -1259,6 +1263,8 @@ void CUnitDrawerGLSL::DrawModelFlatBuildStageOpaque(const CUnit* unit, const dou
 	auto* ctx = RHI::GetDevice()->GetContext();
 	ctx->SetClipPlaneEquation(0, upperPlane);
 	ctx->SetClipPlaneEquation(1, lowerPlane);
+	modelDrawerState->SetClipPlane(0, float4((float)upperPlane[0], (float)upperPlane[1], (float)upperPlane[2], (float)upperPlane[3]));
+	modelDrawerState->SetClipPlane(1, float4((float)lowerPlane[0], (float)lowerPlane[1], (float)lowerPlane[2], (float)lowerPlane[3]));
 
 	DrawUnitModel(unit, noLuaCall);
 }
@@ -1268,10 +1274,12 @@ void CUnitDrawerGLSL::DrawModelFillBuildStageOpaque(const CUnit* unit, const dou
 	RECOIL_DETAILED_TRACY_ZONE;
 	auto* ctx = RHI::GetDevice()->GetContext();
 
-	if (globalRendering->amdHacks)
+	if (globalRendering->amdHacks) {
 		ctx->SetClipDistanceEnabled(0, false);
-	else
+	} else {
 		ctx->SetClipPlaneEquation(0, upperPlane);
+		modelDrawerState->SetClipPlane(0, float4((float)upperPlane[0], (float)upperPlane[1], (float)upperPlane[2], (float)upperPlane[3]));
+	}
 
 	ctx->SetPolygonOffset(true, 1.0f, 1.0f);
 	DrawUnitModel(unit, noLuaCall);

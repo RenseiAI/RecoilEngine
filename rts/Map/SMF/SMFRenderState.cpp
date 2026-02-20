@@ -287,6 +287,18 @@ void SMFRenderStateGLSL::Enable(const CSMFGroundDrawer* smfGroundDrawer, const D
 	currShader->SetUniformMatrix4x4<float>("viewMatrix", false, camera->GetViewMatrix());
 	currShader->SetUniformMatrix4x4<float>("viewProjectionMatrix", false, camera->GetViewProjectionMatrix());
 
+	// Water clip plane for gl_ClipDistance (Phase 5.3c)
+	switch (drawPass) {
+	case DrawPass::WaterReflection:
+		currShader->SetUniform("clipPlane2", 0.0f, 1.0f, 0.0f, 5.0f);
+		break;
+	case DrawPass::WaterRefraction:
+		currShader->SetUniform("clipPlane2", 0.0f, -1.0f, 0.0f, 5.0f);
+		break;
+	default:
+		break; // default (0,0,0,1) in shader — no clip
+	}
+
 	if (isAdv) {
 		currShader->SetUniform3v("cameraPos", &camera->GetPos()[0]);
 		if (shadowHandler.ShadowsLoaded())

@@ -10,11 +10,13 @@ uniform sampler2D heightMapTex;
 uniform vec4 fogParams; //%.x=start, .y=end, .z=unused, .w=scale (1/(end-start))
 uniform mat4 viewMatrix = mat4(1.0);
 uniform mat4 viewProjectionMatrix = mat4(1.0);
+uniform vec4 clipPlane2 = vec4(0.0, 0.0, 0.0, 1.0); //water clip plane
 
 out vec3 halfDir;
 out float fogFactor;
 out vec4 vertexWorldPos;
 out vec2 diffuseTexCoords;
+out float gl_ClipDistance[3];
 
 const float SMF_TEXSQR_SIZE = 1024.0;
 const float SMF_DETAILTEX_RES = 0.02;
@@ -48,11 +50,14 @@ void main() {
 
 	// transform vertex pos
 	gl_Position = viewProjectionMatrix * vertexWorldPos;
-	gl_ClipVertex = viewMatrix * vertexWorldPos;
+	gl_ClipDistance[0] = 1.0; // unused (construction) — always pass
+	gl_ClipDistance[1] = 1.0; // unused (construction) — always pass
+	gl_ClipDistance[2] = dot(vertexWorldPos, clipPlane2); // water clip (world space)
 
 #ifndef DEFERRED_MODE
 	// emulate linear fog
-	float fogCoord = length(gl_ClipVertex.xyz);
+	vec4 eyePos = viewMatrix * vertexWorldPos;
+	float fogCoord = length(eyePos.xyz);
 	fogFactor = (fogParams.y - fogCoord) * fogParams.w; // fogParams: .y=end, .w=scale (1/(end-start))
 	fogFactor = clamp(fogFactor, 0.0, 1.0);
 #endif
