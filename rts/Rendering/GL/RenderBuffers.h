@@ -52,6 +52,13 @@ class TypedRenderBuffer;
 
 class RenderBuffer {
 public:
+	/// Global matrix cache for RenderBuffer auto-sync.
+	/// Replaces glGetFloatv(GL_PROJECTION/MODELVIEW_MATRIX) FFP reads.
+	/// Updated by Camera::LoadMatrices, WorldDrawer::ResetMVPMatrices,
+	/// MiniMap::FlushMatrices, GrassDrawer::FlushMatrices.
+	static inline CMatrix44f globalProjection;
+	static inline CMatrix44f globalModelView;
+
 	static void InitStatic();
 	static void KillStatic();
 
@@ -922,10 +929,7 @@ inline void TypedRenderBuffer<T>::DrawArrays(uint32_t mode, bool rewind)
 			mvp = explicitTransform;
 			hasExplicitTransform = false;
 		} else {
-			CMatrix44f proj, mv;
-			glGetFloatv(GL_PROJECTION_MATRIX, proj);
-			glGetFloatv(GL_MODELVIEW_MATRIX, mv);
-			mvp = proj * mv;
+			mvp = RenderBuffer::globalProjection * RenderBuffer::globalModelView;
 		}
 		static_cast<Shader::IProgramObject*>(shaderHandler->GetCurrentlyBoundProgram())->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
 	}
@@ -965,10 +969,7 @@ inline void TypedRenderBuffer<T>::DrawElements(uint32_t mode, bool rewind)
 			mvp = explicitTransform;
 			hasExplicitTransform = false;
 		} else {
-			CMatrix44f proj, mv;
-			glGetFloatv(GL_PROJECTION_MATRIX, proj);
-			glGetFloatv(GL_MODELVIEW_MATRIX, mv);
-			mvp = proj * mv;
+			mvp = RenderBuffer::globalProjection * RenderBuffer::globalModelView;
 		}
 		static_cast<Shader::IProgramObject*>(shaderHandler->GetCurrentlyBoundProgram())->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
 	}

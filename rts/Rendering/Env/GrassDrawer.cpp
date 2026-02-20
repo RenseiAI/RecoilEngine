@@ -46,6 +46,7 @@
 #include "Rendering/Env/SunLighting.h"
 #include "Rendering/Env/CubeMapHandler.h"
 #include "Rendering/GL/myGL.h"  // transitional: GL types still needed for fixed-function
+#include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/GL/FBO.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/RHI/RHIDevice.h"
@@ -441,6 +442,10 @@ void CGrassDrawer::FlushMatrices() const
 	glLoadMatrixf(projStack.Top());
 	glMatrixMode(GL_MODELVIEW);
 	glLoadMatrixf(mvStack.Top());
+
+	// Update global matrix cache for RenderBuffer auto-sync (Metal compat)
+	RenderBuffer::globalProjection = projStack.Top();
+	RenderBuffer::globalModelView = mvStack.Top();
 }
 
 

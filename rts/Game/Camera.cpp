@@ -8,6 +8,7 @@
 #include "Map/Ground.h"
 #include "Map/ReadMap.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
@@ -298,6 +299,10 @@ void CCamera::LoadMatrices() const
 
 	glMatrixMode(GL_MODELVIEW);
 	glLoadMatrixf(&viewMatrix.m[0]);
+
+	// Update global matrix cache for RenderBuffer auto-sync (Metal compat)
+	RenderBuffer::globalProjection = projectionMatrix;
+	RenderBuffer::globalModelView = viewMatrix;
 }
 
 void CCamera::LoadViewport() const

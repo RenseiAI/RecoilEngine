@@ -315,6 +315,13 @@ void CWorldDrawer::ResetMVPMatrices() const
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 
+	// Update global matrix cache for RenderBuffer auto-sync (Metal compat)
+	// gluOrtho2D(0,1,0,1) = OrthoProj(0,1,0,1,-1,1)
+	RenderBuffer::globalProjection = CMatrix44f::ClipOrthoProj(
+		0.0f, 1.0f, 0.0f, 1.0f, -1.0f, 1.0f,
+		globalRendering->supportClipSpaceControl);
+	RenderBuffer::globalModelView = CMatrix44f::Identity();
+
 	auto* device = RHI::GetDevice();
 	auto* ctx = device->GetContext();
 

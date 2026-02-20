@@ -1082,6 +1082,10 @@ void CMiniMap::FlushMatrices() const
 	glLoadMatrixf(projStack.Top());
 	glMatrixMode(GL_MODELVIEW);
 	glLoadMatrixf(mvStack.Top());
+
+	// Update global matrix cache for RenderBuffer auto-sync (Metal compat)
+	RenderBuffer::globalProjection = projStack.Top();
+	RenderBuffer::globalModelView = mvStack.Top();
 }
 
 void CMiniMap::ApplyConstraintsMatrix() const
