@@ -16,6 +16,8 @@
 #include "Map/ReadMap.h"
 #include "Map/SMF/SMFGroundDrawer.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "System/Log/ILog.h"
 #include "System/Threading/ThreadPool.h"
 #include "xsimd/xsimd.hpp"
@@ -242,17 +244,29 @@ void Patch::InitMainVAO() const
 	indxVBO.Bind();
 	vertVBO.Bind();
 
-	glEnableVertexAttribArray(0);
-	glVertexAttribDivisor(0, 0);
-
-	glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, nullptr);
+	auto* device = RHI::GetDevice();
+	if (device) {
+		static const RHI::VertexAttribute mainAttribs[] = {
+			{0, 0, RHI::VertexFormat::Float3, 0},
+		};
+		static const RHI::VertexLayout mainLayout = {mainAttribs, 1, sizeof(float3)};
+		device->GetContext()->SetVertexLayout(mainLayout);
+	} else {
+		glEnableVertexAttribArray(0);
+		glVertexAttribDivisor(0, 0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, nullptr);
+	}
 
 	mainVAO.Unbind();
 
 	indxVBO.Unbind();
 	vertVBO.Unbind();
 
-	glDisableVertexAttribArray(0);
+	if (device) {
+		device->GetContext()->ClearVertexLayout();
+	} else {
+		glDisableVertexAttribArray(0);
+	}
 }
 
 void Patch::InitBorderVAO() const
@@ -261,19 +275,32 @@ void Patch::InitBorderVAO() const
 	borderVAO.Bind();
 	borderVBO.Bind();
 
-	glEnableVertexAttribArray(0);
-	glEnableVertexAttribArray(1);
-	glVertexAttribDivisor(0, 0);
-	glVertexAttribDivisor(1, 0);
-
-	glVertexAttribPointer(0, 3, GL_FLOAT, false, sizeof(VA_TYPE_C), VA_TYPE_OFFSET(VA_TYPE_C, pos));
-	glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, true, sizeof(VA_TYPE_C), VA_TYPE_OFFSET(VA_TYPE_C, c));
+	auto* device = RHI::GetDevice();
+	if (device) {
+		static const RHI::VertexAttribute borderAttribs[] = {
+			{0, offsetof(VA_TYPE_C, pos), RHI::VertexFormat::Float3,     0},
+			{1, offsetof(VA_TYPE_C, c),   RHI::VertexFormat::UByte4Norm, 0},
+		};
+		static const RHI::VertexLayout borderLayout = {borderAttribs, 2, sizeof(VA_TYPE_C)};
+		device->GetContext()->SetVertexLayout(borderLayout);
+	} else {
+		glEnableVertexAttribArray(0);
+		glEnableVertexAttribArray(1);
+		glVertexAttribDivisor(0, 0);
+		glVertexAttribDivisor(1, 0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, false, sizeof(VA_TYPE_C), VA_TYPE_OFFSET(VA_TYPE_C, pos));
+		glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, true, sizeof(VA_TYPE_C), VA_TYPE_OFFSET(VA_TYPE_C, c));
+	}
 
 	borderVAO.Unbind();
 	borderVBO.Unbind();
 
-	glDisableVertexAttribArray(1);
-	glDisableVertexAttribArray(0);
+	if (device) {
+		device->GetContext()->ClearVertexLayout();
+	} else {
+		glDisableVertexAttribArray(1);
+		glDisableVertexAttribArray(0);
+	}
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -651,7 +678,17 @@ void Patch::Draw() const
 		return;
 
 	mainVAO.Bind();
-	glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices.size()), GL_UNSIGNED_INT, nullptr);
+
+	auto* device = RHI::GetDevice();
+	if (device) {
+		device->GetContext()->DrawIndexed(
+			RHI::PrimitiveType::Triangles,
+			static_cast<uint32_t>(indices.size()),
+			0, 0);
+	} else {
+		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices.size()), GL_UNSIGNED_INT, nullptr);
+	}
+
 	mainVAO.Unbind();
 }
 
@@ -663,7 +700,17 @@ void Patch::DrawBorder() const
 		return;
 
 	borderVAO.Bind();
-	glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(borderVertices.size()));
+
+	auto* device = RHI::GetDevice();
+	if (device) {
+		device->GetContext()->Draw(
+			RHI::PrimitiveType::Triangles,
+			static_cast<uint32_t>(borderVertices.size()),
+			0);
+	} else {
+		glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(borderVertices.size()));
+	}
+
 	borderVAO.Unbind();
 }
 

@@ -214,10 +214,14 @@ void GLContext::DrawInstanced(PrimitiveType primitive, uint32_t vertexCount, uin
 	glDrawArraysInstanced(ToGLPrimitive(primitive), firstVertex, vertexCount, instanceCount);
 }
 
-void GLContext::DrawIndexedInstanced(PrimitiveType primitive, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t /*firstInstance*/) {
+void GLContext::DrawIndexedInstanced(PrimitiveType primitive, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) {
 	const GLenum glIdxType = ToGLIndexType(currentIndexType);
 	const void* offset = reinterpret_cast<const void*>(static_cast<uintptr_t>(firstIndex * IndexTypeSize(currentIndexType)));
-	glDrawElementsInstancedBaseVertex(ToGLPrimitive(primitive), indexCount, glIdxType, offset, instanceCount, vertexOffset);
+	if (firstInstance != 0) {
+		glDrawElementsInstancedBaseVertexBaseInstance(ToGLPrimitive(primitive), indexCount, glIdxType, offset, instanceCount, vertexOffset, firstInstance);
+	} else {
+		glDrawElementsInstancedBaseVertex(ToGLPrimitive(primitive), indexCount, glIdxType, offset, instanceCount, vertexOffset);
+	}
 }
 
 void GLContext::DrawIndirect(PrimitiveType primitive, IRHIBuffer* buffer, size_t offset, uint32_t drawCount, uint32_t stride) {

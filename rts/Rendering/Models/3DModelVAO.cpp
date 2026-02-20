@@ -1,7 +1,7 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 /**
- * RHI Migration Status: PARTIALLY MIGRATED (Phase 5.6)
+ * RHI Migration Status: PARTIALLY MIGRATED (Phase 5.11)
  *
  * 1. Vertex attribute setup (EnableAttribs/DisableAttribs): MIGRATED (Phase 5.5)
  *    -> Uses RHI SetVertexLayout/ClearVertexLayout (with GL fallback for headless)
@@ -10,8 +10,10 @@
  *    -> BindLegacyVertexAttribsAndVBOs/UnbindLegacyVertexAttribsAndVBOs deleted.
  *    -> All call sites now use VAO Bind()/Unbind() with generic attributes.
  *
- * 3. Draw calls (DrawElements/Submit/SubmitImmediately) — ~3 calls:
- *    -> NOT migrated. Requires VBO -> IRHIBuffer.
+ * 3. Draw calls (DrawElements/Submit/SubmitImmediately): MIGRATED (Phase 5.11)
+ *    -> Uses RHI DrawIndexed/DrawIndexedInstanced (with GL fallback for headless)
+ *
+ * 4. VBO/VAO wrapper classes: NOT migrated (deferred — requires IRHIBuffer replacement of VBO class)
  */
 
 #include "3DModelVAO.hpp"
@@ -32,12 +34,25 @@
 
 #include "System/Misc/TracyDefs.h"
 
-// RHI Migration Status: PARTIALLY MIGRATED (Phase 5.6)
-// - EnableAttribs/DisableAttribs: MIGRATED to RHI SetVertexLayout/ClearVertexLayout
+// RHI Migration Status: PARTIALLY MIGRATED (Phase 5.11)
+// - EnableAttribs/DisableAttribs: MIGRATED to RHI SetVertexLayout/ClearVertexLayout (Phase 5.5)
 // - BindLegacyVertexAttribsAndVBOs: REMOVED (Phase 5.6 — all callers use VAO Bind/Unbind)
-// - Draw calls (glDrawElements, glMultiDrawElementsIndirect): NOT migrated (needs IRHIBuffer)
+// - Draw calls: MIGRATED to RHI DrawIndexed/DrawIndexedInstanced (Phase 5.11)
 // - VBO/VAO GL wrapper classes: NOT migrated (needs IRHIBuffer)
 
+namespace {
+	RHI::PrimitiveType ToRHIPrimitive(GLenum mode) {
+		switch (mode) {
+		case GL_TRIANGLES:      return RHI::PrimitiveType::Triangles;
+		case GL_TRIANGLE_STRIP: return RHI::PrimitiveType::TriangleStrip;
+		case GL_TRIANGLE_FAN:   return RHI::PrimitiveType::TriangleFan;
+		case GL_POINTS:         return RHI::PrimitiveType::Points;
+		case GL_LINES:          return RHI::PrimitiveType::Lines;
+		case GL_LINE_STRIP:     return RHI::PrimitiveType::LineStrip;
+		default:                return RHI::PrimitiveType::Triangles;
+		}
+	}
+}
 
 void S3DModelVAO::EnableAttribs(bool inst) const
 {
@@ -281,9 +296,17 @@ void S3DModelVAO::Unbind() const
 void S3DModelVAO::DrawElements(GLenum prim, uint32_t vboIndxStart, uint32_t vboIndxCount) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: maps to IRHIContext::DrawIndexed once VBO replaced with IRHIBuffer.
-	// Need to convert GLenum prim to RHI::PrimitiveType.
-	glDrawElements(prim, vboIndxCount, GL_UNSIGNED_INT, indxVBO.GetPtr(vboIndxStart * sizeof(uint32_t)));
+	auto* device = RHI::GetDevice();
+	if (device) {
+		device->GetContext()->DrawIndexed(
+			ToRHIPrimitive(prim),
+			vboIndxCount,
+			vboIndxStart,
+			0
+		);
+	} else {
+		glDrawElements(prim, vboIndxCount, GL_UNSIGNED_INT, indxVBO.GetPtr(vboIndxStart * sizeof(uint32_t)));
+	}
 }
 
 template<typename TObj>
@@ -405,9 +428,23 @@ void S3DModelVAO::Submit(GLenum mode, bool bindUnbind)
 	if (bindUnbind)
 		Bind();
 
-	// RHI_TODO: glMultiDrawElementsIndirect needs IRHIContext::DrawIndexedIndirect
-	// or multi-draw support added to the RHI interface.
-	glMultiDrawElementsIndirect(mode, GL_UNSIGNED_INT, submitCmds.data(), submitCmds.size(), sizeof(SDrawElementsIndirectCommand));
+	auto* device = RHI::GetDevice();
+	if (device) {
+		auto* ctx = device->GetContext();
+		const auto rhiPrim = ToRHIPrimitive(mode);
+		for (const auto& cmd : submitCmds) {
+			ctx->DrawIndexedInstanced(
+				rhiPrim,
+				cmd.indexCount,
+				cmd.instanceCount,
+				cmd.firstIndex,
+				static_cast<int32_t>(cmd.baseVertex),
+				cmd.baseInstance
+			);
+		}
+	} else {
+		glMultiDrawElementsIndirect(mode, GL_UNSIGNED_INT, submitCmds.data(), submitCmds.size(), sizeof(SDrawElementsIndirectCommand));
+	}
 
 	if (bindUnbind)
 		Unbind();
@@ -457,14 +494,21 @@ bool S3DModelVAO::SubmitImmediatelyImpl(const TObj* obj, uint32_t indexStart, ui
 	if (bindUnbind)
 		Bind();
 
-	// As of 01.05.2023 AMD Windows drivers do not support baseInstance field of SDrawElementsIndirectCommand
-	// therefore can't use glDrawElementsIndirect
-	// At the same time AMD Windows drivers sometimes crash on glDrawElementsInstancedBaseInstance
-	// can't use it either
-	// Revert to glMultiDrawElementsIndirect as it works reliably
-
-	// RHI_TODO: see Submit() note on glMultiDrawElementsIndirect
-	glMultiDrawElementsIndirect(mode, GL_UNSIGNED_INT, &scmd, 1u, sizeof(SDrawElementsIndirectCommand));
+	auto* device = RHI::GetDevice();
+	if (device) {
+		device->GetContext()->DrawIndexedInstanced(
+			ToRHIPrimitive(mode),
+			scmd.indexCount,
+			scmd.instanceCount,
+			scmd.firstIndex,
+			static_cast<int32_t>(scmd.baseVertex),
+			scmd.baseInstance
+		);
+	} else {
+		// AMD Windows drivers don't support baseInstance via glDrawElementsIndirect
+		// or glDrawElementsInstancedBaseInstance — use glMultiDrawElementsIndirect
+		glMultiDrawElementsIndirect(mode, GL_UNSIGNED_INT, &scmd, 1u, sizeof(SDrawElementsIndirectCommand));
+	}
 
 	if (bindUnbind)
 		Unbind();
