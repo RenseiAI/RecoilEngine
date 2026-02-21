@@ -547,7 +547,7 @@ void CGroundDecalHandler::BindTextures()
 	smfMap->GetRHITexture(MAP_BASE_NORMALS_TEX)->Bind(5);
 
 	if (shadowHandler.ShadowsLoaded()) {
-		shadowHandler.SetupShadowTexSampler(GL_TEXTURE6, true);
+		shadowHandler.SetupShadowTexSampler(6, true);
 
 		if (auto* colorTex = shadowHandler.GetColorTexture())
 			colorTex->Bind(7);
@@ -573,7 +573,7 @@ void CGroundDecalHandler::UnbindTextures()
 	smfMap->GetRHITexture(MAP_BASE_NORMALS_TEX)->Unbind(5);
 
 	if (smfDrawer->UseAdvShading() && shadowHandler.ShadowsLoaded()) {
-		shadowHandler.ResetShadowTexSampler(GL_TEXTURE6, true);
+		shadowHandler.ResetShadowTexSampler(6, true);
 
 		if (auto* colorTex = shadowHandler.GetColorTexture())
 			colorTex->Unbind(7);

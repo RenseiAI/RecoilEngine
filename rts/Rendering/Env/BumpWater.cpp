@@ -1004,7 +1004,7 @@ void CBumpWater::Draw()
 	if (shadowHandler.ShadowsLoaded()) {
 		waterShader->SetUniformMatrix4x4("shadowMatrix", false, shadowHandler.GetShadowMatrixRaw());
 
-		shadowHandler.SetupShadowTexSampler(GL_TEXTURE9);
+		shadowHandler.SetupShadowTexSampler(9);
 		if (auto* colorTex = shadowHandler.GetColorTexture())
 			colorTex->Bind(11);
 	}

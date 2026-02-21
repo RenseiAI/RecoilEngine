@@ -97,7 +97,9 @@ CGuiHandler::CGuiHandler()
 	autoShowMetal = mapInfo->gui.autoShowMetal;
 	useStencil = false;
 
-	if (GLAD_GL_ARB_depth_clamp) {
+	if (RHI::GetDevice()) {
+		useStencil = true; // Metal/RHI always has stencil
+	} else if (GLAD_GL_ARB_depth_clamp) {
 		GLint stencilBits;
 		glGetIntegerv(GL_STENCIL_BITS, &stencilBits);
 		useStencil = (stencilBits >= 1);

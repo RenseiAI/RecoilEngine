@@ -234,7 +234,7 @@ void SMFRenderStateGLSL::Enable(const CSMFGroundDrawer* smfGroundDrawer, const D
 	const CSMFReadMap* smfMap = smfGroundDrawer->GetReadMap();
 
 	if (isAdv && shadowHandler.ShadowsLoaded()) {
-		shadowHandler.SetupShadowTexSampler(GL_TEXTURE4, true);
+		shadowHandler.SetupShadowTexSampler(4, true);
 		if (auto* colorTex = shadowHandler.GetColorTexture())
 			colorTex->Bind(19);
 	}
@@ -322,7 +322,7 @@ void SMFRenderStateGLSL::Disable(const CSMFGroundDrawer* smfGroundDrawer, const 
 	const CSMFReadMap* smfMap = smfGroundDrawer->GetReadMap();
 
 	if (isAdv && shadowHandler.ShadowsLoaded()) {
-		shadowHandler.ResetShadowTexSampler(GL_TEXTURE4, true);
+		shadowHandler.ResetShadowTexSampler(4, true);
 		if (auto* colorTex = shadowHandler.GetColorTexture())
 			colorTex->Unbind(19);
 	}

@@ -602,7 +602,7 @@ void CShadowHandler::SetShadowCamera(CCamera* shadowCam)
 void CShadowHandler::SetupShadowTexSampler(unsigned int texUnit, bool enable) const
 {
 	if (shadowDepthTexture)
-		shadowDepthTexture->Bind(texUnit - GL_TEXTURE0);
+		shadowDepthTexture->Bind(texUnit);
 
 	SetupShadowTexSamplerRaw();
 }
@@ -616,7 +616,7 @@ void CShadowHandler::SetupShadowTexSamplerRaw() const
 void CShadowHandler::ResetShadowTexSampler(unsigned int texUnit, bool disable) const
 {
 	if (shadowDepthTexture)
-		shadowDepthTexture->Unbind(texUnit - GL_TEXTURE0);
+		shadowDepthTexture->Unbind(texUnit);
 
 	ResetShadowTexSamplerRaw();
 }

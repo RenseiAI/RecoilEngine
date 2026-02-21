@@ -27,9 +27,9 @@ public:
 	void Reload(const char* argv);
 	void Update();
 
-	void SetupShadowTexSampler(unsigned int texUnit, bool enable = false) const;
+	void SetupShadowTexSampler(unsigned int texUnit, bool enable = false) const; // texUnit is 0-based slot index
 	void SetupShadowTexSamplerRaw() const;
-	void ResetShadowTexSampler(unsigned int texUnit, bool disable = false) const;
+	void ResetShadowTexSampler(unsigned int texUnit, bool disable = false) const; // texUnit is 0-based slot index
 	void ResetShadowTexSamplerRaw() const;
 	void CreateShadows();
 

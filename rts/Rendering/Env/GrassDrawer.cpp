@@ -716,7 +716,7 @@ void CGrassDrawer::SetupGlStateNear()
 	EnableShader(GRASS_PROGRAM_NEAR);
 
 	if (shadowHandler.ShadowsLoaded()) {
-		shadowHandler.SetupShadowTexSampler(GL_TEXTURE4);
+		shadowHandler.SetupShadowTexSampler(4);
 		if (auto* colorTex = shadowHandler.GetColorTexture())
 			colorTex->Bind(6);
 	}
@@ -799,7 +799,7 @@ void CGrassDrawer::SetupGlStateFar()
 		infoTex->Bind(3);
 
 	if (shadowHandler.ShadowsLoaded()) {
-		shadowHandler.SetupShadowTexSampler(GL_TEXTURE4);
+		shadowHandler.SetupShadowTexSampler(4);
 		if (auto* colorTex = shadowHandler.GetColorTexture())
 			colorTex->Bind(6);
 	}

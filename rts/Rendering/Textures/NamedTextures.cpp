@@ -373,12 +373,15 @@ namespace CNamedTextures {
 		}
 
 		// load texture
-		// RHI_TODO: display list compilation check is deprecated GL-specific feature, no RHI equivalent
-		GLboolean inListCompile;
-		glGetBooleanv(GL_LIST_INDEX, &inListCompile);
-		if (inListCompile) {
-			GenInsertTex(texName, {}, true, true, false, false);
-			return true;
+		if (!RHI::GetDevice()) {
+			// Display list compilation check — deprecated GL-only feature, no RHI equivalent.
+			// When an RHI device exists, display lists are never used.
+			GLboolean inListCompile;
+			glGetBooleanv(GL_LIST_INDEX, &inListCompile);
+			if (inListCompile) {
+				GenInsertTex(texName, {}, true, true, false, false);
+				return true;
+			}
 		}
 
 		return (GenLoadTex(texName));
@@ -443,16 +446,19 @@ namespace CNamedTextures {
 
 		if (forceLoad) {
 			// load texture
-			// RHI_TODO: display list compilation check is deprecated GL-specific feature, no RHI equivalent
-			GLboolean inListCompile;
-			glGetBooleanv(GL_LIST_INDEX, &inListCompile);
+			if (!RHI::GetDevice()) {
+				// Display list compilation check — deprecated GL-only feature, no RHI equivalent.
+				// When an RHI device exists, display lists are never used.
+				GLboolean inListCompile;
+				glGetBooleanv(GL_LIST_INDEX, &inListCompile);
 
-			if (inListCompile) {
-				GenInsertTex(texName, {}, true, secondaryGLContext, false, persist);
-			} else {
-				GenLoadTex(texName);
+				if (inListCompile) {
+					GenInsertTex(texName, {}, true, secondaryGLContext, false, persist);
+					return &texInfoVec[ texInfoMap[texName] ];
+				}
 			}
 
+			GenLoadTex(texName);
 			return &texInfoVec[ texInfoMap[texName] ];
 		}
 

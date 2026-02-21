@@ -94,7 +94,7 @@ void CModelDrawerHelper::EnableTexturesCommon()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (shadowHandler.ShadowsLoaded()) {
-		shadowHandler.SetupShadowTexSampler(GL_TEXTURE2, true);
+		shadowHandler.SetupShadowTexSampler(2, true);
 		if (auto* colorTex = shadowHandler.GetColorTexture())
 			colorTex->Bind(3);
 	}
@@ -112,7 +112,7 @@ void CModelDrawerHelper::DisableTexturesCommon()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (shadowHandler.ShadowsLoaded())
-		shadowHandler.ResetShadowTexSampler(GL_TEXTURE2, true);
+		shadowHandler.ResetShadowTexSampler(2, true);
 }
 
 void CModelDrawerHelper::PushTransform(const CCamera* cam)
