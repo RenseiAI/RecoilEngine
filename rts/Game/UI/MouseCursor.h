@@ -3,10 +3,12 @@
 #ifndef MOUSECURSOR_H
 #define MOUSECURSOR_H
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "Rendering/GL/VertexArrayTypes.h"
+#include "Rendering/RHI/RHITexture.h"
 
 
 class CBitmap;
@@ -68,6 +70,7 @@ private:
 
 	struct ImageData {
 		unsigned int texture = 0;
+		std::shared_ptr<RHI::IRHITexture> rhiTexture; // non-owning RHI wrapper
 		int xOrigSize = 0;
 		int yOrigSize = 0;
 		int xAlignedSize = 0;

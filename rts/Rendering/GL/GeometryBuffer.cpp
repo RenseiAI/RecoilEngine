@@ -2,6 +2,7 @@
 
 #include "GeometryBuffer.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/RHI/RHIFactory.h"
@@ -102,27 +103,27 @@ void GL::GeometryBuffer::DetachTextures(const bool init) {
 
 void GL::GeometryBuffer::DrawDebug(const unsigned int texID, const float2 texMins, const float2 texMaxs) const {
 	RECOIL_DETAILED_TRACY_ZONE;
-	glPushMatrix();
-	glLoadIdentity();
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadIdentity();
+	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_TC>();
+	rb.AssertSubmission();
 
-	glActiveTexture(GL_TEXTURE0);
-	glEnable(GetTextureTarget());
+	const SColor white(1.0f, 1.0f, 1.0f, 1.0f);
+	rb.AddQuadTriangles(
+		VA_TYPE_TC{{texMins.x, texMins.y, 0.0f}, texMins.x, texMins.y, white},
+		VA_TYPE_TC{{texMaxs.x, texMins.y, 0.0f}, texMaxs.x, texMins.y, white},
+		VA_TYPE_TC{{texMaxs.x, texMaxs.y, 0.0f}, texMaxs.x, texMaxs.y, white},
+		VA_TYPE_TC{{texMins.x, texMaxs.y, 0.0f}, texMins.x, texMaxs.y, white}
+	);
+
+	// Identity MVP — texMins/texMaxs are already in NDC space
+	rb.SetTransformMatrix(CMatrix44f::Identity());
+
+	// Raw GL texture ID from G-buffer (wrapping deferred to FBO→IRHIFramebuffer migration)
 	glBindTexture(GetTextureTarget(), texID);
-	glBegin(GL_QUADS);
-	glTexCoord2f(texMins.x, texMins.y); glNormal3fv(&UpVector.x); glVertex2f(texMins.x, texMins.y);
-	glTexCoord2f(texMaxs.x, texMins.y); glNormal3fv(&UpVector.x); glVertex2f(texMaxs.x, texMins.y);
-	glTexCoord2f(texMaxs.x, texMaxs.y); glNormal3fv(&UpVector.x); glVertex2f(texMaxs.x, texMaxs.y);
-	glTexCoord2f(texMins.x, texMaxs.y); glNormal3fv(&UpVector.x); glVertex2f(texMins.x, texMaxs.y);
-	glEnd();
+	auto& sh = rb.GetShader();
+	sh.Enable();
+	rb.DrawArrays(GL_TRIANGLES);
+	sh.Disable();
 	glBindTexture(GetTextureTarget(), 0);
-	glDisable(GetTextureTarget());
-
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
 }
 
 bool GL::GeometryBuffer::Create(const int2 size) {

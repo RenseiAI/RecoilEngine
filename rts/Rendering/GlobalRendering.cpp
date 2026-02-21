@@ -795,24 +795,27 @@ uint64_t CGlobalRendering::CalcGLDeltaTime(uint32_t queryIdx0, uint32_t queryIdx
 void CGlobalRendering::CheckGLExtensions()
 {
 	#ifndef HEADLESS
-	{
-		GLint n = 0;
-		glGetIntegerv(GL_NUM_EXTENSIONS, &n);
-		for (auto i = 0; i < n; i++) {
-			glExtensions.emplace(reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, i)));
+	// GL extension enumeration and debug tool detection are meaningless on Metal
+	if (!RHI::GetDevice()) {
+		{
+			GLint n = 0;
+			glGetIntegerv(GL_NUM_EXTENSIONS, &n);
+			for (auto i = 0; i < n; i++) {
+				glExtensions.emplace(reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, i)));
+			}
 		}
-	}
-	// detect RenderDoc
-	{
-		constexpr GLenum GL_DEBUG_TOOL_EXT = 0x6789;
-		constexpr GLenum GL_DEBUG_TOOL_NAME_EXT = 0x678A;
-		constexpr GLenum GL_DEBUG_TOOL_PURPOSE_EXT = 0x678B;
-		// For OpenGL:
-		// if GL_EXT_debug_tool is present (see https://renderdoc.org/debug_tool.txt)
-		if (glIsEnabled(GL_DEBUG_TOOL_EXT)) {
-			auto debugStr = reinterpret_cast<const char*>(glGetString(GL_DEBUG_TOOL_NAME_EXT));
-			LOG("[GR::%s] Detected external GL debug tool %s, enabling compatibility mode", __func__, debugStr);
-			underExternalDebug = true;
+		// detect RenderDoc
+		{
+			constexpr GLenum GL_DEBUG_TOOL_EXT = 0x6789;
+			constexpr GLenum GL_DEBUG_TOOL_NAME_EXT = 0x678A;
+			constexpr GLenum GL_DEBUG_TOOL_PURPOSE_EXT = 0x678B;
+			// For OpenGL:
+			// if GL_EXT_debug_tool is present (see https://renderdoc.org/debug_tool.txt)
+			if (glIsEnabled(GL_DEBUG_TOOL_EXT)) {
+				auto debugStr = reinterpret_cast<const char*>(glGetString(GL_DEBUG_TOOL_NAME_EXT));
+				LOG("[GR::%s] Detected external GL debug tool %s, enabling compatibility mode", __func__, debugStr);
+				underExternalDebug = true;
+			}
 		}
 	}
 	#endif
@@ -1105,6 +1108,11 @@ void CGlobalRendering::LogVersionInfo(const char* sdlVersionStr, const char* glV
 	LOG("\tenable AMD-hacks : %i", amdHacks);
 	LOG("\tcompress MIP-maps: %i", compressTextures);
 
+	// Compressed texture format enumeration is GL-specific
+	if (RHI::GetDevice()) {
+		LOG("\tCompressed texture formats: (skipped, RHI active)");
+	} else {
+
 	GLint numberOfTextureFormats = 0;
 	glGetIntegerv(GL_NUM_COMPRESSED_TEXTURE_FORMATS, &numberOfTextureFormats);
 	std::vector<GLint> textureFormats; textureFormats.resize(numberOfTextureFormats);
@@ -1187,6 +1195,8 @@ void CGlobalRendering::LogVersionInfo(const char* sdlVersionStr, const char* glV
 	ss.seekp(-2, std::ios_base::end);
 	ss << ".";
 	LOG("\tCompressed texture formats: %s", ss.str().c_str());
+
+	} // !RHI::GetDevice()
 }
 
 void CGlobalRendering::LogDisplayMode(SDL_Window* window) const
@@ -1918,6 +1928,13 @@ bool CGlobalRendering::CheckGLContextVersion(const int2& minCtx) const
 	#ifdef HEADLESS
 	return true;
 	#else
+	// GL version/profile queries are meaningless on Metal — assume GL 4.1 core equivalent
+	if (RHI::GetDevice()) {
+		globalRenderingInfo.glContextVersion = {4, 1};
+		globalRenderingInfo.glContextIsCore = true;
+		return ((4 * 10 + 1) >= (minCtx.x * 10 + minCtx.y));
+	}
+
 	int2 tmpCtx = {0, 0};
 
 	glGetIntegerv(GL_MAJOR_VERSION, &tmpCtx.x);

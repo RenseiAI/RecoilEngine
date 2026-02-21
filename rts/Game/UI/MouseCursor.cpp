@@ -314,6 +314,12 @@ bool CMouseCursor::LoadCursorImage(const std::string& name, ImageData& image)
 		image.yAlignedSize = b.ysize;
 	}
 
+	// Wrap the raw GL texture for RHI-path binding (non-owning)
+	if (auto* device = RHI::GetDevice())
+		image.rhiTexture = device->WrapExistingTexture(image.texture,
+			RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
+			image.xAlignedSize, image.yAlignedSize);
+
 	return true;
 }
 
@@ -347,7 +353,10 @@ void CMouseCursor::Draw(int x, int y, float scale) const
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
-	glBindTexture(GL_TEXTURE_2D, image.texture);
+	if (image.rhiTexture)
+		image.rhiTexture->Bind(0);
+	else
+		glBindTexture(GL_TEXTURE_2D, image.texture);
 
 	sh.Enable();
 	sh.SetUniform("alphaCtrl", 0.01f, 1.0f, 0.0f, 0.0f); // test > 0.01
@@ -389,7 +398,10 @@ void CMouseCursor::BindTexture() const
 	const FrameData& frame = frames[currentFrame];
 	const ImageData& image = images[frame.imageIdx];
 
-	glBindTexture(GL_TEXTURE_2D, image.texture);
+	if (image.rhiTexture)
+		image.rhiTexture->Bind(0);
+	else
+		glBindTexture(GL_TEXTURE_2D, image.texture);
 }
 
 void CMouseCursor::BindHwCursor() const
