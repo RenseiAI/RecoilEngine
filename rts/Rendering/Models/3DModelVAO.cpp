@@ -1,7 +1,7 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
 /**
- * RHI Migration Status: PARTIALLY MIGRATED (Phase 5.11)
+ * RHI Migration Status: PARTIALLY MIGRATED (Phase 6.0)
  *
  * 1. Vertex attribute setup (EnableAttribs/DisableAttribs): MIGRATED (Phase 5.5)
  *    -> Uses RHI SetVertexLayout/ClearVertexLayout (with GL fallback for headless)
@@ -13,7 +13,9 @@
  * 3. Draw calls (DrawElements/Submit/SubmitImmediately): MIGRATED (Phase 5.11)
  *    -> Uses RHI DrawIndexed/DrawIndexedInstanced (with GL fallback for headless)
  *
- * 4. VBO/VAO wrapper classes: NOT migrated (deferred — requires IRHIBuffer replacement of VBO class)
+ * 4. Buffers (vertex/index/instance): MIGRATED (Phase 6.0)
+ *    -> Dual-path: IRHIBuffer for Metal, VBO kept for GL/headless fallback
+ *    -> BindVertexBuffer/BindIndexBuffer called at Bind() time for Metal path
  */
 
 #include "3DModelVAO.hpp"
@@ -28,17 +30,18 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
 #include "Sim/Units/Unit.h"
 #include "Sim/Units/UnitDef.h"
 #include "Sim/Features/Feature.h"
 
 #include "System/Misc/TracyDefs.h"
 
-// RHI Migration Status: PARTIALLY MIGRATED (Phase 5.11)
+// RHI Migration Status: PARTIALLY MIGRATED (Phase 6.0)
 // - EnableAttribs/DisableAttribs: MIGRATED to RHI SetVertexLayout/ClearVertexLayout (Phase 5.5)
 // - BindLegacyVertexAttribsAndVBOs: REMOVED (Phase 5.6 — all callers use VAO Bind/Unbind)
 // - Draw calls: MIGRATED to RHI DrawIndexed/DrawIndexedInstanced (Phase 5.11)
-// - VBO/VAO GL wrapper classes: NOT migrated (needs IRHIBuffer)
+// - Buffers: MIGRATED to IRHIBuffer dual-path (Phase 6.0 — VBO kept for GL/headless fallback)
 
 namespace {
 	RHI::PrimitiveType ToRHIPrimitive(GLenum mode) {
@@ -130,6 +133,13 @@ S3DModelVAO::S3DModelVAO()
 	instVBO.Bind();
 	instVBO.New(S3DModelVAO::INSTANCE_BUFFER_NUM_ELEMS * sizeof(SInstanceData), GL_STREAM_DRAW);
 	instVBO.Unbind();
+
+	// RHI path: create instance buffer for Metal
+	if (auto* device = RHI::GetDevice()) {
+		rhiInstBuf = device->CreateBuffer(
+			RHI::BufferType::Vertex, RHI::BufferUsage::Stream,
+			INSTANCE_BUFFER_NUM_ELEMS * sizeof(SInstanceData));
+	}
 }
 
 std::unique_ptr<S3DModelVAO> S3DModelVAO::instance = nullptr;
@@ -237,6 +247,18 @@ void S3DModelVAO::UploadVBOs()
 		vertVBO.Resize(reqSize, GL_STATIC_DRAW); //noop if size hasn't changed, will copy data if changed
 		vertVBO.SetBufferSubData(vertUploadIndex * sizeof(SVertexData), (vertData.size() - vertUploadIndex) * sizeof(SVertexData), vertData.data() + vertUploadIndex);
 		vertVBO.Unbind();
+
+		// RHI path: create/upload vertex buffer for Metal
+		if (auto* device = RHI::GetDevice()) {
+			if (!rhiVertBuf || reqSize > rhiVertBuf->GetSize()) {
+				rhiVertBuf = device->CreateBuffer(
+					RHI::BufferType::Vertex, RHI::BufferUsage::Static, reqSize);
+			}
+			rhiVertBuf->Upload(vertData.data() + vertUploadIndex,
+				vertUploadIndex * sizeof(SVertexData),
+				(vertData.size() - vertUploadIndex) * sizeof(SVertexData));
+		}
+
 		vertUploadIndex = vertData.size();
 		vertUploadSize = vertUploadIndex;
 	}
@@ -249,6 +271,18 @@ void S3DModelVAO::UploadVBOs()
 		indxVBO.Resize(reqSize, GL_STATIC_DRAW); //noop if size hasn't changed, will copy data if changed
 		indxVBO.SetBufferSubData(indxUploadIndex * sizeof(   uint32_t), (indxData.size() - indxUploadIndex) * sizeof(   uint32_t), indxData.data() + indxUploadIndex);
 		indxVBO.Unbind();
+
+		// RHI path: create/upload index buffer for Metal
+		if (auto* device = RHI::GetDevice()) {
+			if (!rhiIndxBuf || reqSize > rhiIndxBuf->GetSize()) {
+				rhiIndxBuf = device->CreateBuffer(
+					RHI::BufferType::Index, RHI::BufferUsage::Static, reqSize);
+			}
+			rhiIndxBuf->Upload(indxData.data() + indxUploadIndex,
+				indxUploadIndex * sizeof(uint32_t),
+				(indxData.size() - indxUploadIndex) * sizeof(uint32_t));
+		}
+
 		indxUploadIndex = indxData.size();
 		indxUploadSize = indxUploadIndex;
 	}
@@ -284,6 +318,13 @@ void S3DModelVAO::Bind() const
 	RECOIL_DETAILED_TRACY_ZONE;
 	assert(vao.GetIdRaw() > 0);
 	vao.Bind();
+
+	// RHI path: bind vertex/index buffers for Metal draw calls
+	if (auto* device = RHI::GetDevice()) {
+		auto* ctx = device->GetContext();
+		if (rhiVertBuf) ctx->BindVertexBuffer(rhiVertBuf.get(), 0);
+		if (rhiIndxBuf) ctx->BindIndexBuffer(rhiIndxBuf.get(), RHI::IndexType::UInt32);
+	}
 }
 
 void S3DModelVAO::Unbind() const
@@ -425,12 +466,20 @@ void S3DModelVAO::Submit(GLenum mode, bool bindUnbind)
 	instVBO.SetBufferSubData(allRenderModelData);
 	instVBO.Unbind();
 
+	// RHI path: upload instance data
+	if (rhiInstBuf && !allRenderModelData.empty()) {
+		rhiInstBuf->Upload(allRenderModelData.data(), 0,
+			allRenderModelData.size() * sizeof(SInstanceData));
+	}
+
 	if (bindUnbind)
 		Bind();
 
 	auto* device = RHI::GetDevice();
 	if (device) {
 		auto* ctx = device->GetContext();
+		// Bind instance buffer at slot 1 (slot 0 = vertex data)
+		if (rhiInstBuf) ctx->BindVertexBuffer(rhiInstBuf.get(), 1);
 		const auto rhiPrim = ToRHIPrimitive(mode);
 		for (const auto& cmd : submitCmds) {
 			ctx->DrawIndexedInstanced(
@@ -489,6 +538,13 @@ bool S3DModelVAO::SubmitImmediatelyImpl(const TObj* obj, uint32_t indexStart, ui
 	instVBO.SetBufferSubData(immediateBaseInstanceAbs * sizeof(SInstanceData), sizeof(SInstanceData), &instanceData);
 	instVBO.Unbind();
 
+	// RHI path: upload single instance data
+	if (rhiInstBuf) {
+		rhiInstBuf->Upload(&instanceData,
+			immediateBaseInstanceAbs * sizeof(SInstanceData),
+			sizeof(SInstanceData));
+	}
+
 	immediateBaseInstance = (immediateBaseInstance + 1) % INSTANCE_BUFFER_NUM_IMMEDIATE;
 
 	if (bindUnbind)
@@ -496,6 +552,8 @@ bool S3DModelVAO::SubmitImmediatelyImpl(const TObj* obj, uint32_t indexStart, ui
 
 	auto* device = RHI::GetDevice();
 	if (device) {
+		// Bind instance buffer at slot 1
+		if (rhiInstBuf) device->GetContext()->BindVertexBuffer(rhiInstBuf.get(), 1);
 		device->GetContext()->DrawIndexedInstanced(
 			ToRHIPrimitive(mode),
 			scmd.indexCount,

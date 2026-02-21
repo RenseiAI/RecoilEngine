@@ -11,6 +11,7 @@
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/VBO.h"
 #include "Rendering/GL/VAO.h"
+#include "Rendering/RHI/RHIBuffer.h"
 
 struct S3DModel;
 struct S3DModelPiece;
@@ -128,6 +129,11 @@ private:
 
 	VBO instVBO;
 	VAO vao;
+
+	// RHI buffer equivalents (Metal/GL via RHI; nullptr in headless)
+	std::unique_ptr<RHI::IRHIBuffer> rhiVertBuf;
+	std::unique_ptr<RHI::IRHIBuffer> rhiIndxBuf;
+	std::unique_ptr<RHI::IRHIBuffer> rhiInstBuf;
 
 	std::unordered_map<SIndexAndCount, std::vector<SInstanceData>, SIndexAndCount> modelDataToInstance;
 };
