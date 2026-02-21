@@ -9,7 +9,7 @@
  *   (depth, cull, color mask, stencil test/func/op/mask, depth clamp)
  *
  * GL::Shapes vertex attribs: MIGRATED to RHI SetVertexLayout/ClearVertexLayout
- * GL::Shapes draw calls (~5 glDrawElements): NOT migrated (needs IRHIBuffer)
+ * GL::Shapes buffers+draw: MIGRATED to dual-path IRHIBuffer + RHI DrawIndexed (Phase 6.2)
  *
  * glSurfaceCircle/glBallisticCircle: FULLY MIGRATED to TypedRenderBuffer
  *   (including Lua variants)
@@ -19,6 +19,7 @@
 #include "RenderBuffers.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
 
 #include "Map/Ground.h"
 #include "Game/Camera.h"
@@ -350,10 +351,19 @@ void GL::Shapes::DrawSolidSphere(uint32_t numRows, uint32_t numCols)
 	if (it == solidSpheresMap.end())
 		it = CreateSolidSphere(numRows, numCols);
 
-	const auto& [vao, vertVBO, indxVBO] = allObjects[it->second];
+	const auto& [vao, vertVBO, indxVBO, rhiVertBuf, rhiIndxBuf] = allObjects[it->second];
+	const uint32_t indexCount = static_cast<uint32_t>(indxVBO.GetSize() / sizeof(uint32_t));
 
 	vao.Bind();
-	glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indxVBO.GetSize() / sizeof(uint32_t)), GL_UNSIGNED_INT, nullptr);
+	auto* device = RHI::GetDevice();
+	if (device) {
+		auto* ctx = device->GetContext();
+		if (rhiVertBuf) ctx->BindVertexBuffer(rhiVertBuf.get(), 0);
+		if (rhiIndxBuf) ctx->BindIndexBuffer(rhiIndxBuf.get(), RHI::IndexType::UInt32);
+		ctx->DrawIndexed(RHI::PrimitiveType::Triangles, indexCount, 0, 0);
+	} else {
+		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indexCount), GL_UNSIGNED_INT, nullptr);
+	}
 	vao.Unbind();
 #endif // !HEADLESS
 }
@@ -365,10 +375,19 @@ void GL::Shapes::DrawWireSphere(uint32_t numRows, uint32_t numCols)
 	if (it == wireSpheresMap.end())
 		it = CreateWireSphere(numRows, numCols);
 
-	const auto& [vao, vertVBO, indxVBO] = allObjects[it->second];
+	const auto& [vao, vertVBO, indxVBO, rhiVertBuf, rhiIndxBuf] = allObjects[it->second];
+	const uint32_t indexCount = static_cast<uint32_t>(indxVBO.GetSize() / sizeof(uint32_t));
 
 	vao.Bind();
-	glDrawElements(GL_LINES, static_cast<GLsizei>(indxVBO.GetSize() / sizeof(uint32_t)), GL_UNSIGNED_INT, nullptr);
+	auto* device = RHI::GetDevice();
+	if (device) {
+		auto* ctx = device->GetContext();
+		if (rhiVertBuf) ctx->BindVertexBuffer(rhiVertBuf.get(), 0);
+		if (rhiIndxBuf) ctx->BindIndexBuffer(rhiIndxBuf.get(), RHI::IndexType::UInt32);
+		ctx->DrawIndexed(RHI::PrimitiveType::Lines, indexCount, 0, 0);
+	} else {
+		glDrawElements(GL_LINES, static_cast<GLsizei>(indexCount), GL_UNSIGNED_INT, nullptr);
+	}
 	vao.Unbind();
 #endif // !HEADLESS
 }
@@ -380,10 +399,19 @@ void GL::Shapes::DrawWireCylinder(uint32_t numDivs)
 	if (it == wireCylindersMap.end())
 		it = CreateWireCylinder(numDivs);
 
-	const auto& [vao, vertVBO, indxVBO] = allObjects[it->second];
+	const auto& [vao, vertVBO, indxVBO, rhiVertBuf, rhiIndxBuf] = allObjects[it->second];
+	const uint32_t indexCount = static_cast<uint32_t>(indxVBO.GetSize() / sizeof(uint32_t));
 
 	vao.Bind();
-	glDrawElements(GL_LINES, static_cast<GLsizei>(indxVBO.GetSize() / sizeof(uint32_t)), GL_UNSIGNED_INT, nullptr);
+	auto* device = RHI::GetDevice();
+	if (device) {
+		auto* ctx = device->GetContext();
+		if (rhiVertBuf) ctx->BindVertexBuffer(rhiVertBuf.get(), 0);
+		if (rhiIndxBuf) ctx->BindIndexBuffer(rhiIndxBuf.get(), RHI::IndexType::UInt32);
+		ctx->DrawIndexed(RHI::PrimitiveType::Lines, indexCount, 0, 0);
+	} else {
+		glDrawElements(GL_LINES, static_cast<GLsizei>(indexCount), GL_UNSIGNED_INT, nullptr);
+	}
 	vao.Unbind();
 #endif // !HEADLESS
 }
@@ -417,10 +445,19 @@ void GL::Shapes::DrawWireBox()
 		wireBoxIdx = CreateGLObjects(BOX_VERTS, BOX_INDCS);
 	}
 
-	const auto& [vao, vertVBO, indxVBO] = allObjects[wireBoxIdx];
+	const auto& [vao, vertVBO, indxVBO, rhiVertBuf, rhiIndxBuf] = allObjects[wireBoxIdx];
+	const uint32_t indexCount = static_cast<uint32_t>(indxVBO.GetSize() / sizeof(uint32_t));
 
 	vao.Bind();
-	glDrawElements(GL_LINES, static_cast<GLsizei>(indxVBO.GetSize() / sizeof(uint32_t)), GL_UNSIGNED_INT, nullptr);
+	auto* device = RHI::GetDevice();
+	if (device) {
+		auto* ctx = device->GetContext();
+		if (rhiVertBuf) ctx->BindVertexBuffer(rhiVertBuf.get(), 0);
+		if (rhiIndxBuf) ctx->BindIndexBuffer(rhiIndxBuf.get(), RHI::IndexType::UInt32);
+		ctx->DrawIndexed(RHI::PrimitiveType::Lines, indexCount, 0, 0);
+	} else {
+		glDrawElements(GL_LINES, static_cast<GLsizei>(indexCount), GL_UNSIGNED_INT, nullptr);
+	}
 	vao.Unbind();
 #endif // !HEADLESS
 }
@@ -468,10 +505,12 @@ size_t GL::Shapes::CreateGLObjects(
 	const std::vector<float3>& verts,
 	const std::vector<uint32_t>& indcs
 ) {
-	auto& [vao, vertVBO, indxVBO] = allObjects.emplace_back(
+	auto& [vao, vertVBO, indxVBO, rhiVertBuf, rhiIndxBuf] = allObjects.emplace_back(
 		VAO{ },
 		VBO{ GL_ARRAY_BUFFER, false },
-		VBO{ GL_ELEMENT_ARRAY_BUFFER, false }
+		VBO{ GL_ELEMENT_ARRAY_BUFFER, false },
+		std::unique_ptr<RHI::IRHIBuffer>{},
+		std::unique_ptr<RHI::IRHIBuffer>{}
 	);
 
 	vao.Bind();
@@ -489,6 +528,16 @@ size_t GL::Shapes::CreateGLObjects(
 	indxVBO.Unbind();
 
 	DisableAttribs();
+
+	// RHI path: create buffers for Metal
+	if (auto* device = RHI::GetDevice()) {
+		const size_t vertSz = verts.size() * sizeof(float3);
+		const size_t indxSz = indcs.size() * sizeof(uint32_t);
+		rhiVertBuf = device->CreateBuffer(RHI::BufferType::Vertex, RHI::BufferUsage::Static, vertSz);
+		rhiVertBuf->Upload(verts.data(), 0, vertSz);
+		rhiIndxBuf = device->CreateBuffer(RHI::BufferType::Index, RHI::BufferUsage::Static, indxSz);
+		rhiIndxBuf->Upload(indcs.data(), 0, indxSz);
+	}
 
 	return allObjects.size() - 1;
 }

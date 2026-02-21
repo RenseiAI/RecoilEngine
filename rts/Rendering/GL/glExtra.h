@@ -6,11 +6,13 @@
 #pragma once
 
 #include <tuple>
+#include <memory>
 
 #include "myGL.h"
 #include "VAO.h"
 #include "VBO.h"
 #include "RenderBuffers.h"
+#include "Rendering/RHI/RHIBuffer.h"
 #include "System/UnorderedMap.hpp"
 
 /*
@@ -63,7 +65,7 @@ namespace GL {
 		spring::unordered_map<std::tuple<uint32_t, uint32_t>, size_t> wireSpheresMap;
 		spring::unordered_map<uint32_t, size_t> wireCylindersMap;
 		size_t wireBoxIdx{ size_t(-1) };
-		std::vector<std::tuple<VAO, VBO, VBO>> allObjects;
+		std::vector<std::tuple<VAO, VBO, VBO, std::unique_ptr<RHI::IRHIBuffer>, std::unique_ptr<RHI::IRHIBuffer>>> allObjects;
 		Shader::IProgramObject* shader = nullptr;
 	private:
 		Shader::ShaderEnabledToken FillShaderUniforms(const CMatrix44f& m, const float* color) const;
