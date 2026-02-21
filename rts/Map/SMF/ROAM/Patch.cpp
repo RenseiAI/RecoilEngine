@@ -18,6 +18,7 @@
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
 #include "System/Log/ILog.h"
 #include "System/Threading/ThreadPool.h"
 #include "xsimd/xsimd.hpp"
@@ -194,6 +195,16 @@ void Patch::UploadVertices()
 	vertVBO.Bind();
 	vertVBO.New(vertices, GL_STATIC_DRAW);
 	vertVBO.Unbind();
+
+	// RHI path: upload vertex data for Metal
+	if (auto* device = RHI::GetDevice()) {
+		const size_t sz = vertices.size() * sizeof(float3);
+		if (!rhiVertBuf || sz > rhiVertBuf->GetSize()) {
+			rhiVertBuf = device->CreateBuffer(
+				RHI::BufferType::Vertex, RHI::BufferUsage::Static, sz);
+		}
+		rhiVertBuf->Upload(vertices.data(), 0, sz);
+	}
 }
 
 namespace {
@@ -227,6 +238,19 @@ void Patch::UploadIndices()
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (UploadStreamDrawData(indxVBO, GL_ELEMENT_ARRAY_BUFFER, indices, 2, 8))
 		InitMainVAO();
+
+	// RHI path: upload index data for Metal
+	if (auto* device = RHI::GetDevice()) {
+		const size_t sz = indices.size() * sizeof(uint32_t);
+		if (sz > 0) {
+			if (!rhiIndxBuf || sz > rhiIndxBuf->GetSize()) {
+				rhiIndxBuf = device->CreateBuffer(
+					RHI::BufferType::Index, RHI::BufferUsage::Stream,
+					sz * 2);  // match VBO 2x sizing policy
+			}
+			rhiIndxBuf->Upload(indices.data(), 0, sz);
+		}
+	}
 }
 
 void Patch::UploadBorderVertices()
@@ -234,6 +258,19 @@ void Patch::UploadBorderVertices()
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (UploadStreamDrawData(borderVBO, GL_ARRAY_BUFFER, borderVertices, 2, 8))
 		InitBorderVAO();
+
+	// RHI path: upload border vertex data for Metal
+	if (auto* device = RHI::GetDevice()) {
+		const size_t sz = borderVertices.size() * sizeof(VA_TYPE_C);
+		if (sz > 0) {
+			if (!rhiBorderBuf || sz > rhiBorderBuf->GetSize()) {
+				rhiBorderBuf = device->CreateBuffer(
+					RHI::BufferType::Vertex, RHI::BufferUsage::Stream,
+					sz * 2);  // match VBO 2x sizing policy
+			}
+			rhiBorderBuf->Upload(borderVertices.data(), 0, sz);
+		}
+	}
 }
 
 void Patch::InitMainVAO() const
@@ -681,7 +718,10 @@ void Patch::Draw() const
 
 	auto* device = RHI::GetDevice();
 	if (device) {
-		device->GetContext()->DrawIndexed(
+		auto* ctx = device->GetContext();
+		if (rhiVertBuf) ctx->BindVertexBuffer(rhiVertBuf.get(), 0);
+		if (rhiIndxBuf) ctx->BindIndexBuffer(rhiIndxBuf.get(), RHI::IndexType::UInt32);
+		ctx->DrawIndexed(
 			RHI::PrimitiveType::Triangles,
 			static_cast<uint32_t>(indices.size()),
 			0, 0);
@@ -703,7 +743,9 @@ void Patch::DrawBorder() const
 
 	auto* device = RHI::GetDevice();
 	if (device) {
-		device->GetContext()->Draw(
+		auto* ctx = device->GetContext();
+		if (rhiBorderBuf) ctx->BindVertexBuffer(rhiBorderBuf.get(), 0);
+		ctx->Draw(
 			RHI::PrimitiveType::Triangles,
 			static_cast<uint32_t>(borderVertices.size()),
 			0);

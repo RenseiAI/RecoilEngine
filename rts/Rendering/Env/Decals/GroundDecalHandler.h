@@ -13,6 +13,7 @@
 #include "Rendering/Env/IGroundDecalDrawer.h"
 #include "Rendering/GL/VBO.h"
 #include "Rendering/GL/VAO.h"
+#include "Rendering/RHI/RHIBuffer.h"
 #include "Rendering/DepthBufferCopy.h"
 #include "Rendering/Textures/TextureRenderAtlas.h"
 #include "Rendering/Common/UpdateList.h"
@@ -102,6 +103,9 @@ protected:
 
 	VBO instVBO;
 	VAO vao;
+
+	// RHI dual-path buffer (Phase 6.1) — Metal gets explicit buffer binding
+	std::unique_ptr<RHI::IRHIBuffer> rhiInstBuf;
 
 	CSMFGroundDrawer* smfDrawer;
 

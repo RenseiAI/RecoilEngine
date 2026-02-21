@@ -6,6 +6,7 @@
 #include "Rendering/GL/VBO.h"
 #include "Rendering/GL/VAO.h"
 #include "Rendering/GL/VertexArrayTypes.h"
+#include "Rendering/RHI/RHIBuffer.h"
 #include "Map/MapDrawPassTypes.h"
 #include "Game/Camera.h"
 #include "System/Rectangle.h"
@@ -217,4 +218,9 @@ private:
 
 	VAO mainVAO;
 	VAO borderVAO;
+
+	// RHI dual-path buffers (Phase 6.1) — Metal gets explicit buffer binding
+	std::unique_ptr<RHI::IRHIBuffer> rhiVertBuf;
+	std::unique_ptr<RHI::IRHIBuffer> rhiIndxBuf;
+	std::unique_ptr<RHI::IRHIBuffer> rhiBorderBuf;
 };

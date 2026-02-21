@@ -799,8 +799,6 @@ void CGroundDecalHandler::Draw()
 		vao.Bind();
 
 		instVBO.Bind();
-		// TODO [RHI cross-cutting]: VBO::New uses raw GL_STREAM_DRAW usage hint;
-		// needs RHI buffer usage enum
 		instVBO.New(decals.capacity() * sizeof(GroundDecal), GL_STREAM_DRAW);
 		BindVertexAtrribs();
 
@@ -808,6 +806,14 @@ void CGroundDecalHandler::Draw()
 
 		UnbindVertexAtrribs();
 		instVBO.Unbind();
+
+		// RHI path: create instance buffer for Metal
+		if (auto* device = RHI::GetDevice()) {
+			rhiInstBuf = device->CreateBuffer(
+				RHI::BufferType::Vertex, RHI::BufferUsage::Stream,
+				decals.capacity() * sizeof(GroundDecal));
+		}
+
 		decalsUpdateList.SetNeedUpdateAll();
 	}
 
@@ -822,6 +828,17 @@ void CGroundDecalHandler::Draw()
 		}
 
 		instVBO.Unbind();
+
+		// RHI path: upload same sub-regions to Metal buffer
+		if (rhiInstBuf) {
+			for (auto itPair = decalsUpdateList.GetNext(); itPair.has_value(); itPair = decalsUpdateList.GetNext(itPair)) {
+				auto offSize = decalsUpdateList.GetOffsetAndSize(itPair.value());
+				size_t byteOffset = offSize.first  * sizeof(GroundDecal);
+				size_t byteSize   = offSize.second * sizeof(GroundDecal);
+				rhiInstBuf->Upload(decals.data() + offSize.first, byteOffset, byteSize);
+			}
+		}
+
 		decalsUpdateList.ResetNeedUpdateAll();
 	}
 
@@ -867,9 +884,14 @@ void CGroundDecalHandler::Draw()
 
 	vao.Bind();
 	{
-		auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
-		auto* ctx = device->GetContext();
-		ctx->DrawInstanced(RHI::PrimitiveType::Triangles, 36, 0, decals.size());
+		auto* device = RHI::GetDevice();
+		if (device) {
+			auto* ctx = device->GetContext();
+			if (rhiInstBuf) ctx->BindVertexBuffer(rhiInstBuf.get(), 0);
+			ctx->DrawInstanced(RHI::PrimitiveType::Triangles, 36, 0, decals.size());
+		} else {
+			glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(decals.size()));
+		}
 	}
 	vao.Unbind();
 
