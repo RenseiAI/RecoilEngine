@@ -169,6 +169,7 @@
 #include "Sim/Weapons/WeaponDefHandler.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/Log/ILog.h"
+#include "System/MathConstants.h"
 #include "System/Matrix44f.h"
 
 CONFIG(bool, LuaShaders).defaultValue(true).headlessValue(false).safemodeValue(false);
@@ -266,7 +267,48 @@ static float3 screenViewTrans;
 
 std::vector<LuaOpenGL::OcclusionQuery*> LuaOpenGL::occlusionQueries;
 
+// Software matrix stack for RHI path (Phase 8.2a)
+// Tracks Lua-set matrix state in software alongside the FFP GL calls.
+// On the GL backend, FFP calls still drive rendering. On Metal (future),
+// the software stack provides matrix values for shader uniform uploads.
+namespace LuaGLMatrix {
+	enum Mode { MODELVIEW = 0, PROJECTION = 1 };
+	static Mode currentMode = MODELVIEW;
+	static std::vector<CMatrix44f> stacks[2] = { {CMatrix44f()}, {CMatrix44f()} };
 
+	static CMatrix44f& Top() { return stacks[currentMode].back(); }
+	static CMatrix44f& Top(Mode m) { return stacks[m].back(); }
+
+	static void SetMode(Mode m) { currentMode = m; }
+	static Mode GetMode() { return currentMode; }
+	static Mode GLToMode(GLenum m) { return (m == GL_PROJECTION) ? PROJECTION : MODELVIEW; }
+
+	static void Push() { stacks[currentMode].push_back(Top()); }
+	static void Push(Mode m) { stacks[m].push_back(Top(m)); }
+	static void Pop() { if (stacks[currentMode].size() > 1) stacks[currentMode].pop_back(); }
+	static void Pop(Mode m) { if (stacks[m].size() > 1) stacks[m].pop_back(); }
+
+	static void LoadIdentity() { Top() = CMatrix44f(); }
+	static void LoadMatrix(const float* mat) { std::memcpy(Top().m, mat, 16 * sizeof(float)); }
+	static void MultMatrix(const float* mat) {
+		CMatrix44f M;
+		std::memcpy(M.m, mat, 16 * sizeof(float));
+		Top() = Top() * M;
+	}
+	static void DoTranslate(float x, float y, float z) { Top().Translate(x, y, z); }
+	static void DoScale(float x, float y, float z) { Top().Scale(x, y, z); }
+	static void DoRotate(float degrees, float x, float y, float z) {
+		const float3 axis = float3(x, y, z).SafeNormalize();
+		if (axis.SqLength() > 0.0f)
+			Top().Rotate(degrees * math::DEG_TO_RAD, axis);
+	}
+	static void DoOrtho(float l, float r, float b, float t, float n, float f) {
+		Top() = Top() * CMatrix44f::OrthoProj(l, r, b, t, n, f);
+	}
+	static void DoFrustum(float l, float r, float b, float t, float n, float f) {
+		Top() = Top() * CMatrix44f::PerspProj(l, r, b, t, n, f);
+	}
+}
 
 
 static inline CUnit* ParseUnit(lua_State* L, const char* caller, int index)
@@ -1155,6 +1197,11 @@ void LuaOpenGL::RevertScreenLighting()
 
 void LuaOpenGL::ResetGenesisMatrices()
 {
+	LuaGLMatrix::SetMode(LuaGLMatrix::PROJECTION);
+	LuaGLMatrix::LoadIdentity();
+	LuaGLMatrix::SetMode(LuaGLMatrix::MODELVIEW);
+	LuaGLMatrix::LoadIdentity();
+
 	glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
 	glMatrixMode(GL_PROJECTION); glLoadIdentity();
 	glMatrixMode(GL_MODELVIEW ); glLoadIdentity();
@@ -1163,6 +1210,11 @@ void LuaOpenGL::ResetGenesisMatrices()
 
 void LuaOpenGL::ResetWorldMatrices()
 {
+	LuaGLMatrix::SetMode(LuaGLMatrix::PROJECTION);
+	LuaGLMatrix::LoadMatrix(camera->GetProjectionMatrix());
+	LuaGLMatrix::SetMode(LuaGLMatrix::MODELVIEW);
+	LuaGLMatrix::LoadMatrix(camera->GetViewMatrix());
+
 	glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
 	glMatrixMode(GL_PROJECTION); glLoadMatrixf(camera->GetProjectionMatrix());
 	glMatrixMode(GL_MODELVIEW ); glLoadMatrixf(camera->GetViewMatrix());
@@ -1170,6 +1222,12 @@ void LuaOpenGL::ResetWorldMatrices()
 
 void LuaOpenGL::ResetWorldShadowMatrices()
 {
+	LuaGLMatrix::SetMode(LuaGLMatrix::PROJECTION);
+	LuaGLMatrix::LoadIdentity();
+	LuaGLMatrix::DoOrtho(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, -1.0f);
+	LuaGLMatrix::SetMode(LuaGLMatrix::MODELVIEW);
+	LuaGLMatrix::LoadMatrix(shadowHandler.GetShadowMatrixRaw());
+
 	glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
 	glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, -1.0f);
 	glMatrixMode(GL_MODELVIEW ); glLoadMatrixf(shadowHandler.GetShadowMatrixRaw());
@@ -1178,6 +1236,11 @@ void LuaOpenGL::ResetWorldShadowMatrices()
 
 void LuaOpenGL::ResetScreenMatrices()
 {
+	LuaGLMatrix::SetMode(LuaGLMatrix::PROJECTION);
+	LuaGLMatrix::LoadMatrix(globalRendering->screenProjMatrix.m);
+	LuaGLMatrix::SetMode(LuaGLMatrix::MODELVIEW);
+	LuaGLMatrix::LoadMatrix(globalRendering->screenViewMatrix.m);
+
 	glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
 	glMatrixMode(GL_PROJECTION); glLoadIdentity();
 	glMatrixMode(GL_MODELVIEW ); glLoadIdentity();
@@ -1189,6 +1252,14 @@ void LuaOpenGL::ResetScreenMatrices()
 void LuaOpenGL::ResetMiniMapMatrices()
 {
 	assert(minimap != nullptr);
+
+	LuaGLMatrix::SetMode(LuaGLMatrix::PROJECTION);
+	LuaGLMatrix::LoadIdentity();
+	LuaGLMatrix::DoOrtho(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, -1.0f);
+	// Note: minimap->ApplyConstraintsMatrix() also modifies projection via glTranslate/glScale
+	LuaGLMatrix::SetMode(LuaGLMatrix::MODELVIEW);
+	LuaGLMatrix::LoadIdentity();
+	LuaGLMatrix::DoScale(1.0f / minimap->GetSizeX(), 1.0f / minimap->GetSizeY(), 1.0f);
 
 	// engine draws minimap in 0..1 range, lua uses 0..minimapSize{X,Y}
 	glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
@@ -5271,6 +5342,7 @@ int LuaOpenGL::Translate(lua_State* L)
 	const float x = luaL_checkfloat(L, 1);
 	const float y = luaL_checkfloat(L, 2);
 	const float z = luaL_checkfloat(L, 3);
+	LuaGLMatrix::DoTranslate(x, y, z);
 	glTranslatef(x, y, z);
 	return 0;
 }
@@ -5289,6 +5361,7 @@ int LuaOpenGL::Scale(lua_State* L)
 	const float x = luaL_checkfloat(L, 1);
 	const float y = luaL_checkfloat(L, 2);
 	const float z = luaL_checkfloat(L, 3);
+	LuaGLMatrix::DoScale(x, y, z);
 	glScalef(x, y, z);
 	return 0;
 }
@@ -5309,6 +5382,7 @@ int LuaOpenGL::Rotate(lua_State* L)
 	const float x = luaL_checkfloat(L, 2);
 	const float y = luaL_checkfloat(L, 3);
 	const float z = luaL_checkfloat(L, 4);
+	LuaGLMatrix::DoRotate(r, x, y, z);
 	glRotatef(r, x, y, z);
 	return 0;
 }
@@ -5333,6 +5407,7 @@ int LuaOpenGL::Ortho(lua_State* L)
 	const float top    = luaL_checknumber(L, 4);
 	const float _near  = luaL_checknumber(L, 5);
 	const float _far   = luaL_checknumber(L, 6);
+	LuaGLMatrix::DoOrtho(left, right, bottom, top, _near, _far);
 	glOrtho(left, right, bottom, top, _near, _far);
 	return 0;
 }
@@ -5357,6 +5432,7 @@ int LuaOpenGL::Frustum(lua_State* L)
 	const float top    = luaL_checknumber(L, 4);
 	const float _near  = luaL_checknumber(L, 5);
 	const float _far   = luaL_checknumber(L, 6);
+	LuaGLMatrix::DoFrustum(left, right, bottom, top, _near, _far);
 	glFrustum(left, right, bottom, top, _near, _far);
 	return 0;
 }
@@ -5369,6 +5445,7 @@ int LuaOpenGL::Billboard(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	LuaGLMatrix::MultMatrix(camera->GetBillBoardMatrix().m);
 	glMultMatrixf(camera->GetBillBoardMatrix());
 	return 0;
 }
@@ -5540,6 +5617,7 @@ int LuaOpenGL::MatrixMode(lua_State* L)
 	GLenum mode = (GLenum)luaL_checkint(L, 1);
 	if (!GetLuaContextData(L)->glMatrixTracker.SetMatrixMode(mode))
 		luaL_error(L, "Incorrect value to gl.MatrixMode");
+	LuaGLMatrix::SetMode(LuaGLMatrix::GLToMode(mode));
 	glMatrixMode(mode);
 	return 0;
 }
@@ -5557,6 +5635,7 @@ int LuaOpenGL::LoadIdentity(lua_State* L)
 	if (args != 0) {
 		luaL_error(L, "gl.LoadIdentity takes no arguments");
 	}
+	LuaGLMatrix::LoadIdentity();
 	glLoadIdentity();
 	return 0;
 }
@@ -5619,6 +5698,7 @@ int LuaOpenGL::LoadMatrix(lua_State* L)
 	if (luaType == LUA_TSTRING) {
 		const CMatrix44f* matptr = LuaOpenGLUtils::GetNamedMatrix(lua_tostring(L, 1));
 		if (matptr != NULL) {
+			LuaGLMatrix::LoadMatrix(matptr->m);
 			glLoadMatrixf(*matptr);
 		} else {
 			luaL_error(L, "Incorrect arguments to gl.LoadMatrix()");
@@ -5636,6 +5716,7 @@ int LuaOpenGL::LoadMatrix(lua_State* L)
 				matrix[i-1] = (GLfloat)luaL_checknumber(L, i);
 			}
 		}
+		LuaGLMatrix::LoadMatrix(matrix);
 		glLoadMatrixf(matrix);
 	}
 	return 0;
@@ -5678,6 +5759,7 @@ int LuaOpenGL::MultMatrix(lua_State* L)
 	if (luaType == LUA_TSTRING) {
 		const CMatrix44f* matptr = LuaOpenGLUtils::GetNamedMatrix(lua_tostring(L, 1));
 		if (matptr != NULL) {
+			LuaGLMatrix::MultMatrix(matptr->m);
 			glMultMatrixf(*matptr);
 		} else {
 			luaL_error(L, "Incorrect arguments to gl.MultMatrix()");
@@ -5695,6 +5777,7 @@ int LuaOpenGL::MultMatrix(lua_State* L)
 				matrix[i-1] = (GLfloat)luaL_checknumber(L, i);
 			}
 		}
+		LuaGLMatrix::MultMatrix(matrix);
 		glMultMatrixf(matrix);
 	}
 	return 0;
@@ -5716,6 +5799,7 @@ int LuaOpenGL::PushMatrix(lua_State* L)
 
 	if (!GetLuaContextData(L)->glMatrixTracker.PushMatrix())
 		luaL_error(L, "Matrix stack overflow");
+	LuaGLMatrix::Push();
 	glPushMatrix();
 
 	return 0;
@@ -5737,6 +5821,7 @@ int LuaOpenGL::PopMatrix(lua_State* L)
 
 	if (!GetLuaContextData(L)->glMatrixTracker.PopMatrix())
 		luaL_error(L, "Matrix stack underflow");
+	LuaGLMatrix::Pop();
 	glPopMatrix();
 
 	return 0;
@@ -5770,9 +5855,11 @@ int LuaOpenGL::PushPopMatrix(lua_State* L)
 	}
 
 	if (arg == 1) {
+		LuaGLMatrix::Push();
 		glPushMatrix();
 	} else {
 		for (int i = 0; i < (int)matModes.size(); i++) {
+			LuaGLMatrix::Push(LuaGLMatrix::GLToMode(matModes[i]));
 			glMatrixMode(matModes[i]);
 			glPushMatrix();
 		}
@@ -5782,9 +5869,11 @@ int LuaOpenGL::PushPopMatrix(lua_State* L)
 	const int error = lua_pcall(L, (args - arg), 0, 0);
 
 	if (arg == 1) {
+		LuaGLMatrix::Pop();
 		glPopMatrix();
 	} else {
 		for (int i = 0; i < (int)matModes.size(); i++) {
+			LuaGLMatrix::Pop(LuaGLMatrix::GLToMode(matModes[i]));
 			glMatrixMode(matModes[i]);
 			glPopMatrix();
 		}
@@ -6254,6 +6343,14 @@ int LuaOpenGL::CreateList(lua_State* L)
 			"Incorrect arguments to gl.CreateList(func [, arg1, arg2, etc ...])");
 	}
 
+	// Display lists are deprecated — return 0 on RHI path.
+	// Callers (UnitDrawer, FeatureDrawer) check for 0 and use
+	// S3DModelVAO::DrawElements() fallback automatically.
+	if (RHI::GetDevice()) {
+		lua_pushnumber(L, 0);
+		return 1;
+	}
+
 	// generate the list id
 	const GLuint list = glGenLists(1);
 	if (list == 0) {
@@ -6300,6 +6397,10 @@ int LuaOpenGL::CallList(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+
+	if (RHI::GetDevice())
+		return 0; // Display lists disabled on RHI path
+
 	const unsigned int listIndex = luaL_checkint(L, 1);
 	const CLuaDisplayLists& displayLists = CLuaHandle::GetActiveDisplayLists(L);
 	const unsigned int dlist = displayLists.GetDList(listIndex);
@@ -6326,6 +6427,10 @@ int LuaOpenGL::DeleteList(lua_State* L)
 	if (lua_isnil(L, 1)) {
 		return 0;
 	}
+
+	if (RHI::GetDevice())
+		return 0; // Display lists disabled on RHI path
+
 	const unsigned int listIndex = (unsigned int)luaL_checkint(L, 1);
 	CLuaDisplayLists& displayLists = CLuaHandle::GetActiveDisplayLists(L);
 	const unsigned int dlist = displayLists.GetDList(listIndex);
