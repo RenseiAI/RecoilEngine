@@ -334,6 +334,10 @@ void CTextureAtlas::DumpTexture(const char* newFileName) const
 	if (!initialized)
 		return;
 
+	// glSaveTexture/glSaveTextureArray use GL readback; only works on GL backend
+	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL)
+		return;
+
 	std::string filename = newFileName ? newFileName : name.c_str();
 
 	const auto numPages = atlasAllocator->GetNumPages();

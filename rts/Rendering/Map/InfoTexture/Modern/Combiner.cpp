@@ -1,10 +1,10 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-// RHI migration status: BLOCKED
+// RHI migration status: DEFERRED (Lua shader dependency)
 // - RHI used for viewport, clear operations
 // - Remaining GL calls (6): glBegin, glTexCoord2f (4x), glVertex2f (4x), glEnd
-// - Blocker: Lua shaders expect immediate mode vertex submission (legacy compatibility)
-// - Cannot migrate without breaking user-created Lua info texture shaders
+// - Deferred: Lua info texture shaders use FFP builtins (gl_Vertex, gl_MultiTexCoord0)
+// - Will be migrated when Lua shader subsystem moves to RHI (Phase 10)
 
 #include "Combiner.h"
 #include "Game/GlobalUnsynced.h"

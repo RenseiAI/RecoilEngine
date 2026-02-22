@@ -5,7 +5,7 @@ static constexpr const char* vsRenderBufferSrc = R"(
 // VS input attributes
 %s
 
-uniform mat4 transformMatrix = mat4(1.0);
+uniform mat4 transformMatrix;
 
 // VS output attributes
 %s

@@ -15,24 +15,27 @@
 #include "Rendering/RHI/RHITypes.h"
 #include "Rendering/RHI/RHIBuffer.h"
 #include "Rendering/RHI/RHIPipeline.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 
 /*
- * RHI Migration Note:
- *   TypedRenderBuffer<T> is the primary draw dispatch mechanism. It combines:
- *   - StreamBuffer (VBO/EBO) -> migrated, use SB_RHI strategy or IRHIBuffer
- *   - VAO -> Metal has no VAO; vertex layout becomes part of PipelineDesc
- *   - GLSL shader generation -> must be paired with MSL generation for Metal
- *   - glDrawArrays/glDrawElements -> IRHIContext::Draw/DrawIndexed
- *   - glVertexAttribPointer -> RHI::VertexLayout in PipelineDesc
+ * RHI Migration Status: DUAL-PATH (Phase 9.1)
+ *   TypedRenderBuffer<T> now supports both GL and RHI draw paths:
  *
- *   The RenderBufferShader<T>::GetShader() generates GLSL at runtime from
- *   vertex attribute metadata. For Metal, this needs a parallel path that
- *   generates or loads pre-compiled MSL shaders via the shader pipeline.
+ *   GL path (backend == OpenGL):
+ *     StreamBuffer + VAO + glDrawArrays/glDrawElements (existing, unchanged)
  *
- *   RHI Gaps identified:
- *   - IRHIShader has no runtime source compilation (needed for generated shaders)
- *   - IRHIContext lacks DrawArrays with baseVertex offset
- *   - No RHI equivalent for glVertexAttribDivisor (instancing)
+ *   RHI path (backend != OpenGL, e.g. Metal):
+ *     IRHIBuffer + SetVertexLayout + IRHIContext::Draw/DrawIndexed
+ *     Primitive conversion for GL_LINE_LOOP, GL_TRIANGLE_FAN, GL_QUADS
+ *     done inline via index buffer generation.
+ *
+ *   Path selection: CondInit() creates rhiVbo on non-GL backends.
+ *   Draw functions check `if (rhiVbo)` to select the path.
+ *
+ *   Remaining for Metal:
+ *   - Shader cross-compilation (GLSL -> SPIR-V -> MSL) for generated shaders
+ *   - Texture binding through RHI (callers currently use glBindTexture)
  */
 
 #include "fmt/format.h"
@@ -115,6 +118,66 @@ private:
 public:
 	static auto GetAllStandardRenderBuffers() -> const decltype(typedRenderBuffers)& { return typedRenderBuffers; };
 };
+
+/// Primitive conversion helpers for modes Metal/RHI doesn't support directly.
+namespace RBPrimConvert {
+	inline RHI::PrimitiveType GLModeToRHI(uint32_t mode) {
+		switch (mode) {
+		case GL_TRIANGLES:      return RHI::PrimitiveType::Triangles;
+		case GL_TRIANGLE_STRIP: return RHI::PrimitiveType::TriangleStrip;
+		case GL_TRIANGLE_FAN:   return RHI::PrimitiveType::Triangles; // converted to indexed
+		case GL_LINES:          return RHI::PrimitiveType::Lines;
+		case GL_LINE_STRIP:     return RHI::PrimitiveType::LineStrip;
+		case GL_LINE_LOOP:      return RHI::PrimitiveType::LineStrip;  // converted to indexed
+		case GL_POINTS:         return RHI::PrimitiveType::Points;
+		case GL_QUADS:          return RHI::PrimitiveType::Triangles;  // converted to indexed
+		default:                return RHI::PrimitiveType::Triangles;
+		}
+	}
+
+	inline bool NeedsIndexConversion(uint32_t mode) {
+		return mode == GL_LINE_LOOP || mode == GL_TRIANGLE_FAN || mode == GL_QUADS;
+	}
+
+	/// Generate index buffer for unsupported primitive modes.
+	/// @param firstVert base vertex offset into the vertex buffer
+	inline std::vector<uint32_t> GenerateConversionIndices(uint32_t mode, size_t vertCount, size_t firstVert) {
+		std::vector<uint32_t> indices;
+		switch (mode) {
+		case GL_LINE_LOOP:
+			indices.reserve(vertCount + 1);
+			for (size_t i = 0; i < vertCount; ++i)
+				indices.push_back(static_cast<uint32_t>(firstVert + i));
+			indices.push_back(static_cast<uint32_t>(firstVert)); // close the loop
+			break;
+		case GL_TRIANGLE_FAN:
+			if (vertCount >= 3) {
+				indices.reserve((vertCount - 2) * 3);
+				for (size_t i = 1; i < vertCount - 1; ++i) {
+					indices.push_back(static_cast<uint32_t>(firstVert));
+					indices.push_back(static_cast<uint32_t>(firstVert + i));
+					indices.push_back(static_cast<uint32_t>(firstVert + i + 1));
+				}
+			}
+			break;
+		case GL_QUADS:
+			if (vertCount >= 4) {
+				indices.reserve((vertCount / 4) * 6);
+				for (size_t i = 0; i + 3 < vertCount; i += 4) {
+					indices.push_back(static_cast<uint32_t>(firstVert + i + 0));
+					indices.push_back(static_cast<uint32_t>(firstVert + i + 1));
+					indices.push_back(static_cast<uint32_t>(firstVert + i + 2));
+					indices.push_back(static_cast<uint32_t>(firstVert + i + 0));
+					indices.push_back(static_cast<uint32_t>(firstVert + i + 2));
+					indices.push_back(static_cast<uint32_t>(firstVert + i + 3));
+				}
+			}
+			break;
+		}
+		return indices;
+	}
+} // namespace RBPrimConvert
+
 
 template <typename T>
 class RenderBufferShader {
@@ -224,10 +287,10 @@ private:
 
 	static void GetShaderHeaders(std::string& vsHeader, std::string& fsHeader) {
 		if (globalRendering->supportExplicitAttribLoc) {
-			vsHeader = fmt::format("{}{}{}", "#version 150 compatibility", nl, "#extension GL_ARB_explicit_attrib_location : require");
+			vsHeader = fmt::format("{}{}{}", "#version 150", nl, "#extension GL_ARB_explicit_attrib_location : require");
 		}
 		else {
-			vsHeader = "#version 150 compatibility";
+			vsHeader = "#version 150";
 		}
 
 		fsHeader = "#version 150";
@@ -416,6 +479,9 @@ public:
 		indcs = {};
 		vbo = {};
 		ebo = {};
+		rhiVbo.reset();
+		rhiEbo.reset();
+		rhiConversionEbo.reset();
 	}
 
 	void Clear() {
@@ -442,6 +508,7 @@ public:
 			vbo->SwapBuffer();
 		if (ebo)
 			ebo->SwapBuffer();
+		// RHI buffers don't need swap (no ring-buffer strategy)
 
 		Clear();
 	}
@@ -467,6 +534,10 @@ public:
 		std::swap(ebo, rhs.ebo);
 
 		std::swap(vao, rhs.vao);
+
+		std::swap(rhiVbo, rhs.rhiVbo);
+		std::swap(rhiEbo, rhs.rhiEbo);
+		std::swap(rhiConversionEbo, rhs.rhiConversionEbo);
 
 		std::swap(verts, rhs.verts);
 		std::swap(indcs, rhs.indcs);
@@ -668,13 +739,26 @@ public:
 	}
 
 	/// Build an RHI VertexLayout from this type's attribute definitions.
-	/// Caller owns the returned attributes array (allocated via new[]).
-	static RHI::VertexLayout GetRHIVertexLayout() {
+	/// The cached attributes array is static per type and persists for the program lifetime.
+	static RHI::VertexLayout GetCachedVertexLayout() {
+		static std::vector<RHI::VertexAttribute> cachedAttrs = []() {
+			std::vector<RHI::VertexAttribute> attrs;
+			attrs.reserve(T::attributeDefs.size());
+			for (const AttributeDef& ad : T::attributeDefs) {
+				attrs.push_back(RHI::VertexAttribute{
+					ad.index,
+					static_cast<uint32_t>(reinterpret_cast<uintptr_t>(ad.data)),
+					VAO::FormatToRHI(ad.type, ad.count, ad.normalize),
+					0 // per-vertex (no instancing)
+				});
+			}
+			return attrs;
+		}();
+
 		RHI::VertexLayout layout{};
-		layout.attributeCount = static_cast<uint32_t>(T::attributeDefs.size());
+		layout.attributes = cachedAttrs.data();
+		layout.attributeCount = static_cast<uint32_t>(cachedAttrs.size());
 		layout.stride = (layout.attributeCount > 0) ? T::attributeDefs[0].stride : 0;
-		// Note: attributes pointer is set by caller using T::attributeDefs
-		// and VAO::FormatToRHI() for each attribute's format conversion.
 		return layout;
 	}
 
@@ -819,6 +903,11 @@ private:
 
 	VAO vao;
 
+	// RHI path buffers (created on non-GL backends, null on GL)
+	std::unique_ptr<RHI::IRHIBuffer> rhiVbo;
+	std::unique_ptr<RHI::IRHIBuffer> rhiEbo;
+	std::unique_ptr<RHI::IRHIBuffer> rhiConversionEbo; // for LINE_LOOP/FAN/QUADS
+
 	std::vector<VertType> verts;
 	std::vector<IndcType> indcs;
 
@@ -852,20 +941,35 @@ inline void TypedRenderBuffer<T>::UploadVBO()
 
 	CondInit();
 
-	if (verts.size() > vertCount0) {
-		LOG_L(L_DEBUG, "[TypedRenderBuffer<%s>::%s] Increase the number of elements here!", vboTypeName, __func__);
-		vbo->Resize(static_cast<uint32_t>(verts.capacity()));
-		vertCount0 = verts.capacity();
+	if (rhiVbo) {
+		// RHI upload path
+		if (verts.size() > vertCount0) {
+			LOG_L(L_DEBUG, "[TypedRenderBuffer<%s>::%s] Increase the number of elements here!", vboTypeName, __func__);
+			rhiVbo->Resize(verts.capacity() * sizeof(VertType));
+			vertCount0 = verts.capacity();
+		}
+
+		rhiVbo->Upload(
+			verts.data() + vboUploadIndex,
+			vboUploadIndex * sizeof(VertType),
+			elemsCount * sizeof(VertType));
+	} else {
+		// GL upload path
+		if (verts.size() > vertCount0) {
+			LOG_L(L_DEBUG, "[TypedRenderBuffer<%s>::%s] Increase the number of elements here!", vboTypeName, __func__);
+			vbo->Resize(static_cast<uint32_t>(verts.capacity()));
+			vertCount0 = verts.capacity();
+		}
+
+		const VertType* clientPtr = verts.data();
+		VertType* mappedPtr = vbo->Map(clientPtr, static_cast<uint32_t>(vboUploadIndex), static_cast<uint32_t>(elemsCount));
+
+		if (!vbo->HasClientPtr())
+			memcpy(mappedPtr, clientPtr + vboUploadIndex, elemsCount * sizeof(VertType));
+
+		vbo->Unmap();
 	}
 
-	//update on the GPU
-	const VertType* clientPtr = verts.data();
-	VertType* mappedPtr = vbo->Map(clientPtr, static_cast<uint32_t>(vboUploadIndex), static_cast<uint32_t>(elemsCount));
-
-	if (!vbo->HasClientPtr())
-		memcpy(mappedPtr, clientPtr + vboUploadIndex, elemsCount * sizeof(VertType));
-
-	vbo->Unmap();
 	vboUploadIndex += elemsCount;
 }
 
@@ -878,23 +982,36 @@ inline void TypedRenderBuffer<T>::UploadEBO()
 
 	CondInit();
 
-	if (indcs.size() > elemCount0) {
-		LOG_L(L_DEBUG, "[TypedRenderBuffer<%s>::%s] Increase the number of elements here!", vboTypeName, __func__);
-		ebo->Resize(static_cast<uint32_t>(indcs.capacity()));
-		elemCount0 = indcs.capacity();
+	if (rhiEbo) {
+		// RHI upload path
+		if (indcs.size() > elemCount0) {
+			LOG_L(L_DEBUG, "[TypedRenderBuffer<%s>::%s] Increase the number of elements here!", vboTypeName, __func__);
+			rhiEbo->Resize(indcs.capacity() * sizeof(IndcType));
+			elemCount0 = indcs.capacity();
+		}
+
+		rhiEbo->Upload(
+			indcs.data() + eboUploadIndex,
+			eboUploadIndex * sizeof(IndcType),
+			elemsCount * sizeof(IndcType));
+	} else {
+		// GL upload path
+		if (indcs.size() > elemCount0) {
+			LOG_L(L_DEBUG, "[TypedRenderBuffer<%s>::%s] Increase the number of elements here!", vboTypeName, __func__);
+			ebo->Resize(static_cast<uint32_t>(indcs.capacity()));
+			elemCount0 = indcs.capacity();
+		}
+
+		const IndcType* clientPtr = indcs.data();
+		IndcType* mappedPtr = ebo->Map(clientPtr, static_cast<uint32_t>(eboUploadIndex), static_cast<uint32_t>(elemsCount));
+
+		if (!ebo->HasClientPtr())
+			memcpy(mappedPtr, clientPtr + eboUploadIndex, elemsCount * sizeof(IndcType));
+
+		ebo->Unmap();
 	}
 
-	//update on the GPU
-	const IndcType* clientPtr = indcs.data();
-	IndcType* mappedPtr = ebo->Map(clientPtr, static_cast<uint32_t>(eboUploadIndex), static_cast<uint32_t>(elemsCount));
-
-	if (!ebo->HasClientPtr())
-		memcpy(mappedPtr, clientPtr + eboUploadIndex, elemsCount * sizeof(IndcType));
-
-	ebo->Unmap();
 	eboUploadIndex += elemsCount;
-
-	return;
 }
 
 template<typename T>
@@ -918,12 +1035,13 @@ inline void TypedRenderBuffer<T>::DrawArrays(uint32_t mode, bool rewind)
 	size_t vertsCount = (verts.size() - vboStartIndex);
 	if (vertsCount <= 0)
 		return;
+
+	if (rhiVbo) {
+		// RHI draw path
 #ifndef HEADLESS
-	assert(vao.GetIdRaw() > 0);
-#endif
-	vao.Bind();
-#ifndef HEADLESS
-	{
+		auto* device = RHI::GetDevice();
+		auto* ctx = device->GetContext();
+
 		CMatrix44f mvp;
 		if (hasExplicitTransform) {
 			mvp = explicitTransform;
@@ -932,10 +1050,53 @@ inline void TypedRenderBuffer<T>::DrawArrays(uint32_t mode, bool rewind)
 			mvp = RenderBuffer::globalProjection * RenderBuffer::globalModelView;
 		}
 		static_cast<Shader::IProgramObject*>(shaderHandler->GetCurrentlyBoundProgram())->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
-	}
+
+		ctx->BindVertexBuffer(rhiVbo.get(), 0);
+		ctx->SetVertexLayout(GetCachedVertexLayout());
+
+		if (RBPrimConvert::NeedsIndexConversion(mode)) {
+			// Generate indices for unsupported primitive modes
+			auto convIndices = RBPrimConvert::GenerateConversionIndices(mode, vertsCount, vboStartIndex);
+			if (!convIndices.empty()) {
+				size_t needed = convIndices.size() * sizeof(uint32_t);
+				if (!rhiConversionEbo || rhiConversionEbo->GetSize() < needed) {
+					rhiConversionEbo = device->CreateBuffer(
+						RHI::BufferType::Index, RHI::BufferUsage::Stream, needed);
+				}
+				rhiConversionEbo->Upload(convIndices.data(), 0, needed);
+				ctx->BindIndexBuffer(rhiConversionEbo.get(), RHI::IndexType::UInt32);
+				ctx->DrawIndexed(RBPrimConvert::GLModeToRHI(mode),
+					static_cast<uint32_t>(convIndices.size()), 0, 0);
+			}
+		} else {
+			ctx->Draw(RBPrimConvert::GLModeToRHI(mode),
+				static_cast<uint32_t>(vertsCount),
+				static_cast<uint32_t>(vboStartIndex));
+		}
+
+		ctx->ClearVertexLayout();
 #endif
-	glDrawArrays(mode, static_cast<GLint>(vbo->BufferElemOffset() + vboStartIndex), static_cast<GLsizei>(vertsCount));
-	vao.Unbind();
+	} else {
+		// GL draw path (existing)
+#ifndef HEADLESS
+		assert(vao.GetIdRaw() > 0);
+#endif
+		vao.Bind();
+#ifndef HEADLESS
+		{
+			CMatrix44f mvp;
+			if (hasExplicitTransform) {
+				mvp = explicitTransform;
+				hasExplicitTransform = false;
+			} else {
+				mvp = RenderBuffer::globalProjection * RenderBuffer::globalModelView;
+			}
+			static_cast<Shader::IProgramObject*>(shaderHandler->GetCurrentlyBoundProgram())->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
+		}
+#endif
+		glDrawArrays(mode, static_cast<GLint>(vbo->BufferElemOffset() + vboStartIndex), static_cast<GLsizei>(vertsCount));
+		vao.Unbind();
+	}
 
 	if (rewind && !readOnly)
 		vboStartIndex += vertsCount;
@@ -957,13 +1118,12 @@ inline void TypedRenderBuffer<T>::DrawElements(uint32_t mode, bool rewind)
 		return;
 	}
 
-	#define BUFFER_OFFSET(T, n) (reinterpret_cast<void*>(sizeof(T) * (n)))
+	if (rhiVbo && rhiEbo) {
+		// RHI draw path
 #ifndef HEADLESS
-	assert(vao.GetIdRaw() > 0);
-#endif
-	vao.Bind();
-#ifndef HEADLESS
-	{
+		auto* device = RHI::GetDevice();
+		auto* ctx = device->GetContext();
+
 		CMatrix44f mvp;
 		if (hasExplicitTransform) {
 			mvp = explicitTransform;
@@ -972,11 +1132,40 @@ inline void TypedRenderBuffer<T>::DrawElements(uint32_t mode, bool rewind)
 			mvp = RenderBuffer::globalProjection * RenderBuffer::globalModelView;
 		}
 		static_cast<Shader::IProgramObject*>(shaderHandler->GetCurrentlyBoundProgram())->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
-	}
+
+		ctx->BindVertexBuffer(rhiVbo.get(), 0);
+		ctx->BindIndexBuffer(rhiEbo.get(), RHI::IndexType::UInt32);
+		ctx->SetVertexLayout(GetCachedVertexLayout());
+
+		ctx->DrawIndexed(RBPrimConvert::GLModeToRHI(mode),
+			static_cast<uint32_t>(indcsCount),
+			static_cast<uint32_t>(eboStartIndex), 0);
+
+		ctx->ClearVertexLayout();
 #endif
-	glDrawElements(mode, static_cast<GLsizei>(indcsCount), GL_UNSIGNED_INT, BUFFER_OFFSET(uint32_t, ebo->BufferElemOffset() + eboStartIndex));
-	vao.Unbind();
-	#undef BUFFER_OFFSET
+	} else {
+		// GL draw path (existing)
+		#define BUFFER_OFFSET(T, n) (reinterpret_cast<void*>(sizeof(T) * (n)))
+#ifndef HEADLESS
+		assert(vao.GetIdRaw() > 0);
+#endif
+		vao.Bind();
+#ifndef HEADLESS
+		{
+			CMatrix44f mvp;
+			if (hasExplicitTransform) {
+				mvp = explicitTransform;
+				hasExplicitTransform = false;
+			} else {
+				mvp = RenderBuffer::globalProjection * RenderBuffer::globalModelView;
+			}
+			static_cast<Shader::IProgramObject*>(shaderHandler->GetCurrentlyBoundProgram())->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
+		}
+#endif
+		glDrawElements(mode, static_cast<GLsizei>(indcsCount), GL_UNSIGNED_INT, BUFFER_OFFSET(uint32_t, ebo->BufferElemOffset() + eboStartIndex));
+		vao.Unbind();
+		#undef BUFFER_OFFSET
+	}
 
 	if (rewind && !readOnly) {
 		eboStartIndex += indcsCount;
@@ -1032,32 +1221,56 @@ inline TypedRenderBuffer<T> TypedRenderBuffer<T>::CopyCurrent(bool readOnly) con
 template<typename T>
 inline void TypedRenderBuffer<T>::CondInit()
 {
-	if (vao.GetIdRaw() > 0)
+	// Already initialized? (GL path uses VAO id, RHI path uses rhiVbo)
+	if (vao.GetIdRaw() > 0 || rhiVbo)
 		return;
 
-	if (vertCount0 > 0) {
-		IStreamBufferConcept::StreamBufferCreationParams p;
-		p.target = GL_ARRAY_BUFFER;
-		p.numElems = static_cast<uint32_t>(vertCount0);
-		p.name = std::string(vboTypeName);
-		p.type = bufferType;
-		p.optimizeForStreaming = optimizeForStreaming;
+	const bool useRHIPath = (RHI::GetDefaultBackend() != RHI::Backend::OpenGL);
 
-		vbo = IStreamBuffer<VertType>::CreateInstance(p);
+	if (useRHIPath) {
+		// RHI path: create IRHIBuffer, skip StreamBuffer/VAO
+		auto* device = RHI::GetDevice();
+		if (!device)
+			return;
+
+		if (vertCount0 > 0) {
+			rhiVbo = device->CreateBuffer(
+				RHI::BufferType::Vertex, RHI::BufferUsage::Stream,
+				vertCount0 * sizeof(VertType));
+		}
+
+		if (elemCount0 > 0) {
+			rhiEbo = device->CreateBuffer(
+				RHI::BufferType::Index, RHI::BufferUsage::Stream,
+				elemCount0 * sizeof(IndcType));
+		}
+		// No VAO needed — SetVertexLayout at draw time
+	} else {
+		// GL path: existing StreamBuffer + VAO
+		if (vertCount0 > 0) {
+			IStreamBufferConcept::StreamBufferCreationParams p;
+			p.target = GL_ARRAY_BUFFER;
+			p.numElems = static_cast<uint32_t>(vertCount0);
+			p.name = std::string(vboTypeName);
+			p.type = bufferType;
+			p.optimizeForStreaming = optimizeForStreaming;
+
+			vbo = IStreamBuffer<VertType>::CreateInstance(p);
+		}
+
+		if (elemCount0 > 0) {
+			IStreamBufferConcept::StreamBufferCreationParams p;
+			p.target = GL_ELEMENT_ARRAY_BUFFER;
+			p.numElems = static_cast<uint32_t>(elemCount0);
+			p.name = std::string(vboTypeName);
+			p.type = bufferType;
+			p.optimizeForStreaming = optimizeForStreaming;
+
+			ebo = IStreamBuffer<IndcType>::CreateInstance(p);
+		}
+
+		InitVAO();
 	}
-
-	if (elemCount0 > 0) {
-		IStreamBufferConcept::StreamBufferCreationParams p;
-		p.target = GL_ELEMENT_ARRAY_BUFFER;
-		p.numElems = static_cast<uint32_t>(elemCount0);
-		p.name = std::string(vboTypeName);
-		p.type = bufferType;
-		p.optimizeForStreaming = optimizeForStreaming;
-
-		ebo = IStreamBuffer<IndcType>::CreateInstance(p);
-	}
-
-	InitVAO();
 }
 
 template<typename T>

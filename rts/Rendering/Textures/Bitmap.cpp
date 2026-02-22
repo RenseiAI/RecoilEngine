@@ -1810,6 +1810,18 @@ static void HandleDDSMipmap(RHI::IRHITexture* rhiTex, int32_t numEmbeddedLevels,
 uint32_t CBitmap::CreateDDSTexture(const GL::TextureCreationParams& tcp) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+
+	// nv_dds upload functions use raw GL calls (glCompressedTexImage*, glTexImage*).
+	// On non-GL backends (Metal), use CreateDDSTextureRHI() instead.
+	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL) {
+		auto rhiTex = CreateDDSTextureRHI();
+		if (!rhiTex)
+			return 0;
+		uint32_t texID = rhiTex->GetNativeHandle();
+		rhiTex.release(); // ownership transferred to raw handle
+		return texID;
+	}
+
 	auto texID = tcp.texID;
 
 	// Use RHI to generate texture if no existing ID provided
