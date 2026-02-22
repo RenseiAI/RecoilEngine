@@ -50,7 +50,10 @@ void MTLShader::AttachStage(ShaderStage stage, const std::string& sourceFile, co
 		return;
 	}
 
-	// Store source for later compilation
+	AttachStageFromSource(stage, source, defines);
+}
+
+void MTLShader::AttachStageFromSource(ShaderStage stage, const std::string& source, const std::string& defines) {
 	switch (stage) {
 		case ShaderStage::Vertex:
 			vertexSource = source;

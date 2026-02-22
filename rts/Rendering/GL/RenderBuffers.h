@@ -17,9 +17,11 @@
 #include "Rendering/RHI/RHIPipeline.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIShader.h"
+#include "Rendering/RHI/RHIDevice.h"
 
 /*
- * RHI Migration Status: DUAL-PATH (Phase 9.1)
+ * RHI Migration Status: DUAL-PATH (Phase 9.1 + 9.2a)
  *   TypedRenderBuffer<T> now supports both GL and RHI draw paths:
  *
  *   GL path (backend == OpenGL):
@@ -29,13 +31,15 @@
  *     IRHIBuffer + SetVertexLayout + IRHIContext::Draw/DrawIndexed
  *     Primitive conversion for GL_LINE_LOOP, GL_TRIANGLE_FAN, GL_QUADS
  *     done inline via index buffer generation.
+ *     IRHIShader from cross-compiled GLSL (GLSL -> SPIR-V -> MSL via ShaderCompiler)
+ *     cached per VA_TYPE in RenderBufferShader<T>::rhiShaderCache.
  *
  *   Path selection: CondInit() creates rhiVbo on non-GL backends.
  *   Draw functions check `if (rhiVbo)` to select the path.
  *
  *   Remaining for Metal:
- *   - Shader cross-compilation (GLSL -> SPIR-V -> MSL) for generated shaders
  *   - Texture binding through RHI (callers currently use glBindTexture)
+ *   - Caller Enable/Disable/SetUniform routing through RHI shader (Phase 9.3)
  */
 
 #include "fmt/format.h"
@@ -286,7 +290,11 @@ private:
 	static const std::string GetFragOutput();
 
 	static void GetShaderHeaders(std::string& vsHeader, std::string& fsHeader) {
-		if (globalRendering->supportExplicitAttribLoc) {
+		GetShaderHeaders(vsHeader, fsHeader, globalRendering->supportExplicitAttribLoc);
+	}
+
+	static void GetShaderHeaders(std::string& vsHeader, std::string& fsHeader, bool useExplicitLoc) {
+		if (useExplicitLoc) {
 			vsHeader = fmt::format("{}{}{}", "#version 150", nl, "#extension GL_ARB_explicit_attrib_location : require");
 		}
 		else {
@@ -297,6 +305,10 @@ private:
 	}
 
 	static void GetAttributesStrings(std::string& vsInputs, std::string& varyings, std::string& vsAssignment, std::string& vsPosVertex) {
+		GetAttributesStrings(vsInputs, varyings, vsAssignment, vsPosVertex, globalRendering->supportExplicitAttribLoc);
+	}
+
+	static void GetAttributesStrings(std::string& vsInputs, std::string& varyings, std::string& vsAssignment, std::string& vsPosVertex, bool useExplicitLoc) {
 		static constexpr const char* vsInputsFmtYLoc  = "layout(location = {indx}) in {type} a{name};";
 		static constexpr const char* vsInputsFmtNLoc = "in {type} a{name};";
 		static constexpr const char* varyingsFmt     = "\t{type} v{name};";
@@ -313,7 +325,7 @@ private:
 		std::vector<std::string> vsAssignmentVec;
 
 		for (const AttributeDef& ad : T::attributeDefs) {
-			if (globalRendering->supportExplicitAttribLoc)
+			if (useExplicitLoc)
 				vsInputsVec.emplace_back(fmt::format(vsInputsFmtYLoc,
 					fmt::arg("indx", ad.index),
 					fmt::arg("type", TypeToString(ad)),
@@ -351,10 +363,72 @@ private:
 		varyings = joinFunc(varyingsVec);
 		vsAssignment = joinFunc(vsAssignmentVec);
 	}
+	/// Generate GLSL vertex and fragment source for this type.
+	/// Always uses explicit attrib locations when useExplicitLoc is true.
+	static void GenerateGLSLSource(std::string& outVert, std::string& outFrag, bool useExplicitLoc = true) {
+		std::string vsInputs, varyingsData, vsAssignment, vsPosVertex;
+		std::string vsHeader, fsHeader;
+
+		GetShaderHeaders(vsHeader, fsHeader, useExplicitLoc);
+		GetAttributesStrings(vsInputs, varyingsData, vsAssignment, vsPosVertex, useExplicitLoc);
+
+		static const char* fmtString = "%s Data {%s%s};";
+		const std::string varyingsVS = (varyingsData.empty()) ? "" : fmt::sprintf(fmtString, "out", nl, varyingsData);
+		const std::string varyingsFS = (varyingsData.empty()) ? "" : fmt::sprintf(fmtString, "in", nl, varyingsData);
+
+		outVert = fmt::sprintf(vsRenderBufferSrc, vsHeader, vsInputs, varyingsVS, vsAssignment, vsPosVertex);
+
+		const std::string fragOutput = GetFragOutput();
+		outFrag = fmt::sprintf(fsRenderBufferSrc, fsHeader, varyingsFS, fragOutput);
+	}
+
+public:
+	/// Get (or lazily create) a cached IRHIShader for non-GL backends.
+	/// Cross-compiles the same generated GLSL to the target backend (e.g. MSL via SPIRV-Cross).
+	/// Returns nullptr on GL backend or if compilation fails.
+	static RHI::IRHIShader* GetRHIShader() {
+		if (rhiShaderCache && rhiShaderCache->IsValid())
+			return rhiShaderCache.get();
+
+		auto* device = RHI::GetDevice();
+		if (!device || device->GetBackend() == RHI::Backend::OpenGL)
+			return nullptr;
+
+		std::string vertSrc, fragSrc;
+		GenerateGLSLSource(vertSrc, fragSrc, true);
+
+		rhiShaderCache = device->CreateShader(std::string("[RBShader_") + typeName + "]");
+		rhiShaderCache->AttachStageFromSource(RHI::ShaderStage::Vertex, vertSrc);
+		rhiShaderCache->AttachStageFromSource(RHI::ShaderStage::Fragment, fragSrc);
+
+		for (const AttributeDef& ad : T::attributeDefs) {
+			rhiShaderCache->BindAttribLocation(fmt::format("a{}", ad.name), ad.index);
+		}
+
+		rhiShaderCache->Link();
+
+		if (!rhiShaderCache->Validate()) {
+			LOG_L(L_ERROR, "[RenderBufferShader<%s>] Failed to create RHI shader", typeName);
+			rhiShaderCache.reset();
+			return nullptr;
+		}
+
+		// Set defaults for uniforms that have GLSL initializers
+		// (Metal cross-compilation may not preserve GLSL default values)
+		rhiShaderCache->Bind();
+		rhiShaderCache->SetUniform1i("tex", 0);
+		rhiShaderCache->SetUniform4f("ucolor", 1.0f, 1.0f, 1.0f, 1.0f);
+		rhiShaderCache->SetUniform4f("alphaCtrl", 0.0f, 0.0f, 0.0f, 1.0f);
+		rhiShaderCache->Unbind();
+
+		return rhiShaderCache.get();
+	}
+
 private:
 	static constexpr const char* poClass = "[RenderBufferShader]";
 	static constexpr const char* typeName = spring::TypeToCStr<T>();
 	static constexpr const char* nl = "\r\n";
+	inline static std::unique_ptr<RHI::IRHIShader> rhiShaderCache;
 };
 
 
@@ -730,6 +804,10 @@ public:
 
 	static Shader::IProgramObject& GetShader() { return shader.GetShader(); }
 
+	/// Get (or lazily create) an RHI shader for non-GL backends.
+	/// Returns nullptr on GL backend.
+	static RHI::IRHIShader* GetRHIShader() { return shader.GetRHIShader(); }
+
 	/// Set an explicit MVP transform for the next draw call, bypassing
 	/// the automatic FFP matrix sync. The value is consumed (reset) after
 	/// each DrawArrays/DrawElements call.
@@ -1049,7 +1127,15 @@ inline void TypedRenderBuffer<T>::DrawArrays(uint32_t mode, bool rewind)
 		} else {
 			mvp = RenderBuffer::globalProjection * RenderBuffer::globalModelView;
 		}
-		static_cast<Shader::IProgramObject*>(shaderHandler->GetCurrentlyBoundProgram())->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
+
+		// Use the cross-compiled RHI shader if available, else fall back to legacy
+		auto* rhiSh = GetRHIShader();
+		if (rhiSh) {
+			rhiSh->Bind();
+			rhiSh->SetUniformMatrix4fv("transformMatrix", false, mvp);
+		} else {
+			static_cast<Shader::IProgramObject*>(shaderHandler->GetCurrentlyBoundProgram())->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
+		}
 
 		ctx->BindVertexBuffer(rhiVbo.get(), 0);
 		ctx->SetVertexLayout(GetCachedVertexLayout());
@@ -1075,6 +1161,10 @@ inline void TypedRenderBuffer<T>::DrawArrays(uint32_t mode, bool rewind)
 		}
 
 		ctx->ClearVertexLayout();
+
+		if (rhiSh) {
+			rhiSh->Unbind();
+		}
 #endif
 	} else {
 		// GL draw path (existing)
@@ -1131,7 +1221,15 @@ inline void TypedRenderBuffer<T>::DrawElements(uint32_t mode, bool rewind)
 		} else {
 			mvp = RenderBuffer::globalProjection * RenderBuffer::globalModelView;
 		}
-		static_cast<Shader::IProgramObject*>(shaderHandler->GetCurrentlyBoundProgram())->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
+
+		// Use the cross-compiled RHI shader if available, else fall back to legacy
+		auto* rhiSh = GetRHIShader();
+		if (rhiSh) {
+			rhiSh->Bind();
+			rhiSh->SetUniformMatrix4fv("transformMatrix", false, mvp);
+		} else {
+			static_cast<Shader::IProgramObject*>(shaderHandler->GetCurrentlyBoundProgram())->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
+		}
 
 		ctx->BindVertexBuffer(rhiVbo.get(), 0);
 		ctx->BindIndexBuffer(rhiEbo.get(), RHI::IndexType::UInt32);
@@ -1142,6 +1240,10 @@ inline void TypedRenderBuffer<T>::DrawElements(uint32_t mode, bool rewind)
 			static_cast<uint32_t>(eboStartIndex), 0);
 
 		ctx->ClearVertexLayout();
+
+		if (rhiSh) {
+			rhiSh->Unbind();
+		}
 #endif
 	} else {
 		// GL draw path (existing)

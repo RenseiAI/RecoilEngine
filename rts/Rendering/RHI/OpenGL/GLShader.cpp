@@ -29,6 +29,12 @@ void GLShader::AttachStage(ShaderStage stage, const std::string& sourceFile, con
 	glslProgram->AttachShaderObject(shaderObj);
 }
 
+void GLShader::AttachStageFromSource(ShaderStage stage, const std::string& source, const std::string& defines) {
+	// GLSLShaderObject accepts inline source text as the "name" parameter
+	auto* shaderObj = new Shader::GLSLShaderObject(ToGLShaderType(stage), source, defines);
+	glslProgram->AttachShaderObject(shaderObj);
+}
+
 void GLShader::Link()     { glslProgram->Link(); }
 bool GLShader::Validate() { return glslProgram->Validate(); }
 void GLShader::Release()  { if (glslProgram) glslProgram->Release(); }

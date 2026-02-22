@@ -45,6 +45,7 @@ public:
 
 	// --- Program lifecycle ---
 	void AttachStage(ShaderStage stage, const std::string& sourceFile, const std::string& defines) override;
+	void AttachStageFromSource(ShaderStage stage, const std::string& source, const std::string& defines) override;
 	void Link() override;
 	bool Validate() override;
 	void Release() override;

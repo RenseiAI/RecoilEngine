@@ -29,6 +29,9 @@ public:
 
 	// --- Program lifecycle ---
 	virtual void AttachStage(ShaderStage stage, const std::string& sourceFile, const std::string& defines = "") = 0;
+	/// Attach a shader stage from inline GLSL source (not a file path).
+	/// On Metal, the source is cross-compiled to MSL via ShaderCompiler.
+	virtual void AttachStageFromSource(ShaderStage stage, const std::string& source, const std::string& defines = "") = 0;
 	virtual void Link() = 0;
 	virtual bool Validate() = 0;
 	virtual void Release() = 0;
