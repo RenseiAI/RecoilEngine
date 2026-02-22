@@ -11,7 +11,7 @@
  * - Migrated: DrawWorldStuff downstream: ProjectileDrawer::DrawProjectilesMiniMap,
  *   ShadowHandler::DrawFrustumDebug, DebugVisibilityDrawer::DrawMinimap, LineDrawer::DrawAll,
  *   GuiHandler::DrawMapStuff all accept optional transform for explicit MVP
- *   Remaining GL: FlushMatrices in DrawWorldStuff (for glExtra, commandDrawer auto-sync)
+ *   Remaining GL: ApplyConstraintsMatrix (LuaOpenGL public API, deferred)
  * - Migrated: SetClipPlanes glClipPlane → ctx->SetClipPlaneEquation with pre-computed eye-space planes
  * - Migrated: DrawBackground bgShader + DrawUnitIcons icons2DShader → explicit transformMatrix uniform
  *   (shaders no longer read gl_ModelViewProjectionMatrix). FlushMatrices removed from
@@ -1078,11 +1078,6 @@ void CMiniMap::DrawCircle(TypedRenderBuffer<VA_TYPE_C>& rb, const float3& pos, S
 
 void CMiniMap::FlushMatrices() const
 {
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(projStack.Top());
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(mvStack.Top());
-
 	// Update global matrix cache for RenderBuffer auto-sync (Metal compat)
 	RenderBuffer::globalProjection = projStack.Top();
 	RenderBuffer::globalModelView = mvStack.Top();

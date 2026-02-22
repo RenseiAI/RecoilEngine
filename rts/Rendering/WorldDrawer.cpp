@@ -307,14 +307,6 @@ void CWorldDrawer::GenerateIBLTextures() const
 
 void CWorldDrawer::ResetMVPMatrices() const
 {
-	// RHI_TODO: FFP matrix stack - no RHI equivalent
-	// Modern path uses uniform buffers; legacy GLSL path still needs FFP state
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-	gluOrtho2D(0, 1, 0, 1);
-	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
-
 	// Update global matrix cache for RenderBuffer auto-sync (Metal compat)
 	// gluOrtho2D(0,1,0,1) = OrthoProj(0,1,0,1,-1,1)
 	RenderBuffer::globalProjection = CMatrix44f::ClipOrthoProj(

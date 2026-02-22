@@ -390,22 +390,8 @@ uint32_t CGroundDecalHandler::GetNextId()
 void CGroundDecalHandler::BindVertexAtrribs()
 {
 	auto* device = RHI::GetDevice();
-	if (!device) {
-		// Headless fallback: use raw GL
-		for (int i = 0; i <= 8; ++i) {
-			glEnableVertexAttribArray(i);
-			glVertexAttribDivisor(i, 1);
-		}
-		for (const AttributeDef& ad : GroundDecal::attributeDefs) {
-			glEnableVertexAttribArray(ad.index);
-			glVertexAttribDivisor(ad.index, 1);
-			if (ad.type == GL_FLOAT || ad.normalize)
-				glVertexAttribPointer(ad.index, ad.count, ad.type, ad.normalize, ad.stride, ad.data);
-			else
-				glVertexAttribIPointer(ad.index, ad.count, ad.type, ad.stride, ad.data);
-		}
+	if (!device)
 		return;
-	}
 
 	auto* ctx = device->GetContext();
 	const RHI::VertexAttribute attrs[] = {
@@ -429,14 +415,9 @@ void CGroundDecalHandler::BindVertexAtrribs()
 void CGroundDecalHandler::UnbindVertexAtrribs()
 {
 	auto* device = RHI::GetDevice();
-	if (!device) {
-		// Headless fallback: use raw GL
-		for (const AttributeDef& ad : GroundDecal::attributeDefs) {
-			glDisableVertexAttribArray(ad.index);
-			glVertexAttribDivisor(ad.index, 0);
-		}
+	if (!device)
 		return;
-	}
+
 	device->GetContext()->ClearVertexLayout();
 }
 
@@ -889,8 +870,6 @@ void CGroundDecalHandler::Draw()
 			auto* ctx = device->GetContext();
 			if (rhiInstBuf) ctx->BindVertexBuffer(rhiInstBuf.get(), 0);
 			ctx->DrawInstanced(RHI::PrimitiveType::Triangles, 36, 0, decals.size());
-		} else {
-			glDrawArraysInstanced(GL_TRIANGLES, 0, 36, static_cast<GLsizei>(decals.size()));
 		}
 	}
 	vao.Unbind();

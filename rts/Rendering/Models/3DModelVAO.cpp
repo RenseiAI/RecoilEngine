@@ -61,26 +61,8 @@ void S3DModelVAO::EnableAttribs(bool inst) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	auto* device = RHI::GetDevice();
-	if (!device) {
-		// Headless: device not initialized, fall through to GL stubs
-		if (!inst) {
-			for (int i = 0; i <= 5; ++i) {
-				glEnableVertexAttribArray(i);
-				glVertexAttribDivisor(i, 0);
-			}
-			glVertexAttribPointer (0, 3, GL_FLOAT       , false, sizeof(SVertexData), (const void*)offsetof(SVertexData, pos         ));
-			glVertexAttribPointer (1, 3, GL_FLOAT       , false, sizeof(SVertexData), (const void*)offsetof(SVertexData, normal      ));
-			glVertexAttribPointer (2, 3, GL_FLOAT       , false, sizeof(SVertexData), (const void*)offsetof(SVertexData, sTangent    ));
-			glVertexAttribPointer (3, 3, GL_FLOAT       , false, sizeof(SVertexData), (const void*)offsetof(SVertexData, tTangent    ));
-			glVertexAttribPointer (4, 4, GL_FLOAT       , false, sizeof(SVertexData), (const void*)offsetof(SVertexData, texCoords[0]));
-			glVertexAttribIPointer(5, 3, GL_UNSIGNED_INT,        sizeof(SVertexData), (const void*)offsetof(SVertexData, boneIDsLow  ));
-		} else {
-			glEnableVertexAttribArray(6);
-			glVertexAttribDivisor(6, 1);
-			glVertexAttribIPointer(6, 4, GL_UNSIGNED_INT, sizeof(SInstanceData), (const void*)offsetof(SInstanceData, matOffset));
-		}
+	if (!device)
 		return;
-	}
 
 	auto* ctx = device->GetContext();
 
@@ -108,14 +90,9 @@ void S3DModelVAO::DisableAttribs() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	auto* device = RHI::GetDevice();
-	if (!device) {
-		// Headless: device not initialized, fall through to GL stubs
-		for (int i = 0; i <= 6; ++i) {
-			glDisableVertexAttribArray(i);
-			glVertexAttribDivisor(i, 0);
-		}
+	if (!device)
 		return;
-	}
+
 	device->GetContext()->ClearVertexLayout();
 }
 
@@ -491,8 +468,6 @@ void S3DModelVAO::Submit(GLenum mode, bool bindUnbind)
 				cmd.baseInstance
 			);
 		}
-	} else {
-		glMultiDrawElementsIndirect(mode, GL_UNSIGNED_INT, submitCmds.data(), submitCmds.size(), sizeof(SDrawElementsIndirectCommand));
 	}
 
 	if (bindUnbind)
@@ -562,10 +537,6 @@ bool S3DModelVAO::SubmitImmediatelyImpl(const TObj* obj, uint32_t indexStart, ui
 			static_cast<int32_t>(scmd.baseVertex),
 			scmd.baseInstance
 		);
-	} else {
-		// AMD Windows drivers don't support baseInstance via glDrawElementsIndirect
-		// or glDrawElementsInstancedBaseInstance — use glMultiDrawElementsIndirect
-		glMultiDrawElementsIndirect(mode, GL_UNSIGNED_INT, &scmd, 1u, sizeof(SDrawElementsIndirectCommand));
 	}
 
 	if (bindUnbind)
