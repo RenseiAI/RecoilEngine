@@ -31,8 +31,6 @@
 #include "RmlUi_Renderer_GL3_Recoil.h"
 #include <RmlUi/Core/Log.h>
 
-#include "Rendering/GL/VAO.h"
-#include "Rendering/GL/VBO.h"
 #include "Rendering/GL/myGL.h"
 
 #include "Rendering/Shaders/Shader.h"
@@ -44,6 +42,7 @@
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/RHI/RHITexture.h"
 #include "Rendering/RHI/RHIFramebuffer.h"
+#include "Rendering/RHI/RHIBuffer.h"
 #include "System/Log/ILog.h"
 #include "RmlUi/Core/Mesh.h"
 #include "RmlUi/Core/Colour.h"
@@ -374,20 +373,18 @@ UniformStr(Dimensions, "_dimensions");
 #undef UniformStr
 }
 
+// RHI vertex layout for Rml::Vertex (position float2, colour ubyte4norm, texcoord float2)
+static const RHI::VertexAttribute rmlVertexAttribs[] = {
+	{ 0, static_cast<uint32_t>(offsetof(Rml::Vertex, position)),  RHI::VertexFormat::Float2,     0 }, // inPosition
+	{ 1, static_cast<uint32_t>(offsetof(Rml::Vertex, colour)),    RHI::VertexFormat::UByte4Norm, 0 }, // inColor0
+	{ 2, static_cast<uint32_t>(offsetof(Rml::Vertex, tex_coord)), RHI::VertexFormat::Float2,     0 }, // inTexCoord0
+};
+static const RHI::VertexLayout rmlVertexLayout = {
+	rmlVertexAttribs, 3, sizeof(Rml::Vertex)
+};
+
 namespace Gfx
 {
-
-#define VA_ATTR_DEF(T, idx, count, type, member, normalized, name) AttributeDef(idx, count, type, sizeof(T), VA_TYPE_OFFSET(T, member), normalized, name)
-struct VA_TYPE_RML_VERTEX
-{
-	static std::array<AttributeDef, 3> attributeDefs;
-};
-std::array<AttributeDef, 3> VA_TYPE_RML_VERTEX::attributeDefs = {
-	VA_ATTR_DEF(Rml::Vertex, 0, 2, GL_FLOAT, position, false, "inPosition"),
-	VA_ATTR_DEF(Rml::Vertex, 1, 4, GL_UNSIGNED_BYTE, colour, true, "inColor0"),
-	VA_ATTR_DEF(Rml::Vertex, 2, 2, GL_FLOAT, tex_coord, false, "inTexCoord0")
-};
-#undef VA_ATTR_DEF
 
 struct VertShaderDefinition
 {
@@ -474,10 +471,9 @@ struct ProgramData
 
 struct CompiledGeometryData
 {
-	std::unique_ptr<VAO> vao;
-	std::unique_ptr<VBO> vbo;
-	std::unique_ptr<VBO> ibo;
-	GLsizei num_indices = 0;
+	std::unique_ptr<RHI::IRHIBuffer> vbo;
+	std::unique_ptr<RHI::IRHIBuffer> ibo;
+	uint32_t num_indices = 0;
 };
 
 struct FramebufferData
@@ -634,7 +630,9 @@ static bool CreateShaders(ProgramData& data)
 		auto program = sh->CreateProgramObject("[Rml RenderInterface]", def.name_str);
 		program->AttachShaderObject(sh->CreateShaderObject(vert_def.code_str, "", GL_VERTEX_SHADER));
 		program->AttachShaderObject(sh->CreateShaderObject(frag_def.code_str, "", GL_FRAGMENT_SHADER));
-		program->BindAttribLocations<VA_TYPE_RML_VERTEX>();
+		program->BindAttribLocation("inPosition", 0);
+		program->BindAttribLocation("inColor0", 1);
+		program->BindAttribLocation("inTexCoord0", 2);
 		program->Link();
 
 		if (!program->IsValid()) {
@@ -694,54 +692,15 @@ void RenderInterface_GL3_Recoil::BeginFrame()
 	RMLUI_ASSERT(viewport_width >= 1 && viewport_height >= 1);
 	auto tok = Gfx::CheckGLError("BeginFrame");
 
-	// Backup GL state.
-	glstate_backup.enable_cull_face = glIsEnabled(GL_CULL_FACE);
-	glstate_backup.enable_blend = glIsEnabled(GL_BLEND);
-	glstate_backup.enable_stencil_test = glIsEnabled(GL_STENCIL_TEST);
-	glstate_backup.enable_scissor_test = glIsEnabled(GL_SCISSOR_TEST);
-	glstate_backup.enable_depth_test = glIsEnabled(GL_DEPTH_TEST);
-
-	glGetIntegerv(GL_VIEWPORT, glstate_backup.viewport);
-	glGetIntegerv(GL_SCISSOR_BOX, glstate_backup.scissor);
-
-	glGetIntegerv(GL_ACTIVE_TEXTURE, &glstate_backup.active_texture);
-
-	glGetIntegerv(GL_STENCIL_CLEAR_VALUE, &glstate_backup.stencil_clear_value);
-	glGetFloatv(GL_COLOR_CLEAR_VALUE, glstate_backup.color_clear_value);
-	glGetBooleanv(GL_COLOR_WRITEMASK, glstate_backup.color_writemask);
-
-	glGetIntegerv(GL_BLEND_EQUATION_RGB, &glstate_backup.blend_equation_rgb);
-	glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &glstate_backup.blend_equation_alpha);
-	glGetIntegerv(GL_BLEND_SRC_RGB, &glstate_backup.blend_src_rgb);
-	glGetIntegerv(GL_BLEND_DST_RGB, &glstate_backup.blend_dst_rgb);
-	glGetIntegerv(GL_BLEND_SRC_ALPHA, &glstate_backup.blend_src_alpha);
-	glGetIntegerv(GL_BLEND_DST_ALPHA, &glstate_backup.blend_dst_alpha);
-
-	glGetIntegerv(GL_STENCIL_FUNC, &glstate_backup.stencil_front.func);
-	glGetIntegerv(GL_STENCIL_REF, &glstate_backup.stencil_front.ref);
-	glGetIntegerv(GL_STENCIL_VALUE_MASK, &glstate_backup.stencil_front.value_mask);
-	glGetIntegerv(GL_STENCIL_WRITEMASK, &glstate_backup.stencil_front.writemask);
-	glGetIntegerv(GL_STENCIL_FAIL, &glstate_backup.stencil_front.fail);
-	glGetIntegerv(GL_STENCIL_PASS_DEPTH_FAIL, &glstate_backup.stencil_front.pass_depth_fail);
-	glGetIntegerv(GL_STENCIL_PASS_DEPTH_PASS, &glstate_backup.stencil_front.pass_depth_pass);
-
-	glGetIntegerv(GL_STENCIL_BACK_FUNC, &glstate_backup.stencil_back.func);
-	glGetIntegerv(GL_STENCIL_BACK_REF, &glstate_backup.stencil_back.ref);
-	glGetIntegerv(GL_STENCIL_BACK_VALUE_MASK, &glstate_backup.stencil_back.value_mask);
-	glGetIntegerv(GL_STENCIL_BACK_WRITEMASK, &glstate_backup.stencil_back.writemask);
-	glGetIntegerv(GL_STENCIL_BACK_FAIL, &glstate_backup.stencil_back.fail);
-	glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_FAIL, &glstate_backup.stencil_back.pass_depth_fail);
-	glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_PASS, &glstate_backup.stencil_back.pass_depth_pass);
-
-	// Setup expected GL state via RHI context.
+	// Setup expected state via RHI context.
+	// The game rendering pipeline resets state at frame boundaries, so we don't
+	// need to query and restore GL state. We just set what RmlUi needs.
 	auto* rhiCtx = RHI::GetDevice()->GetContext();
 
 	rhiCtx->SetViewport({0, 0, static_cast<float>(viewport_width), static_cast<float>(viewport_height), 0.f, 1.f});
 
 	rhiCtx->ClearStencil(0);
 	rhiCtx->ClearColor(0, 0, 0, 0);
-
-	glActiveTexture(GL_TEXTURE0); // GL: no RHI global active-texture concept
 
 	rhiCtx->SetScissorTestEnabled(false);
 	rhiCtx->SetCullFaceEnabled(false);
@@ -752,7 +711,7 @@ void RenderInterface_GL3_Recoil::BeginFrame()
 	rhiCtx->SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::OneMinusSrcAlpha);
 
 	// We do blending in nonlinear sRGB space because that is the common practice and gives results that we are used to.
-	glDisable(GL_FRAMEBUFFER_SRGB); // GL: no RHI sRGB framebuffer toggle
+	rhiCtx->SetFramebufferSRGBEnabled(false);
 
 	rhiCtx->SetStencilTestEnabled(true);
 	rhiCtx->SetStencilFunc(RHI::CompareFunc::Always, 1, 0xFFFFFFFF);
@@ -760,6 +719,7 @@ void RenderInterface_GL3_Recoil::BeginFrame()
 	rhiCtx->SetStencilOp(RHI::StencilOp::Keep, RHI::StencilOp::Keep, RHI::StencilOp::Keep);
 
 	rhiCtx->SetDepthTestEnabled(false);
+	rhiCtx->SetColorMask(true, true, true, true);
 
 	SetTransform(nullptr);
 
@@ -789,10 +749,9 @@ void RenderInterface_GL3_Recoil::EndFrame()
 		true, false, false);
 
 	// Draw to backbuffer
-	glBindFramebuffer(GL_FRAMEBUFFER, 0); // GL: bind default framebuffer (no RHI equivalent)
+	rhiCtx->BindDefaultFramebuffer();
 
 	// Assuming we have an opaque background, we can just write to it with the premultiplied alpha blend mode and we'll get the correct result.
-	// Instead, if we had a transparent destination that didn't use premultiplied alpha, we would need to perform a manual un-premultiplication step.
 	Gfx::BindTexture(fb_postprocess);
 	UseProgram(ProgramId::Passthrough);
 	DrawFullscreenQuad();
@@ -801,61 +760,16 @@ void RenderInterface_GL3_Recoil::EndFrame()
 
 	UseProgram(ProgramId::None);
 
-	// Restore GL state.
-	if (glstate_backup.enable_cull_face)
-		glEnable(GL_CULL_FACE);
-	else
-		glDisable(GL_CULL_FACE);
-
-	if (glstate_backup.enable_blend)
-		glEnable(GL_BLEND);
-	else
-		glDisable(GL_BLEND);
-
-	if (glstate_backup.enable_stencil_test)
-		glEnable(GL_STENCIL_TEST);
-	else
-		glDisable(GL_STENCIL_TEST);
-
-	if (glstate_backup.enable_scissor_test)
-		glEnable(GL_SCISSOR_TEST);
-	else
-		glDisable(GL_SCISSOR_TEST);
-
-	if (glstate_backup.enable_depth_test)
-		glEnable(GL_DEPTH_TEST);
-	else
-		glDisable(GL_DEPTH_TEST);
-
-	glViewport(glstate_backup.viewport[0], glstate_backup.viewport[1], glstate_backup.viewport[2],
-			   glstate_backup.viewport[3]);
-	glScissor(glstate_backup.scissor[0], glstate_backup.scissor[1], glstate_backup.scissor[2],
-			  glstate_backup.scissor[3]);
-
-	glActiveTexture(glstate_backup.active_texture);
-
-	glClearStencil(glstate_backup.stencil_clear_value);
-	glClearColor(glstate_backup.color_clear_value[0], glstate_backup.color_clear_value[1],
-				 glstate_backup.color_clear_value[2],
-				 glstate_backup.color_clear_value[3]);
-	glColorMask(glstate_backup.color_writemask[0], glstate_backup.color_writemask[1], glstate_backup.color_writemask[2],
-				glstate_backup.color_writemask[3]);
-
-	glBlendEquationSeparate(glstate_backup.blend_equation_rgb, glstate_backup.blend_equation_alpha);
-	glBlendFuncSeparate(glstate_backup.blend_src_rgb, glstate_backup.blend_dst_rgb, glstate_backup.blend_src_alpha,
-						glstate_backup.blend_dst_alpha);
-
-	glStencilFuncSeparate(GL_FRONT, glstate_backup.stencil_front.func, glstate_backup.stencil_front.ref,
-						  glstate_backup.stencil_front.value_mask);
-	glStencilMaskSeparate(GL_FRONT, glstate_backup.stencil_front.writemask);
-	glStencilOpSeparate(GL_FRONT, glstate_backup.stencil_front.fail, glstate_backup.stencil_front.pass_depth_fail,
-						glstate_backup.stencil_front.pass_depth_pass);
-
-	glStencilFuncSeparate(GL_BACK, glstate_backup.stencil_back.func, glstate_backup.stencil_back.ref,
-						  glstate_backup.stencil_back.value_mask);
-	glStencilMaskSeparate(GL_BACK, glstate_backup.stencil_back.writemask);
-	glStencilOpSeparate(GL_BACK, glstate_backup.stencil_back.fail, glstate_backup.stencil_back.pass_depth_fail,
-						glstate_backup.stencil_back.pass_depth_pass);
+	// Restore state to engine defaults via RHI.
+	// The game rendering pipeline resets state at the start of each frame, so
+	// we only need to undo the most critical changes RmlUi made.
+	rhiCtx->SetScissorTestEnabled(false);
+	rhiCtx->SetStencilTestEnabled(false);
+	rhiCtx->SetDepthTestEnabled(true);
+	rhiCtx->SetCullFaceEnabled(true);
+	rhiCtx->SetBlendEnabled(false);
+	rhiCtx->SetColorMask(true, true, true, true);
+	rhiCtx->SetFramebufferSRGBEnabled(true);
 }
 
 void RenderInterface_GL3_Recoil::Clear()
@@ -868,32 +782,15 @@ void RenderInterface_GL3_Recoil::Clear()
 Rml::CompiledGeometryHandle
 RenderInterface_GL3_Recoil::CompileGeometry(Rml::Span<const Rml::Vertex> vertices, Rml::Span<const int> indices)
 {
-	auto vao = std::make_unique<VAO>();
-	auto vbo = std::make_unique<VBO>(GL_ARRAY_BUFFER);
-	auto ibo = std::make_unique<VBO>(GL_ELEMENT_ARRAY_BUFFER);
+	auto* device = RHI::GetDevice();
 
-	vao->Generate();
-	vbo->Generate();
-	ibo->Generate();
-
-	vao->Bind();
-
-	vbo->Bind();
-	vbo->New(vertices.size() * sizeof(Rml::Vertex), GL_STATIC_DRAW, vertices.data());
-
-	for (const AttributeDef& def: Gfx::VA_TYPE_RML_VERTEX::attributeDefs) {
-		glEnableVertexAttribArray(def.index);
-		glVertexAttribPointer(def.index, def.count, def.type, def.normalize, def.stride, def.data);
-	}
-
-	ibo->Bind();
-	ibo->New(indices.size() * sizeof(int), GL_STATIC_DRAW, indices.data());
-
-	glBindVertexArray(0);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	auto vbo = device->CreateBuffer(RHI::BufferType::Vertex, RHI::BufferUsage::Static,
+		vertices.size() * sizeof(Rml::Vertex), vertices.data());
+	auto ibo = device->CreateBuffer(RHI::BufferType::Index, RHI::BufferUsage::Static,
+		indices.size() * sizeof(int), indices.data());
 
 	return (Rml::CompiledGeometryHandle) new Gfx::CompiledGeometryData{
-		std::move(vao), std::move(vbo), std::move(ibo), (GLsizei) indices.size()
+		std::move(vbo), std::move(ibo), static_cast<uint32_t>(indices.size())
 	};
 }
 
@@ -903,6 +800,7 @@ void RenderInterface_GL3_Recoil::RenderGeometry(Rml::CompiledGeometryHandle hand
 	auto tok = Gfx::CheckGLError("RenderCompiledGeometry");
 
 	auto* geometry = (Gfx::CompiledGeometryData*) handle;
+	auto* rhiCtx = RHI::GetDevice()->GetContext();
 
 	if (texture == TexturePostprocess) {
 		// Do nothing.
@@ -913,29 +811,23 @@ void RenderInterface_GL3_Recoil::RenderGeometry(Rml::CompiledGeometryHandle hand
 			reinterpret_cast<RHI::IRHITexture*>(texture)->Bind(0);
 	} else {
 		UseProgram(ProgramId::Color);
-		glBindTexture(GL_TEXTURE_2D, 0); // GL: unbind texture for color-only draw
 		SubmitTransformUniform(translation);
 	}
 
-	geometry->vao->Bind();
-	glDrawElements(GL_TRIANGLES, geometry->num_indices, GL_UNSIGNED_INT, nullptr);
-	geometry->vao->Unbind();
+	rhiCtx->BindVertexBuffer(geometry->vbo.get());
+	rhiCtx->SetVertexLayout(rmlVertexLayout);
+	rhiCtx->BindIndexBuffer(geometry->ibo.get(), RHI::IndexType::UInt32);
+	rhiCtx->DrawIndexed(RHI::PrimitiveType::Triangles, geometry->num_indices);
+	rhiCtx->ClearVertexLayout();
 
 	if (texture != TexturePostprocess) {
 		UseProgram(ProgramId::None);
-		glBindTexture(GL_TEXTURE_2D, 0); // GL: unbind texture after draw
 	}
 }
 
 void RenderInterface_GL3_Recoil::ReleaseGeometry(Rml::CompiledGeometryHandle handle)
 {
-	auto geometry = (Gfx::CompiledGeometryData*) handle;
-
-	geometry->vao->Delete();
-	geometry->vbo->Release();
-	geometry->ibo->Release();
-
-	delete geometry;
+	delete (Gfx::CompiledGeometryData*) handle;
 }
 
 /// Flip vertical axis of the rectangle, and move its origin to the vertically opposite side of the viewport.
@@ -1481,6 +1373,8 @@ void RenderInterface_GL3_Recoil::RenderShader(Rml::CompiledShaderHandle shader_h
 	const CompiledShaderType type = shader.type;
 	const auto* geometry = (Gfx::CompiledGeometryData*) geometry_handle;
 
+	auto* rhiCtx = RHI::GetDevice()->GetContext();
+
 	switch (type) {
 		case CompiledShaderType::Gradient: {
 			RMLUI_ASSERT(shader.stop_positions.size() == shader.stop_colors.size())
@@ -1495,9 +1389,11 @@ void RenderInterface_GL3_Recoil::RenderShader(Rml::CompiledShaderHandle shader_h
 			gradient_prog->SetUniform4v(Uniform::StopColors, num_stops, (float*) &shader.stop_colors[0]);
 
 			SubmitTransformUniform(translation);
-			geometry->vao->Bind();
-			glDrawElements(GL_TRIANGLES, geometry->num_indices, GL_UNSIGNED_INT, nullptr);
-			geometry->vao->Unbind();
+			rhiCtx->BindVertexBuffer(geometry->vbo.get());
+			rhiCtx->SetVertexLayout(rmlVertexLayout);
+			rhiCtx->BindIndexBuffer(geometry->ibo.get(), RHI::IndexType::UInt32);
+			rhiCtx->DrawIndexed(RHI::PrimitiveType::Triangles, geometry->num_indices);
+			rhiCtx->ClearVertexLayout();
 		}
 			break;
 		case CompiledShaderType::Creation: {
@@ -1508,9 +1404,11 @@ void RenderInterface_GL3_Recoil::RenderShader(Rml::CompiledShaderHandle shader_h
 			creation_prog->SetUniform(Uniform::Dimensions, shader.dimensions.x, shader.dimensions.y);
 
 			SubmitTransformUniform(translation);
-			geometry->vao->Bind();
-			glDrawElements(GL_TRIANGLES, geometry->num_indices, GL_UNSIGNED_INT, nullptr);
-			geometry->vao->Unbind();
+			rhiCtx->BindVertexBuffer(geometry->vbo.get());
+			rhiCtx->SetVertexLayout(rmlVertexLayout);
+			rhiCtx->BindIndexBuffer(geometry->ibo.get(), RHI::IndexType::UInt32);
+			rhiCtx->DrawIndexed(RHI::PrimitiveType::Triangles, geometry->num_indices);
+			rhiCtx->ClearVertexLayout();
 		}
 			break;
 		case CompiledShaderType::Invalid: {
@@ -1551,8 +1449,8 @@ void RenderInterface_GL3_Recoil::RenderFilters(Rml::Span<const Rml::CompiledFilt
 		switch (type) {
 			case FilterType::Passthrough: {
 				UseProgram(ProgramId::Passthrough);
-				glBlendFunc(GL_CONSTANT_COLOR, GL_ZERO); // GL: no RHI dynamic constant color blend
-				glBlendColor(0.0f, 0.0f, 0.0f, filter.blend_factor); // GL: no RHI equivalent
+				rhiCtx->SetBlendFunc(RHI::BlendFactor::ConstantColor, RHI::BlendFactor::Zero);
+				rhiCtx->SetBlendColor(0.0f, 0.0f, 0.0f, filter.blend_factor);
 
 				const Gfx::FramebufferData& source = render_layers.GetPostprocessPrimary();
 				const Gfx::FramebufferData& destination = render_layers.GetPostprocessSecondary();
@@ -1717,7 +1615,8 @@ Rml::TextureHandle RenderInterface_GL3_Recoil::SaveLayerAsTexture()
 	if (!render_texture)
 		return {};
 
-	auto* rhiCtx = RHI::GetDevice()->GetContext();
+	auto* device = RHI::GetDevice();
+	auto* rhiCtx = device->GetContext();
 
 	BlitLayerToPostprocessPrimary(render_layers.GetTopLayerHandle());
 
@@ -1735,11 +1634,17 @@ Rml::TextureHandle RenderInterface_GL3_Recoil::SaveLayerAsTexture()
 		bounds.Width(), 0,                              // dst1
 		true, false, false);
 
-	reinterpret_cast<RHI::IRHITexture*>(render_texture)->Bind(0);
+	// Blit from the destination postprocess FBO into a temporary FBO with the
+	// render_texture attached, replacing the glCopyTexSubImage2D approach.
+	auto* rhiTex = reinterpret_cast<RHI::IRHITexture*>(render_texture);
+	auto tempFbo = device->CreateFramebuffer();
+	tempFbo->AttachColor(rhiTex, 0);
 
-	const Gfx::FramebufferData& texture_source = destination;
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, texture_source.fbo->GetNativeHandle()); // GL: glCopyTexSubImage2D needs READ_FRAMEBUFFER bound
-	glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, bounds.Width(), bounds.Height()); // GL: no RHI equivalent
+	rhiCtx->BlitFramebuffer(
+		destination.fbo.get(), tempFbo.get(),
+		0, 0, bounds.Width(), bounds.Height(),
+		0, 0, bounds.Width(), bounds.Height(),
+		true, false, false);
 
 	SetScissor(bounds);
 	render_layers.GetTopLayer().fbo->Bind();
@@ -1785,11 +1690,6 @@ Shader::IProgramObject* RenderInterface_GL3_Recoil::UseProgram(ProgramId program
 	}
 
 	return program_data->programs[active_program_id];
-}
-
-int RenderInterface_GL3_Recoil::GetUniformLocation(const char* name) const
-{
-	return glGetUniformLocation(program_data->programs[active_program_id]->GetObjID(), name);
 }
 
 void RenderInterface_GL3_Recoil::SubmitTransformUniform(Rml::Vector2f translation)

@@ -99,6 +99,7 @@ public:
 	void SetBlendFuncSeparate(BlendFactor srcColor, BlendFactor dstColor, BlendFactor srcAlpha, BlendFactor dstAlpha) override {}
 	void SetBlendEquation(BlendOp op) override {}            // Metal: pipeline state
 	void SetBlendEquationSeparate(BlendOp colorOp, BlendOp alphaOp) override {} // Metal: pipeline state
+	void SetBlendColor(float r, float g, float b, float a) override {} // Metal: set via render encoder
 	void SetCullFaceEnabled(bool enabled) override {}
 	void SetCullFace(CullMode mode) override {}
 	void SetColorMask(bool r, bool g, bool b, bool a) override {}
@@ -115,6 +116,8 @@ public:
 	void SetLogicOpEnabled(bool enabled) override {}  // Metal: no logic ops, use shader blend
 	void SetLogicOp(LogicOp op) override {}            // Metal: no logic ops
 	void SetProgramPointSizeEnabled(bool enabled) override {}  // Metal: always from shader
+	void SetFramebufferSRGBEnabled(bool enabled) override {}   // Metal: no sRGB toggle, handled by pixel format
+	void BindDefaultFramebuffer() override {}                  // Metal: bind drawable (handled at frame level)
 
 	// --- Clear ---
 	void ClearColor(float r, float g, float b, float a) override;

@@ -54,6 +54,7 @@ public:
 	void SetBlendFuncSeparate(BlendFactor srcColor, BlendFactor dstColor, BlendFactor srcAlpha, BlendFactor dstAlpha) override;
 	void SetBlendEquation(BlendOp op) override;
 	void SetBlendEquationSeparate(BlendOp colorOp, BlendOp alphaOp) override;
+	void SetBlendColor(float r, float g, float b, float a) override;
 	void SetCullFaceEnabled(bool enabled) override;
 	void SetCullFace(CullMode mode) override;
 	void SetColorMask(bool r, bool g, bool b, bool a) override;
@@ -70,6 +71,8 @@ public:
 	void SetLogicOpEnabled(bool enabled) override;
 	void SetLogicOp(LogicOp op) override;
 	void SetProgramPointSizeEnabled(bool enabled) override;
+	void SetFramebufferSRGBEnabled(bool enabled) override;
+	void BindDefaultFramebuffer() override;
 
 	void ClearColor(float r, float g, float b, float a) override;
 	void ClearDepth(float depth) override;

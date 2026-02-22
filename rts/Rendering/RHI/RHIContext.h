@@ -107,6 +107,7 @@ public:
 	virtual void SetBlendFuncSeparate(BlendFactor srcColor, BlendFactor dstColor, BlendFactor srcAlpha, BlendFactor dstAlpha) = 0;
 	virtual void SetBlendEquation(BlendOp op) = 0;
 	virtual void SetBlendEquationSeparate(BlendOp colorOp, BlendOp alphaOp) = 0;
+	virtual void SetBlendColor(float r, float g, float b, float a) = 0;
 	virtual void SetCullFaceEnabled(bool enabled) = 0;
 	virtual void SetCullFace(CullMode mode) = 0;
 	virtual void SetColorMask(bool r, bool g, bool b, bool a) = 0;
@@ -123,6 +124,11 @@ public:
 	virtual void SetLogicOpEnabled(bool enabled) = 0;
 	virtual void SetLogicOp(LogicOp op) = 0;
 	virtual void SetProgramPointSizeEnabled(bool enabled) = 0;
+	virtual void SetFramebufferSRGBEnabled(bool enabled) = 0;
+
+	// --- Framebuffer binding ---
+	/// Bind the default framebuffer (backbuffer). GL: glBindFramebuffer(GL_FRAMEBUFFER, 0). Metal: bind drawable.
+	virtual void BindDefaultFramebuffer() = 0;
 
 	// --- Clear ---
 	virtual void ClearColor(float r, float g, float b, float a) = 0;

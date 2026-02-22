@@ -114,7 +114,6 @@ public:
 
 private:
 	Shader::IProgramObject* UseProgram(ProgramId program_id);
-	int GetUniformLocation(const char* name) const;
 	void SubmitTransformUniform(Rml::Vector2f translation);
 
 	void BlitLayerToPostprocessPrimary(Rml::LayerHandle layer_handle);
@@ -193,43 +192,6 @@ private:
 	};
 
 	RenderLayerStack render_layers;
-
-	struct GLStateBackup {
-		bool enable_cull_face;
-		bool enable_blend;
-		bool enable_stencil_test;
-		bool enable_scissor_test;
-		bool enable_depth_test;
-
-		int viewport[4];
-		int scissor[4];
-
-		int active_texture;
-
-		int stencil_clear_value;
-		float color_clear_value[4];
-		unsigned char color_writemask[4];
-
-		int blend_equation_rgb;
-		int blend_equation_alpha;
-		int blend_src_rgb;
-		int blend_dst_rgb;
-		int blend_src_alpha;
-		int blend_dst_alpha;
-
-		struct Stencil {
-			int func;
-			int ref;
-			int value_mask;
-			int writemask;
-			int fail;
-			int pass_depth_fail;
-			int pass_depth_pass;
-		};
-		Stencil stencil_front;
-		Stencil stencil_back;
-	};
-	GLStateBackup glstate_backup = {};
 };
 
 #endif

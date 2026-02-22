@@ -465,6 +465,10 @@ void GLContext::SetBlendEquationSeparate(BlendOp colorOp, BlendOp alphaOp) {
 	glBlendEquationSeparate(ToGLBlendOp(colorOp), ToGLBlendOp(alphaOp));
 }
 
+void GLContext::SetBlendColor(float r, float g, float b, float a) {
+	glBlendColor(r, g, b, a);
+}
+
 void GLContext::SetCullFaceEnabled(bool enabled) {
 	if (enabled)
 		glEnable(GL_CULL_FACE);
@@ -568,6 +572,17 @@ void GLContext::SetProgramPointSizeEnabled(bool enabled) {
 		glEnable(GL_PROGRAM_POINT_SIZE);
 	else
 		glDisable(GL_PROGRAM_POINT_SIZE);
+}
+
+void GLContext::SetFramebufferSRGBEnabled(bool enabled) {
+	if (enabled)
+		glEnable(GL_FRAMEBUFFER_SRGB);
+	else
+		glDisable(GL_FRAMEBUFFER_SRGB);
+}
+
+void GLContext::BindDefaultFramebuffer() {
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 // --- Sync ---
