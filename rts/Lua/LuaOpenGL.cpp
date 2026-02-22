@@ -4139,10 +4139,12 @@ int LuaOpenGL::Texture(lua_State* L)
 	}
 
 	if (lua_isboolean(L, nextArg)) {
-		if (lua_toboolean(L, nextArg)) {
-			glEnable(GL_TEXTURE_2D);
-		} else {
-			glDisable(GL_TEXTURE_2D);
+		if (!RHI::GetDevice()) {
+			if (lua_toboolean(L, nextArg)) {
+				glEnable(GL_TEXTURE_2D);
+			} else {
+				glDisable(GL_TEXTURE_2D);
+			}
 		}
 
 		if (texUnit != GL_TEXTURE0)
@@ -4598,6 +4600,9 @@ int LuaOpenGL::TexEnv(lua_State* L)
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
 
+	if (RHI::GetDevice())
+		return 0; // FFP texture environment — no-op on RHI path
+
 	const GLenum target = (GLenum)luaL_checknumber(L, 1);
 	const GLenum pname  = (GLenum)luaL_checknumber(L, 2);
 
@@ -4644,6 +4649,9 @@ int LuaOpenGL::MultiTexEnv(lua_State* L)
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
 
+	if (RHI::GetDevice())
+		return 0; // FFP texture environment — no-op on RHI path
+
 	const int texNum    =    luaL_checkint(L, 1);
 	const GLenum target = (GLenum)luaL_checknumber(L, 2);
 	const GLenum pname  = (GLenum)luaL_checknumber(L, 3);
@@ -4679,6 +4687,9 @@ int LuaOpenGL::MultiTexEnv(lua_State* L)
 
 static void SetTexGenState(GLenum target, bool state)
 {
+	if (RHI::GetDevice())
+		return; // FFP texture generation — no-op on RHI path
+
 	if ((target >= GL_S) && (target <= GL_Q)) {
 		const GLenum pname = GL_TEXTURE_GEN_S + (target - GL_S);
 		if (state) {
@@ -4713,6 +4724,9 @@ int LuaOpenGL::TexGen(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+
+	if (RHI::GetDevice())
+		return 0; // FFP texture generation — no-op on RHI path
 
 	const GLenum target = (GLenum)luaL_checknumber(L, 1);
 
@@ -4774,6 +4788,9 @@ int LuaOpenGL::MultiTexGen(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+
+	if (RHI::GetDevice())
+		return 0; // FFP texture generation — no-op on RHI path
 
 	const int texNum = luaL_checkint(L, 1);
 	if ((texNum < 0) || (texNum >= CGlobalRendering::MAX_TEXTURE_UNITS)) {
