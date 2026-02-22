@@ -107,9 +107,6 @@ protected:
 
 	std::unique_ptr<RHI::IRHIBuffer> grassBladeVB;  // RHI vertex buffer
 	std::unique_ptr<RHI::IRHIBuffer> grassBladeIB;  // RHI index buffer
-	unsigned int grassBladeVAO = 0;  // headless fallback
-	unsigned int grassBladeVBO = 0;  // headless fallback
-	unsigned int grassBladeEBO = 0;  // headless fallback
 	unsigned int grassBladeIndexCount = 0;
 
 	std::unique_ptr<RHI::IRHITexture> grassBladeTex;
