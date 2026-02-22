@@ -617,51 +617,54 @@ void LuaOpenGL::ResetGLState()
 	ctx->SetLineWidth(1.0f);
 	ctx->SetPointSize(1.0f);
 
-	// Deprecated FFP state — keep as GL
-	glDisable(GL_ALPHA_TEST);
-	glAlphaFunc(GL_GREATER, 0.5f);
-	glDisable(GL_LIGHTING);
-	glShadeModel(GL_SMOOTH);
+	// Deprecated FFP state — only needed when no RHI device (raw GL path).
+	// These are no-ops when a modern shader pipeline is active.
+	if (!RHI::GetDevice()) {
+		glDisable(GL_ALPHA_TEST);
+		glAlphaFunc(GL_GREATER, 0.5f);
+		glDisable(GL_LIGHTING);
+		glShadeModel(GL_SMOOTH);
 
-	if (GLAD_GL_EXT_stencil_two_side)
-		glDisable(GL_STENCIL_TEST_TWO_SIDE_EXT);
+		if (GLAD_GL_EXT_stencil_two_side)
+			glDisable(GL_STENCIL_TEST_TWO_SIDE_EXT);
 
-	// FFP texture state
-	glDisable(GL_TEXTURE_2D);
-	glDisable(GL_TEXTURE_GEN_S);
-	glDisable(GL_TEXTURE_GEN_T);
-	glDisable(GL_TEXTURE_GEN_R);
-	glDisable(GL_TEXTURE_GEN_Q);
-	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+		// FFP texture state
+		glDisable(GL_TEXTURE_2D);
+		glDisable(GL_TEXTURE_GEN_S);
+		glDisable(GL_TEXTURE_GEN_T);
+		glDisable(GL_TEXTURE_GEN_R);
+		glDisable(GL_TEXTURE_GEN_Q);
+		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 
-	// FFP line stipple
-	glDisable(GL_LINE_STIPPLE);
+		// FFP line stipple
+		glDisable(GL_LINE_STIPPLE);
 
-	// Clip planes (legacy numbered planes)
-	glDisable(GL_CLIP_PLANE4);
-	glDisable(GL_CLIP_PLANE5);
+		// Clip planes (legacy numbered planes)
+		glDisable(GL_CLIP_PLANE4);
+		glDisable(GL_CLIP_PLANE5);
 
-	// FFP point sprite parameters
-	glDisable(GL_POINT_SPRITE);
-	GLfloat atten[3] = { 1.0f, 0.0f, 0.0f };
-	glPointParameterfv(GL_POINT_DISTANCE_ATTENUATION, atten);
-	glPointParameterf(GL_POINT_SIZE_MIN, 0.0f);
-	glPointParameterf(GL_POINT_SIZE_MAX, 1.0e9f); // FIXME?
-	glPointParameterf(GL_POINT_FADE_THRESHOLD_SIZE, 1.0f);
+		// FFP point sprite parameters
+		glDisable(GL_POINT_SPRITE);
+		GLfloat atten[3] = { 1.0f, 0.0f, 0.0f };
+		glPointParameterfv(GL_POINT_DISTANCE_ATTENUATION, atten);
+		glPointParameterf(GL_POINT_SIZE_MIN, 0.0f);
+		glPointParameterf(GL_POINT_SIZE_MAX, 1.0e9f); // FIXME?
+		glPointParameterf(GL_POINT_FADE_THRESHOLD_SIZE, 1.0f);
 
-	// FFP material/color
-	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-	const float ambient[4] = { 0.2f, 0.2f, 0.2f, 1.0f };
-	const float diffuse[4] = { 0.8f, 0.8f, 0.8f, 1.0f };
-	const float black[4]   = { 0.0f, 0.0f, 0.0f, 1.0f };
-	glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, ambient);
-	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, diffuse);
-	glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, black);
-	glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, black);
-	glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 0.0f);
+		// FFP material/color
+		glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+		const float ambient[4] = { 0.2f, 0.2f, 0.2f, 1.0f };
+		const float diffuse[4] = { 0.8f, 0.8f, 0.8f, 1.0f };
+		const float black[4]   = { 0.0f, 0.0f, 0.0f, 1.0f };
+		glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, ambient);
+		glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, diffuse);
+		glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, black);
+		glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, black);
+		glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 0.0f);
 
-	if (IS_GL_FUNCTION_AVAILABLE(glUseProgram)) {
-		glUseProgram(0);
+		if (IS_GL_FUNCTION_AVAILABLE(glUseProgram)) {
+			glUseProgram(0);
+		}
 	}
 }
 
@@ -693,7 +696,7 @@ void LuaOpenGL::EnableCommon(DrawMode mode)
 	}
 	// FIXME  --  not needed by shadow or minimap   (use a WorldCommon ? )
 	//glEnable(GL_NORMALIZE);
-	glLightModeli(GL_LIGHT_MODEL_COLOR_CONTROL, GL_SEPARATE_SPECULAR_COLOR);
+	if (!RHI::GetDevice()) { glLightModeli(GL_LIGHT_MODEL_COLOR_CONTROL, GL_SEPARATE_SPECULAR_COLOR); }
 }
 
 
@@ -701,7 +704,7 @@ void LuaOpenGL::DisableCommon(DrawMode mode)
 {
 	assert(drawMode == mode);
 	// FFP lighting — keep as GL
-	glLightModeli(GL_LIGHT_MODEL_COLOR_CONTROL, GL_SINGLE_COLOR);
+	if (!RHI::GetDevice()) { glLightModeli(GL_LIGHT_MODEL_COLOR_CONTROL, GL_SINGLE_COLOR); }
 	drawMode = DRAW_NONE;
 	if (safeMode) {
 		glPopAttrib();
@@ -813,10 +816,9 @@ void LuaOpenGL::EnableDrawWorldShadow()
 {
 	EnableCommon(DRAW_WORLD_SHADOW);
 	resetMatrixFunc = ResetWorldShadowMatrices;
-	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-	glPolygonOffset(1.0f, 1.0f);
-
-	glEnable(GL_POLYGON_OFFSET_FILL);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetColorMask(false, false, false, false);
+	ctx->SetPolygonOffset(true, 1.0f, 1.0f);
 
 	// FIXME: map/proj/tree passes
 	Shader::IProgramObject* po = shadowHandler.GetShadowGenProg(CShadowHandler::SHADOWGEN_PROGRAM_MODEL);
@@ -831,7 +833,7 @@ void LuaOpenGL::EnableDrawWorldShadow()
 
 void LuaOpenGL::DisableDrawWorldShadow()
 {
-	glDisable(GL_POLYGON_OFFSET_FILL);
+	RHI::GetDevice()->GetContext()->SetPolygonOffset(false);
 
 	Shader::IProgramObject* po = shadowHandler.GetShadowGenProg(CShadowHandler::SHADOWGEN_PROGRAM_MODEL);
 	po->Disable();
@@ -845,9 +847,9 @@ void LuaOpenGL::ResetDrawWorldShadow()
 	if (safeMode) {
 		ResetWorldShadowMatrices();
 		ResetGLState();
-		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-		glPolygonOffset(1.0f, 1.0f);
-		glEnable(GL_POLYGON_OFFSET_FILL);
+		auto* ctx = RHI::GetDevice()->GetContext();
+		ctx->SetColorMask(false, false, false, false);
+		ctx->SetPolygonOffset(true, 1.0f, 1.0f);
 	}
 }
 
@@ -1057,15 +1059,19 @@ void LuaOpenGL::SetupWorldLighting()
 	if (sky == nullptr)
 		return;
 
-	glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_TRUE);
-	glLightfv(GL_LIGHT1, GL_POSITION, sky->GetLight()->GetLightDir());
-	glEnable(GL_LIGHT1);
+	if (!RHI::GetDevice()) {
+		glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_TRUE);
+		glLightfv(GL_LIGHT1, GL_POSITION, sky->GetLight()->GetLightDir());
+		glEnable(GL_LIGHT1);
+	}
 }
 
 void LuaOpenGL::RevertWorldLighting()
 {
-	glDisable(GL_LIGHT1);
-	glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_FALSE);
+	if (!RHI::GetDevice()) {
+		glDisable(GL_LIGHT1);
+		glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_FALSE);
+	}
 }
 
 
@@ -1094,49 +1100,53 @@ void LuaOpenGL::SetupScreenLighting()
 	if (sky == nullptr)
 		return;
 
-	// back light
-	const float backLightPos[4]  = { 1.0f, 2.0f, 2.0f, 0.0f };
-	const float backLightAmbt[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-	const float backLightDiff[4] = { 0.5f, 0.5f, 0.5f, 1.0f };
-	const float backLightSpec[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	if (!RHI::GetDevice()) {
+		// back light
+		const float backLightPos[4]  = { 1.0f, 2.0f, 2.0f, 0.0f };
+		const float backLightAmbt[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+		const float backLightDiff[4] = { 0.5f, 0.5f, 0.5f, 1.0f };
+		const float backLightSpec[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 
-	glLightfv(GL_LIGHT0, GL_POSITION, backLightPos);
-	glLightfv(GL_LIGHT0, GL_AMBIENT,  backLightAmbt);
-	glLightfv(GL_LIGHT0, GL_DIFFUSE,  backLightDiff);
-	glLightfv(GL_LIGHT0, GL_SPECULAR, backLightSpec);
+		glLightfv(GL_LIGHT0, GL_POSITION, backLightPos);
+		glLightfv(GL_LIGHT0, GL_AMBIENT,  backLightAmbt);
+		glLightfv(GL_LIGHT0, GL_DIFFUSE,  backLightDiff);
+		glLightfv(GL_LIGHT0, GL_SPECULAR, backLightSpec);
 
-	// sun light -- needs the camera transformation
-	// FIXME: nobody needs FFP crap anymore, but EventHandler forces it
-	glPushMatrix();
-	glLoadMatrixf(camera->GetViewMatrix());
-	glLightfv(GL_LIGHT1, GL_POSITION, sky->GetLight()->GetLightDir());
+		// sun light -- needs the camera transformation
+		// FIXME: nobody needs FFP crap anymore, but EventHandler forces it
+		glPushMatrix();
+		glLoadMatrixf(camera->GetViewMatrix());
+		glLightfv(GL_LIGHT1, GL_POSITION, sky->GetLight()->GetLightDir());
 
-	const float sunFactor = 1.0f;
-	const float sf = sunFactor;
-	const float* la = sunLighting->modelAmbientColor;
-	const float* ld = sunLighting->modelDiffuseColor;
+		const float sunFactor = 1.0f;
+		const float sf = sunFactor;
+		const float* la = sunLighting->modelAmbientColor;
+		const float* ld = sunLighting->modelDiffuseColor;
 
-	const float sunLightAmbt[4] = { la[0]*sf, la[1]*sf, la[2]*sf, la[3]*sf };
-	const float sunLightDiff[4] = { ld[0]*sf, ld[1]*sf, ld[2]*sf, ld[3]*sf };
-	const float sunLightSpec[4] = { la[0]*sf, la[1]*sf, la[2]*sf, la[3]*sf };
+		const float sunLightAmbt[4] = { la[0]*sf, la[1]*sf, la[2]*sf, la[3]*sf };
+		const float sunLightDiff[4] = { ld[0]*sf, ld[1]*sf, ld[2]*sf, ld[3]*sf };
+		const float sunLightSpec[4] = { la[0]*sf, la[1]*sf, la[2]*sf, la[3]*sf };
 
-	glLightfv(GL_LIGHT1, GL_AMBIENT,  sunLightAmbt);
-	glLightfv(GL_LIGHT1, GL_DIFFUSE,  sunLightDiff);
-	glLightfv(GL_LIGHT1, GL_SPECULAR, sunLightSpec);
-	glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, 0);
-	glPopMatrix();
+		glLightfv(GL_LIGHT1, GL_AMBIENT,  sunLightAmbt);
+		glLightfv(GL_LIGHT1, GL_DIFFUSE,  sunLightDiff);
+		glLightfv(GL_LIGHT1, GL_SPECULAR, sunLightSpec);
+		glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, 0);
+		glPopMatrix();
 
-	// Enable the GL lights
-	glEnable(GL_LIGHT0);
-	glEnable(GL_LIGHT1);
-	glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_TRUE);
+		// Enable the GL lights
+		glEnable(GL_LIGHT0);
+		glEnable(GL_LIGHT1);
+		glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_TRUE);
+	}
 }
 
 void LuaOpenGL::RevertScreenLighting()
 {
-	glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_FALSE);
-	glDisable(GL_LIGHT1);
-	glDisable(GL_LIGHT0);
+	if (!RHI::GetDevice()) {
+		glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_FALSE);
+		glDisable(GL_LIGHT1);
+		glDisable(GL_LIGHT0);
+	}
 }
 
 
@@ -2438,7 +2448,7 @@ int LuaOpenGL::Shape(lua_State* L)
 			luaL_error(L, "Shape: bad vertex data");
 			break;
 		}
-		if (vd.hasColor) { glColor4fv(vd.color);   }
+		if (vd.hasColor && !RHI::GetDevice()) { glColor4fv(vd.color);   }
 		if (vd.hasTxcd)  { glTexCoord2fv(vd.txcd); }
 		if (vd.hasNorm)  { glNormal3fv(vd.norm);   }
 		if (vd.hasVert)  { glVertex3fv(vd.vert);   } // always last
@@ -3098,7 +3108,7 @@ int LuaOpenGL::Color(lua_State* L)
 		luaL_error(L, "Incorrect arguments to gl.Color()");
 	}
 
-	glColor4fv(color.data());
+	if (!RHI::GetDevice()) { glColor4fv(color.data()); }
 
 	return 0;
 }
@@ -3141,7 +3151,7 @@ int LuaOpenGL::Material(lua_State* L)
 		if (key == "shininess") {
 			if (lua_isnumber(L, -1)) {
 				const GLfloat specExp = (GLfloat)lua_tonumber(L, -1);
-				glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, specExp);
+				if (!RHI::GetDevice()) { glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, specExp); }
 			}
 			continue;
 		}
@@ -3153,27 +3163,27 @@ int LuaOpenGL::Material(lua_State* L)
 
 		if (key == "ambidiff") {
 			if (count >= 3) {
-				glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color);
+				if (!RHI::GetDevice()) { glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color); }
 			}
 		}
 		else if (key == "ambient") {
 			if (count >= 3) {
-				glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, color);
+				if (!RHI::GetDevice()) { glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, color); }
 			}
 		}
 		else if (key == "diffuse") {
 			if (count >= 3) {
-				glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, color);
+				if (!RHI::GetDevice()) { glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, color); }
 			}
 		}
 		else if (key == "specular") {
 			if (count >= 3) {
-				glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, color);
+				if (!RHI::GetDevice()) { glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, color); }
 			}
 		}
 		else if (key == "emission") {
 			if (count >= 3) {
-				glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, color);
+				if (!RHI::GetDevice()) { glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, color); }
 			}
 		}
 		else {
@@ -3224,10 +3234,12 @@ int LuaOpenGL::Lighting(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
-	if (luaL_checkboolean(L, 1)) {
-		glEnable(GL_LIGHTING);
-	} else {
-		glDisable(GL_LIGHTING);
+	if (!RHI::GetDevice()) {
+		if (luaL_checkboolean(L, 1)) {
+			glEnable(GL_LIGHTING);
+		} else {
+			glDisable(GL_LIGHTING);
+		}
 	}
 	return 0;
 }
@@ -3241,7 +3253,7 @@ int LuaOpenGL::ShadeModel(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
-	glShadeModel((GLenum)luaL_checkint(L, 1));
+	if (!RHI::GetDevice()) { glShadeModel((GLenum)luaL_checkint(L, 1)); }
 	return 0;
 }
 
@@ -3496,10 +3508,12 @@ int LuaOpenGL::Fog(lua_State* L)
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
 
-	if (luaL_checkboolean(L, 1)) {
-		glEnable(GL_FOG);
-	} else {
-		glDisable(GL_FOG);
+	if (!RHI::GetDevice()) {
+		if (luaL_checkboolean(L, 1)) {
+			glEnable(GL_FOG);
+		} else {
+			glDisable(GL_FOG);
+		}
 	}
 	return 0;
 }
@@ -3673,19 +3687,21 @@ int LuaOpenGL::AlphaTest(lua_State* L)
 	CondWarnDeprecatedGL(L, __func__);
 
 	const int args = lua_gettop(L); // number of arguments
-	if (args == 1) {
-		if (luaL_checkboolean(L, 1)) {
-			glEnable(GL_ALPHA_TEST);
-		} else {
-			glDisable(GL_ALPHA_TEST);
+	if (!RHI::GetDevice()) {
+		if (args == 1) {
+			if (luaL_checkboolean(L, 1)) {
+				glEnable(GL_ALPHA_TEST);
+			} else {
+				glDisable(GL_ALPHA_TEST);
+			}
 		}
-	}
-	else if (args == 2) {
-		glEnable(GL_ALPHA_TEST);
-		glAlphaFunc((GLenum)luaL_checkint(L, 1), (GLfloat)luaL_checkint(L, 2));
-	}
-	else {
-		luaL_error(L, "Incorrect arguments to gl.AlphaTest()");
+		else if (args == 2) {
+			glEnable(GL_ALPHA_TEST);
+			glAlphaFunc((GLenum)luaL_checkint(L, 1), (GLfloat)luaL_checkint(L, 2));
+		}
+		else {
+			luaL_error(L, "Incorrect arguments to gl.AlphaTest()");
+		}
 	}
 	return 0;
 }
@@ -3919,18 +3935,22 @@ int LuaOpenGL::LineStipple(lua_State* L)
 	if (args == 1) {
 		if (lua_isstring(L, 1)) { // we're ignoring the string value
 			const unsigned int stipPat = (0xffff & cmdColors.StipplePattern());
-			if ((stipPat != 0x0000) && (stipPat != 0xffff)) {
-				glEnable(GL_LINE_STIPPLE);
-				lineDrawer.SetupLineStipple();
-			} else {
-				glDisable(GL_LINE_STIPPLE);
+			if (!RHI::GetDevice()) {
+				if ((stipPat != 0x0000) && (stipPat != 0xffff)) {
+					glEnable(GL_LINE_STIPPLE);
+					lineDrawer.SetupLineStipple();
+				} else {
+					glDisable(GL_LINE_STIPPLE);
+				}
 			}
 		}
 		else if (lua_isboolean(L, 1)) {
-			if (lua_toboolean(L, 1)) {
-				glEnable(GL_LINE_STIPPLE);
-			} else {
-				glDisable(GL_LINE_STIPPLE);
+			if (!RHI::GetDevice()) {
+				if (lua_toboolean(L, 1)) {
+					glEnable(GL_LINE_STIPPLE);
+				} else {
+					glDisable(GL_LINE_STIPPLE);
+				}
 			}
 		}
 		else {
@@ -3948,8 +3968,10 @@ int LuaOpenGL::LineStipple(lua_State* L)
 			pat = pat | (pat << 16);
 			pattern = pat >> shift;
 		}
-		glEnable(GL_LINE_STIPPLE);
-		glLineStipple(factor, pattern);
+		if (!RHI::GetDevice()) {
+			glEnable(GL_LINE_STIPPLE);
+			glLineStipple(factor, pattern);
+		}
 	}
 	else {
 		luaL_error(L, "Incorrect arguments to gl.LineStipple()");
@@ -3997,23 +4019,25 @@ int LuaOpenGL::PointSprite(lua_State* L)
 	CondWarnDeprecatedGL(L, __func__);
 	const int args = lua_gettop(L); // number of arguments
 
-	if (luaL_checkboolean(L, 1)) {
-		glEnable(GL_POINT_SPRITE);
-	} else {
-		glDisable(GL_POINT_SPRITE);
-	}
-	if ((args >= 2) && lua_isboolean(L, 2)) {
-		if (lua_toboolean(L, 2)) {
-			glTexEnvi(GL_POINT_SPRITE, GL_COORD_REPLACE, GL_TRUE);
+	if (!RHI::GetDevice()) {
+		if (luaL_checkboolean(L, 1)) {
+			glEnable(GL_POINT_SPRITE);
 		} else {
-			glTexEnvi(GL_POINT_SPRITE, GL_COORD_REPLACE, GL_FALSE);
+			glDisable(GL_POINT_SPRITE);
 		}
-	}
-	if ((args >= 3) && lua_isboolean(L, 3)) {
-		if (lua_toboolean(L, 3)) {
-			glTexEnvi(GL_POINT_SPRITE, GL_POINT_SPRITE_COORD_ORIGIN, GL_UPPER_LEFT);
-		} else {
-			glTexEnvi(GL_POINT_SPRITE, GL_POINT_SPRITE_COORD_ORIGIN, GL_LOWER_LEFT);
+		if ((args >= 2) && lua_isboolean(L, 2)) {
+			if (lua_toboolean(L, 2)) {
+				glTexEnvi(GL_POINT_SPRITE, GL_COORD_REPLACE, GL_TRUE);
+			} else {
+				glTexEnvi(GL_POINT_SPRITE, GL_COORD_REPLACE, GL_FALSE);
+			}
+		}
+		if ((args >= 3) && lua_isboolean(L, 3)) {
+			if (lua_toboolean(L, 3)) {
+				glTexEnvi(GL_POINT_SPRITE, GL_POINT_SPRITE_COORD_ORIGIN, GL_UPPER_LEFT);
+			} else {
+				glTexEnvi(GL_POINT_SPRITE, GL_POINT_SPRITE_COORD_ORIGIN, GL_LOWER_LEFT);
+			}
 		}
 	}
 	return 0;
@@ -4421,7 +4445,7 @@ int LuaOpenGL::CopyToTexture(lua_State* L)
 		return 0;
 
 	glBindTexture(tex->target, tex->id);
-	glEnable(tex->target); // leave it bound and enabled
+	if (!RHI::GetDevice()) { glEnable(tex->target); } // leave it bound and enabled
 
 	const auto xoff = (GLint)luaL_checknumber(L, 2);
 	const auto yoff = (GLint)luaL_checknumber(L, 3);
@@ -4434,7 +4458,7 @@ int LuaOpenGL::CopyToTexture(lua_State* L)
 
 	glCopyTexSubImage2D(target, level, xoff, yoff, x, y, w, h);
 
-	if (tex->target != GL_TEXTURE_2D) {glDisable(tex->target);}
+	if (!RHI::GetDevice()) { if (tex->target != GL_TEXTURE_2D) {glDisable(tex->target);} }
 
 	return 0;
 }
@@ -5366,39 +5390,43 @@ int LuaOpenGL::Light(lua_State* L)
 	}
 
 	if (lua_isboolean(L, 2)) {
-		if (lua_toboolean(L, 2)) {
-			glEnable(light);
-		} else {
-			glDisable(light);
+		if (!RHI::GetDevice()) {
+			if (lua_toboolean(L, 2)) {
+				glEnable(light);
+			} else {
+				glDisable(light);
+			}
 		}
 		return 0;
 	}
 
 	const int args = lua_gettop(L); // number of arguments
-	if (args == 3) {
-		const GLenum pname = (GLenum)luaL_checknumber(L, 2);
-		const GLenum param = (GLenum)luaL_checknumber(L, 3);
-		glLightf(light, pname, param);
-	}
-	else if (args == 5) {
-		GLfloat array[4]; // NOTE: 4 instead of 3  (to be safe)
-		const GLenum pname = (GLenum)luaL_checknumber(L, 2);
-		array[0] = (GLfloat)luaL_checknumber(L, 3);
-		array[1] = (GLfloat)luaL_checknumber(L, 4);
-		array[2] = (GLfloat)luaL_checknumber(L, 5);
-		glLightfv(light, pname, array);
-	}
-	else if (args == 6) {
-		GLfloat array[4];
-		const GLenum pname = (GLenum)luaL_checknumber(L, 2);
-		array[0] = (GLfloat)luaL_checknumber(L, 3);
-		array[1] = (GLfloat)luaL_checknumber(L, 4);
-		array[2] = (GLfloat)luaL_checknumber(L, 5);
-		array[3] = (GLfloat)luaL_checknumber(L, 6);
-		glLightfv(light, pname, array);
-	}
-	else {
-		luaL_error(L, "Incorrect arguments to gl.Light");
+	if (!RHI::GetDevice()) {
+		if (args == 3) {
+			const GLenum pname = (GLenum)luaL_checknumber(L, 2);
+			const GLenum param = (GLenum)luaL_checknumber(L, 3);
+			glLightf(light, pname, param);
+		}
+		else if (args == 5) {
+			GLfloat array[4]; // NOTE: 4 instead of 3  (to be safe)
+			const GLenum pname = (GLenum)luaL_checknumber(L, 2);
+			array[0] = (GLfloat)luaL_checknumber(L, 3);
+			array[1] = (GLfloat)luaL_checknumber(L, 4);
+			array[2] = (GLfloat)luaL_checknumber(L, 5);
+			glLightfv(light, pname, array);
+		}
+		else if (args == 6) {
+			GLfloat array[4];
+			const GLenum pname = (GLenum)luaL_checknumber(L, 2);
+			array[0] = (GLfloat)luaL_checknumber(L, 3);
+			array[1] = (GLfloat)luaL_checknumber(L, 4);
+			array[2] = (GLfloat)luaL_checknumber(L, 5);
+			array[3] = (GLfloat)luaL_checknumber(L, 6);
+			glLightfv(light, pname, array);
+		}
+		else {
+			luaL_error(L, "Incorrect arguments to gl.Light");
+		}
 	}
 
 	return 0;
@@ -5430,10 +5458,12 @@ int LuaOpenGL::ClipPlane(lua_State* L)
 	// use GL_CLIP_PLANE4 and GL_CLIP_PLANE5 for LuaOpenGL  (6 are guaranteed)
 	const GLenum gl_plane = GL_CLIP_PLANE4 + plane - 1;
 	if (lua_isboolean(L, 2)) {
-		if (lua_toboolean(L, 2)) {
-			glEnable(gl_plane);
-		} else {
-			glDisable(gl_plane);
+		if (!RHI::GetDevice()) {
+			if (lua_toboolean(L, 2)) {
+				glEnable(gl_plane);
+			} else {
+				glDisable(gl_plane);
+			}
 		}
 		return 0;
 	}
@@ -5442,8 +5472,10 @@ int LuaOpenGL::ClipPlane(lua_State* L)
 	equation[1] = (double)luaL_checknumber(L, 3);
 	equation[2] = (double)luaL_checknumber(L, 4);
 	equation[3] = (double)luaL_checknumber(L, 5);
-	glClipPlane(gl_plane, equation);
-	glEnable(gl_plane);
+	if (!RHI::GetDevice()) {
+		glClipPlane(gl_plane, equation);
+		glEnable(gl_plane);
+	}
 	return 0;
 }
 
