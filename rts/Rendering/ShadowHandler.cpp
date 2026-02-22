@@ -174,13 +174,15 @@ void CShadowHandler::Update()
 
 void CShadowHandler::SaveShadowMapTextures() const
 {
-	// glSaveTexture requires raw GL texture IDs
-	const uint32_t depthID = shadowDepthTexture ? shadowDepthTexture->GetNativeHandle() : 0;
-	const uint32_t colorID = shadowColorTexture ? shadowColorTexture->GetNativeHandle() : 0;
-	if (depthID > 0)
-		glSaveTexture(depthID, fmt::format("smDepth_{}.png", globalRendering->drawFrame).c_str());
-	if (colorID > 0)
-		glSaveTexture(colorID, fmt::format("smColor_{}.png", globalRendering->drawFrame).c_str());
+	// glSaveTexture requires raw GL texture IDs — not available on Metal (ReadPixels unimplemented)
+	if (!RHI::GetDevice()) {
+		const uint32_t depthID = shadowDepthTexture ? shadowDepthTexture->GetNativeHandle() : 0;
+		const uint32_t colorID = shadowColorTexture ? shadowColorTexture->GetNativeHandle() : 0;
+		if (depthID > 0)
+			glSaveTexture(depthID, fmt::format("smDepth_{}.png", globalRendering->drawFrame).c_str());
+		if (colorID > 0)
+			glSaveTexture(colorID, fmt::format("smColor_{}.png", globalRendering->drawFrame).c_str());
+	}
 }
 
 void CShadowHandler::DrawFrustumDebug(const CMatrix44f* transform) const

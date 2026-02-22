@@ -372,6 +372,17 @@ bool FBO::Blit(int32_t fromID, int32_t toID, const std::array<int, 4>& srcRect, 
 }
 
 
+void FBO::SetDrawBuffer(GLenum attachment) const
+{
+	glDrawBuffer(attachment);
+}
+
+void FBO::SetDrawBuffers(int count, const GLenum* bufs) const
+{
+	glDrawBuffers(count, bufs);
+}
+
+
 /**
  * Tests if the framebuffer is a complete and
  * legitimate framebuffer

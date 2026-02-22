@@ -511,7 +511,7 @@ void CSMFReadMap::CreateShadingGL()
 	shadingFBO->AttachTexture(shadingTex.GetID(), GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0, 0);
 	shadingFBO->AttachTexture(normalsTex.GetID(), GL_TEXTURE_2D, GL_COLOR_ATTACHMENT1, 0);
 	constexpr GLenum DRAW_BUFFERS[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
-	glDrawBuffers(2, DRAW_BUFFERS);
+	shadingFBO->SetDrawBuffers(2, DRAW_BUFFERS);
 	shadingFBO->CheckStatus("SMF-SHADING");
 	shadingFBO->Unbind();
 

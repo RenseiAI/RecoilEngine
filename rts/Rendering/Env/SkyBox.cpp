@@ -175,7 +175,7 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 				const CMatrix44f mvp = CMatrix44f(projStack.Top()) * mvStack.Top();
 				ercShader->SetUniformMatrix4x4<float>("modelViewProjectionMatrix", false, &mvp.md[0][0]);
 
-				glDrawBuffer(GL_COLOR_ATTACHMENT0);
+				fbo.SetDrawBuffer(GL_COLOR_ATTACHMENT0);
 
 				// Draw via RHI
 				ctx->Draw(RHI::PrimitiveType::Triangles, 6, side * 6);

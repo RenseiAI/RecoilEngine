@@ -154,6 +154,9 @@ public:
 		uint32_t filter = GL_NEAREST
 	);
 
+	void SetDrawBuffer(GLenum attachment) const;
+	void SetDrawBuffers(int count, const GLenum* bufs) const;
+
 	/**
 	 * @brief GLContextLost (post atl-tab)
 	 */

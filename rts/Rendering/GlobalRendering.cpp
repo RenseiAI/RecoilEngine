@@ -730,7 +730,8 @@ void CGlobalRendering::SwapBuffers(bool allowSwapBuffers, bool clearErrors)
 		IStreamBufferConcept::PutBufferLocks();
 
 		//https://stackoverflow.com/questions/68480028/supporting-opengl-screen-capture-by-third-party-applications
-		glBindFramebuffer(GL_READ_FRAMEBUFFER_EXT, 0);
+		if (!RHI::GetDevice())
+			glBindFramebuffer(GL_READ_FRAMEBUFFER_EXT, 0);
 		
 		#ifdef _WIN32
 			using DwmFlushT = HRESULT(WINAPI*)();
