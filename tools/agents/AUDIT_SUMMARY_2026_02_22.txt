@@ -1,0 +1,157 @@
+================================================================================
+RECOILENGINE GL CALL AUDIT - EXECUTIVE SUMMARY
+Date: 2026-02-22
+================================================================================
+
+GRAND TOTAL: 2,302 GL CALLS across all compiled .cpp/.c files in rts/
+
+BREAKDOWN BY DOMAIN:
+================================================================================
+
+1. GL BACKEND (DO NOT MIGRATE)                          413 calls  (17%)
+   ├─ Shader.cpp                                         109
+   ├─ GLContext.cpp                                      90
+   ├─ GLTexture.cpp                                      55
+   ├─ GLSLCopyState.cpp                                  42
+   ├─ GLDevice.cpp                                       41
+   ├─ Texture.cpp                                        37
+   ├─ GLPipeline.cpp                                     35
+   ├─ GLFramebuffer.cpp                                  2
+   └─ GLBuffer.cpp                                       2
+   
+   STATUS: COMPLETE — These ARE the GL backend implementation
+
+2. DEPRECATED WATER (EXCLUDED FROM BUILD)               534 calls  (23%)
+   ├─ DynWater.cpp                                       421
+   ├─ AdvWater.cpp                                       78
+   └─ RefractWater.cpp                                   35
+   
+   STATUS: NOT COMPILED — Removed in Phase 1
+
+3. GL UTILITY CLASSES (SUPERSEDED BY RHI)              305 calls  (13%)
+   ├─ FBO.cpp                                            86
+   ├─ VertexArray.cpp                                    85
+   ├─ myGL.cpp                                           37
+   ├─ glExtra.cpp                                        28
+   ├─ VBO.cpp                                            28
+   ├─ StreamBuffer.cpp                                   19
+   ├─ glStateDebug.cpp                                   10
+   ├─ GeometryBuffer.cpp                                 5
+   ├─ VAO.cpp                                            4
+   ├─ glDebugGroup.cpp                                   2
+   └─ State.cpp                                          1
+   
+   STATUS: 60% MIGRATED (Phases 5-7) → Continue Phase 8+
+
+4. LUA SUBSYSTEM (REQUIRES ARCHITECTURAL DECISION)      667 calls  (28%)
+   ├─ LuaOpenGL.cpp                                      415  (intentional)
+   ├─ LuaShaders.cpp                                     78
+   ├─ LuaFBOs.cpp                                        59
+   ├─ LuaTextures.cpp                                    48
+   ├─ LuaVAOImpl.cpp                                      25
+   ├─ LuaMaterial.cpp                                    20
+   ├─ LuaRBOs.cpp                                        9
+   ├─ LuaOpenGLUtils.cpp                                 6
+   ├─ LuaFonts.cpp                                       3
+   ├─ LuaConstGL.cpp                                     3
+   └─ LuaVBOImpl.cpp                                      1
+   
+   STATUS: DEFERRED (Phase 8) — Mod API, needs RHI bindings or guards
+
+5. RMLUI RENDERER                                        2 calls   (0%)
+   └─ RmlUi_Renderer_GL3_Recoil.cpp                      2
+   
+   STATUS: LOW PRIORITY (Phase 8b)
+
+6. GAME RENDERING (OTHER)                               379 calls  (16%)
+
+   INTENTIONAL UNGUARDED (Must Remain):
+   ├─ Camera.cpp (8)              — FFP matrix blocker (Phase 9+)
+   ├─ GrassDrawer.cpp (9)         — Blade rendering blocker (Phase 9+)
+   ├─ LuaOpenGL.cpp (415)         — Mod API (Phase 8)
+   └─ Combiner.cpp (10)           — Lua texture API (Phase 8)
+
+   EXTERNALLY-SOURCED UNGUARDED:
+   ├─ GuiHandler.cpp (32)         — Unit def images (needs texture wrapping)
+   ├─ GlobalRendering.cpp (36)    — GUARDED (swapbuffers, fallback paths)
+   ├─ nv_dds.cpp (42)             — 3rd-party library (can stay as-is)
+   └─ UI dialogs (47)             — FFP immediate mode (migrate to RenderBuffer)
+       ├─ EndGameBox.cpp (17)
+       ├─ PreGame.cpp (12)
+       ├─ ShareBox.cpp (11)
+       └─ QuitBox.cpp (8)
+
+   Top 10 Files:
+   ├─ nv_dds.cpp                                         42
+   ├─ GlobalRendering.cpp                                36
+   ├─ GuiHandler.cpp                                     32
+   ├─ ProfileDrawer.cpp                                  25
+   ├─ EndGameBox.cpp                                     17
+   ├─ CommandDrawer.cpp                                  15
+   ├─ PreGame.cpp                                        12
+   ├─ ShareBox.cpp                                       11
+   ├─ SelectedUnitsHandler.cpp                           10
+   ├─ ResourceBar.cpp                                    10
+   
+   STATUS: PARTIAL — Some guarded, some intentional, some migrateable
+
+================================================================================
+MIGRATION METRICS
+================================================================================
+
+Active GL Calls (compiled into build):
+  GL Backend + Utilities + Lua + Game + RmlUi = 2,302 - 534 = 1,768
+
+Cannot Migrate (Backend):
+  413 calls (17% of total) — GL backend must stay as-is
+
+Intentionally Unguarded (Lua subsystem + architectural blockers):
+  667 + 27 = 694 calls (30% of total) — Deferred to Phase 8+
+
+Can/Should Migrate (utilities + game rendering):
+  305 + 379 - guarded/intentional = ~350-400 calls (15-17% of total)
+
+Currently Migrated:
+  60% of GL utility code eliminated (Phases 5-7)
+  ~95% of game rendering core migrated to RHI (Phases 4-7)
+
+================================================================================
+PHASE 8+ ACTION ITEMS
+================================================================================
+
+HIGH PRIORITY:
+  1. UI Immediate Mode (47 GL calls) — EndGameBox, ShareBox, QuitBox, PreGame
+     Migrate: glColor4f/glBegin/glEnd/glVertex3f → RenderBuffer
+     Effort: 2-3 days
+
+MEDIUM PRIORITY:
+  2. Lua Subsystem (667 GL calls) — LuaOpenGL.cpp, LuaShaders.cpp, etc.
+     Decision: RHI Lua API (preferred) vs GL-only guards
+     Effort: Architecture design + implementation
+
+  3. Unit Def Texture Migration (3 GL calls) — GuiHandler.cpp glBindTexture
+     Apply WrapExistingTexture pattern
+     Effort: 1 day (after texture system refactored)
+
+LOW PRIORITY:
+  4. GrassDrawer Blade Rendering (9 GL calls) — Camera.cpp, GrassDrawer.cpp
+     Requires architectural redesign (Phase 9+)
+     Status: Known blocker, FFP matrix required when no shader active
+
+  5. RmlUi Renderer Backend (2 GL calls) — RmlUi_Renderer_GL3_Recoil.cpp
+     Deferred until other Phase 8 work complete
+
+================================================================================
+FILES FULLY ANALYZED
+================================================================================
+
+Complete audit with:
+  - File-by-file GL call counts
+  - Guard pattern analysis
+  - External boundary identification
+  - RHI infrastructure status
+  - Detailed phase recommendations
+
+See: tools/agents/AUDIT_GL_CALLS_2026_02_22.md (397 lines)
+
+================================================================================
