@@ -18,6 +18,8 @@
 #include <string>
 #include "RHITypes.h"
 
+struct SDL_Window;
+
 namespace RHI {
 
 class IRHIBuffer;
@@ -146,6 +148,12 @@ public:
 	virtual std::unique_ptr<IRHIFramebuffer> CreateFramebuffer() = 0;
 
 	virtual std::unique_ptr<IRHIPipeline> CreatePipeline(const PipelineDesc& desc) = 0;
+
+	// --- Window integration ---
+	/// Setup backend-specific window integration (Metal layer, etc.).
+	/// Called after device creation with the SDL window.
+	/// Default no-op for backends that don't need it (OpenGL).
+	virtual bool SetupWindowIntegration(::SDL_Window* window) { return true; }
 
 	// --- Context (command submission) ---
 	virtual IRHIContext* GetContext() = 0;

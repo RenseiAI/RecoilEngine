@@ -3,6 +3,8 @@
 #include "RHIFactory.h"
 #include "System/Log/ILog.h"
 
+#include <optional>
+
 // Backend includes
 #include "OpenGL/GLDevice.h"
 #ifdef RHI_HAS_METAL
@@ -10,6 +12,8 @@
 #endif
 
 namespace RHI {
+
+static std::optional<Backend> backendOverride;
 
 std::unique_ptr<IRHIDevice> CreateDevice(Backend backend) {
 	switch (backend) {
@@ -31,12 +35,22 @@ std::unique_ptr<IRHIDevice> CreateDevice(Backend backend) {
 }
 
 Backend GetDefaultBackend() {
-#if defined(RHI_HAS_METAL) && defined(__aarch64__)
-	// Metal is preferred on Apple Silicon
-	return Backend::Metal;
-#else
-	return Backend::OpenGL;
-#endif
+	if (backendOverride.has_value())
+		return backendOverride.value();
+	return Backend::OpenGL;  // Safe default; Metal only when explicitly requested
+}
+
+void SetBackendOverride(Backend backend) {
+	backendOverride = backend;
+}
+
+bool HasBackendOverride() {
+	return backendOverride.has_value();
+}
+
+bool IsMetalBackend() {
+	auto* dev = GetDevice();
+	return dev && dev->GetBackend() == Backend::Metal;
 }
 
 bool IsBackendAvailable(Backend backend) {

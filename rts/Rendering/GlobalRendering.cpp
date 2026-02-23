@@ -455,7 +455,10 @@ SDL_Window* CGlobalRendering::CreateSDLWindow(const char* title) const
 	//   SDL_WINDOW_FULLSCREEN_DESKTOP for "fake" fullscreen that takes the size of the desktop;
 	//   and 0 for windowed mode.
 
-	uint32_t sdlFlags  = (SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+	const bool useMetal = (RHI::GetDefaultBackend() == RHI::Backend::Metal);
+	uint32_t sdlFlags  = useMetal
+		? (SDL_WINDOW_METAL | SDL_WINDOW_RESIZABLE)
+		: (SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
 	         sdlFlags |= (borderless_ ? SDL_WINDOW_FULLSCREEN_DESKTOP : SDL_WINDOW_FULLSCREEN) * fullScreen_;
 	         sdlFlags |= (SDL_WINDOW_BORDERLESS * borderless_);
 
@@ -557,6 +560,8 @@ bool CGlobalRendering::CreateWindowAndContext(const char* title)
 		return false;
 	}
 
+	const bool useMetal = (RHI::GetDefaultBackend() == RHI::Backend::Metal);
+
 	// should be set to "3.0" (non-core Mesa is stuck there), see below
 	const char* mesaGL = getenv("MESA_GL_VERSION_OVERRIDE");
 	const char* softGL = getenv("LIBGL_ALWAYS_SOFTWARE");
@@ -566,26 +571,29 @@ bool CGlobalRendering::CreateWindowAndContext(const char* title)
 		int2{                  std::max(mesaGL[0] - '0', 3),                   std::max(mesaGL[2] - '0', 0)}:
 		int2{configHandler->GetInt("GLContextMajorVersion"), configHandler->GetInt("GLContextMinorVersion")};
 
-	// start with the standard (R8G8B8A8 + 24-bit depth + 8-bit stencil + DB) format
-	SDL_GL_SetAttribute(SDL_GL_RED_SIZE,   8);
-	SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
-	SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,  8);
-	SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
-	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,  24);
-	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+	// GL pixel format and context attributes — skip for Metal
+	if (!useMetal) {
+		// start with the standard (R8G8B8A8 + 24-bit depth + 8-bit stencil + DB) format
+		SDL_GL_SetAttribute(SDL_GL_RED_SIZE,   8);
+		SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+		SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,  8);
+		SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+		SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,  24);
+		SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+		SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
-	// create GL debug-context if wanted (more verbose GL messages, but runs slower)
-	// note:
-	//   requesting a core profile explicitly is needed to get versions later than
-	//   3.0/1.30 for Mesa, other drivers return their *maximum* supported context
-	//   in compat and do not make 3.0 itself available in core (though this still
-	//   suffices for most of Spring)
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, forceCoreContext? SDL_GL_CONTEXT_PROFILE_CORE: SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
+		// create GL debug-context if wanted (more verbose GL messages, but runs slower)
+		// note:
+		//   requesting a core profile explicitly is needed to get versions later than
+		//   3.0/1.30 for Mesa, other drivers return their *maximum* supported context
+		//   in compat and do not make 3.0 itself available in core (though this still
+		//   suffices for most of Spring)
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, forceCoreContext? SDL_GL_CONTEXT_PROFILE_CORE: SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
 
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, minCtx.x);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, minCtx.y);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, minCtx.x);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, minCtx.y);
+	}
 
 
 	if (msaaLevel > 0) {
@@ -614,33 +622,40 @@ bool CGlobalRendering::CreateWindowAndContext(const char* title)
 		WindowManagerHelper::BlockCompositing(sdlWindow);
 #endif
 
-	if ((glContext = CreateGLContext(minCtx)) == nullptr)
-		return false;
+	if (useMetal) {
+		// Metal layer is set up after RHI::InitDevice() in SpringApp::Init()
+		LOG("[GR::%s] Window created for Metal backend", __func__);
+	} else {
+		if ((glContext = CreateGLContext(minCtx)) == nullptr)
+			return false;
 
-	gladLoadGL();
-	GLX::Load(sdlWindow);
+		gladLoadGL();
+		GLX::Load(sdlWindow);
 
-	if (!CheckGLContextVersion(minCtx)) {
-		int ctxProfile = 0;
-		SDL_GL_GetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, &ctxProfile);
+		if (!CheckGLContextVersion(minCtx)) {
+			int ctxProfile = 0;
+			SDL_GL_GetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, &ctxProfile);
 
-		const std::string errStr = fmt::format("current OpenGL version {}.{}(core={}) is less than required {}.{}(core={}), aborting",
-			globalRenderingInfo.glContextVersion.x, globalRenderingInfo.glContextVersion.y, globalRenderingInfo.glContextIsCore,
-			minCtx.x, minCtx.y, (ctxProfile == SDL_GL_CONTEXT_PROFILE_CORE)
-		);
+			const std::string errStr = fmt::format("current OpenGL version {}.{}(core={}) is less than required {}.{}(core={}), aborting",
+				globalRenderingInfo.glContextVersion.x, globalRenderingInfo.glContextVersion.y, globalRenderingInfo.glContextIsCore,
+				minCtx.x, minCtx.y, (ctxProfile == SDL_GL_CONTEXT_PROFILE_CORE)
+			);
 
-		handleerror(nullptr, errStr.c_str(), "ERROR", MBF_OK | MBF_EXCL);
-		return false;
+			handleerror(nullptr, errStr.c_str(), "ERROR", MBF_OK | MBF_EXCL);
+			return false;
+		}
+
+		MakeCurrentContext(false);
 	}
 
-	MakeCurrentContext(false);
 	SDL_DisableScreenSaver();
 	return true;
 }
 
 
 void CGlobalRendering::MakeCurrentContext(bool clear) const {
-	SDL_GL_MakeCurrent(sdlWindow, clear ? nullptr : glContext);
+	if (!RHI::IsMetalBackend())
+		SDL_GL_MakeCurrent(sdlWindow, clear ? nullptr : glContext);
 }
 
 
@@ -651,18 +666,21 @@ void CGlobalRendering::DestroyWindowAndContext() {
 	WindowManagerHelper::SetIconSurface(sdlWindow, nullptr);
 	SetWindowInputGrabbing(false);
 
-	SDL_GL_MakeCurrent(sdlWindow, nullptr);
+	if (!RHI::IsMetalBackend())
+		SDL_GL_MakeCurrent(sdlWindow, nullptr);
+
 	SDL_DestroyWindow(sdlWindow);
 
 	#if !defined(HEADLESS)
-	if (glContext)
+	if (!RHI::IsMetalBackend() && glContext)
 		SDL_GL_DeleteContext(glContext);
 	#endif
 
 	sdlWindow = nullptr;
 	glContext = nullptr;
 
-	GLX::Unload();
+	if (!RHI::IsMetalBackend())
+		GLX::Unload();
 }
 
 void CGlobalRendering::KillSDL() const {
@@ -742,7 +760,13 @@ void CGlobalRendering::SwapBuffers(bool allowSwapBuffers, bool clearErrors)
 			}
 		#endif
 		
-		SDL_GL_SwapWindow(sdlWindow);
+		if (RHI::IsMetalBackend()) {
+			auto* ctx = RHI::GetDevice()->GetContext();
+			ctx->EndFrame();    // presents drawable, commits command buffer
+			ctx->BeginFrame();  // waits for frame slot, creates new command buffer
+		} else {
+			SDL_GL_SwapWindow(sdlWindow);
+		}
 
 		#ifdef _WIN32
 			if (forceDWMFlush == 2){ 
@@ -824,6 +848,10 @@ void CGlobalRendering::CheckGLExtensions()
 	if (underExternalDebug)
 		return;
 
+	// GLAD extension checks are only valid on the GL backend
+	if (RHI::IsMetalBackend())
+		return;
+
 	char extMsg[ 128] = {0};
 	char errMsg[2048] = {0};
 	char* ptr = &extMsg[0];
@@ -851,6 +879,26 @@ void CGlobalRendering::CheckGLExtensions()
 
 void CGlobalRendering::SetGLSupportFlags()
 {
+	// On Metal, support flags come from IRHIDevice capabilities — skip GL queries
+	if (RHI::IsMetalBackend()) {
+		auto* device = RHI::GetDevice();
+		haveGL4 = device->HaveGL4();
+		supportPersistentMapping  = device->SupportPersistentMapping();
+		supportExplicitAttribLoc  = device->SupportExplicitAttribLoc();
+		supportTextureQueryLOD    = device->SupportTextureQueryLOD();
+		supportRestartPrimitive   = device->SupportRestartPrimitive();
+		supportClipSpaceControl   = device->SupportClipSpaceControl();
+		supportSeamlessCubeMaps   = device->SupportSeamlessCubeMaps();
+		supportMSAAFrameBuffer    = device->SupportMSAAFrameBuffer();
+		supportFragDepthLayout    = device->SupportFragDepthLayout();
+		supportDepthBufferBitDepth = device->GetDepthBufferBitDepth();
+		static RHI::VersionInfo metalInfo;
+		metalInfo = device->GetVersionInfo();
+		globalRenderingInfo.gpuName   = metalInfo.renderer.c_str();
+		globalRenderingInfo.gpuVendor = "Apple";
+		return;
+	}
+
 	const std::string& glVendor = StringToLower(globalRenderingInfo.glVendor);
 	const std::string& glRenderer = StringToLower(globalRenderingInfo.glRenderer);
 	const std::string& glVersion = StringToLower(globalRenderingInfo.glVersion);
@@ -1031,13 +1079,17 @@ void CGlobalRendering::QueryVersionInfo(char (&sdlVersionStr)[64], char (&glVidM
 		if ((grInfo.glslVersion = (const char*) glGetString(GL_SHADING_LANGUAGE_VERSION)) == nullptr) grInfo.glslVersion = "unknown";
 	}
 	if ((grInfo.sdlDriverName = (const char*) SDL_GetCurrentVideoDriver(           )) == nullptr) grInfo.sdlDriverName = "unknown";
-	// should never be null with any driver, no harm in an extra check
-	// (absence of GLSL version string would indicate bigger problems)
-	if (std::strcmp(globalRenderingInfo.glslVersion, "unknown") == 0)
-		throw unsupported_error("OpenGL shaders not supported, aborting");
 
-	if (!ShowDriverWarning(grInfo.glVendor))
-		throw unsupported_error("OpenGL drivers not installed, aborting");
+	// GL-specific validation — skip on Metal backend
+	if (!RHI::IsMetalBackend()) {
+		// should never be null with any driver, no harm in an extra check
+		// (absence of GLSL version string would indicate bigger problems)
+		if (std::strcmp(globalRenderingInfo.glslVersion, "unknown") == 0)
+			throw unsupported_error("OpenGL shaders not supported, aborting");
+
+		if (!ShowDriverWarning(grInfo.glVendor))
+			throw unsupported_error("OpenGL drivers not installed, aborting");
+	}
 
 	constexpr const char* sdlFmtStr = "%d.%d.%d (linked) / %d.%d.%d (compiled)";
 	constexpr const char* memFmtStr = "%iMB (total) / %iMB (available)";
@@ -1066,7 +1118,7 @@ void CGlobalRendering::LogVersionInfo(const char* sdlVersionStr, const char* glV
 	LOG("\tGLSL version: %s", globalRenderingInfo.glslVersion);
 	LOG("\tGLAD version: %s", globalRenderingInfo.gladVersion);
 	LOG("\tGPU memory  : %s", glVidMemStr);
-	LOG("\tSDL swap-int: %d", SDL_GL_GetSwapInterval());
+	LOG("\tSDL swap-int: %d", RHI::IsMetalBackend() ? -1 : SDL_GL_GetSwapInterval());
 	LOG("\tSDL driver  : %s", globalRenderingInfo.sdlDriverName);
 	LOG("\t");
 	LOG("\tInitialized OpenGL Context: %i.%i (%s)", globalRenderingInfo.glContextVersion.x, globalRenderingInfo.glContextVersion.y, globalRenderingInfo.glContextIsCore ? "Core" : "Compat");

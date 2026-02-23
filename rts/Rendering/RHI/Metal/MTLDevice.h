@@ -145,6 +145,9 @@ public:
 
 	std::unique_ptr<IRHIPipeline> CreatePipeline(const PipelineDesc& desc) override;
 
+	// --- Window integration ---
+	bool SetupWindowIntegration(SDL_Window* window) override;
+
 	// --- Context ---
 	IRHIContext* GetContext() override;
 

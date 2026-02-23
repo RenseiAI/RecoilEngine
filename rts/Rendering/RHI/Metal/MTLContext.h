@@ -142,10 +142,10 @@ public:
 	// --- Metal-specific ---
 
 	/// Begin a new frame (called at start of frame rendering)
-	void BeginFrame();
+	void BeginFrame() override;
 
 	/// End the current frame and present to screen
-	void EndFrame();
+	void EndFrame() override;
 
 	/// Get the current command buffer
 	id<MTLCommandBuffer> GetCommandBuffer() const { return commandBuffer; }

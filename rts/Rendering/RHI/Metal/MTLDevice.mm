@@ -81,6 +81,10 @@ MTLDevice::~MTLDevice() {
 	LOG("[MTLDevice] Metal device destroyed");
 }
 
+bool MTLDevice::SetupWindowIntegration(SDL_Window* window) {
+	return SetupMetalLayer(window);
+}
+
 bool MTLDevice::SetupMetalLayer(SDL_Window* window) {
 	if (!window) {
 		LOG_L(L_ERROR, "[MTLDevice] Cannot setup Metal layer: null window");

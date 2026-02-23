@@ -48,6 +48,7 @@
 #include "Net/Protocol/NetProtocol.h" // clientNet
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Rendering/Fonts/FontHandler.h"
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GL/FBO.h"
@@ -158,6 +159,7 @@ DEFINE_string_EX(calc_checksum,      "calc-checksum",      "",    "Calculate nam
  * parallel because they both try to open the same port. This makes automated replay parsing difficult when
  * the same port number is heavily reused across many replays. Forcing onlyLocal solves this. */
 DEFINE_bool_EX  (onlyLocal,              "only-local",     false, "Force OnlyLocal mode (no network listening sockets). Use for parallelized watching of multiplayer replays");
+DEFINE_bool_EX  (metal_backend,          "metal-backend",  false, "Use Metal rendering backend instead of OpenGL (macOS only)");
 
 
 
@@ -244,6 +246,13 @@ bool SpringApp::Init()
 	CGlobalRendering::InitStatic();
 	globalRendering->SetFullScreen(FLAGS_window, FLAGS_fullscreen);
 
+#ifdef RHI_HAS_METAL
+	if (FLAGS_metal_backend) {
+		RHI::SetBackendOverride(RHI::Backend::Metal);
+		LOG("[SpringApp] Metal backend requested via --metal-backend flag");
+	}
+#endif
+
 	if (!InitPlatformLibs())
 		return false;
 
@@ -268,8 +277,26 @@ bool SpringApp::Init()
 	globalRendering->UpdateGLConfigs();
 	globalRendering->UpdateGLGeometry();
 	RHI::InitDevice();  // must be before PostInit() — timer queries need device
+
+#ifdef RHI_HAS_METAL
+	if (RHI::IsMetalBackend()) {
+		auto* device = RHI::GetDevice();
+		if (!device->SetupWindowIntegration(globalRendering->GetWindow())) {
+			LOG_L(L_FATAL, "[SpringApp] Failed to setup Metal layer");
+			return false;
+		}
+	}
+#endif
+
 	globalRendering->PostInit();
 	globalRendering->InitGLState();
+
+#ifdef RHI_HAS_METAL
+	if (RHI::IsMetalBackend()) {
+		auto* ctx = RHI::GetDevice()->GetContext();
+		ctx->BeginFrame();  // Start first frame's command buffer
+	}
+#endif
 
 	CCameraHandler::InitStatic();
 	CBitmap::InitPool(configHandler->GetInt("TextureMemPoolSize"));

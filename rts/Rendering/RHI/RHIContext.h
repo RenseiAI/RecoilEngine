@@ -30,6 +30,14 @@ class IRHIContext {
 public:
 	virtual ~IRHIContext() = default;
 
+	// --- Frame lifecycle ---
+	/// Called at the start of each frame (Metal: acquire drawable, create command buffer).
+	/// No-op for OpenGL (frame boundaries are implicit).
+	virtual void BeginFrame() {}
+	/// Called at the end of each frame (Metal: present drawable, commit command buffer).
+	/// No-op for OpenGL (SDL_GL_SwapWindow handles presentation).
+	virtual void EndFrame() {}
+
 	// --- Render pass ---
 	virtual void BeginRenderPass(IRHIFramebuffer* framebuffer, const RenderPassDesc& desc) = 0;
 	virtual void BeginDefaultRenderPass(const RenderPassDesc& desc) = 0;

@@ -26,8 +26,17 @@ namespace RHI {
 std::unique_ptr<IRHIDevice> CreateDevice(Backend backend);
 
 /// Get the default backend for the current platform.
-/// Returns Metal on macOS ARM64, OpenGL elsewhere.
+/// Returns the override if set, otherwise OpenGL (safe default).
 Backend GetDefaultBackend();
+
+/// Override the backend selection. Must be called before InitDevice().
+void SetBackendOverride(Backend backend);
+
+/// Check if a backend override has been set.
+bool HasBackendOverride();
+
+/// Convenience: check if the active device is using the Metal backend.
+bool IsMetalBackend();
 
 /// Query whether a backend is available on this platform.
 bool IsBackendAvailable(Backend backend);
