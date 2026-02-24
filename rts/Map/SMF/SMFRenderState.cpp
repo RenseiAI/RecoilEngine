@@ -28,6 +28,7 @@
 #include "Rendering/Env/WaterRendering.h"
 #include "Rendering/Env/MapRendering.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/Map/InfoTexture/IInfoTextureHandler.h"
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Shaders/Shader.h"
@@ -224,7 +225,8 @@ void SMFRenderStateGLSL::Enable(const CSMFGroundDrawer* smfGroundDrawer, const D
 		// use raw, GLSLProgramObject::Enable also calls RecompileIfNeeded
 		currShader->EnableRaw();
 		// diffuse textures are always bound (SMFGroundDrawer::SetupBigSquare)
-		glActiveTexture(GL_TEXTURE0);
+		if (!RHI::IsMetalBackend())
+			glActiveTexture(GL_TEXTURE0);
 		return;
 	}
 
@@ -309,7 +311,8 @@ void SMFRenderStateGLSL::Enable(const CSMFGroundDrawer* smfGroundDrawer, const D
 void SMFRenderStateGLSL::Disable(const CSMFGroundDrawer* smfGroundDrawer, const DrawPass::e& drawPass) {
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (useLuaShaders) {
-		glActiveTexture(GL_TEXTURE0);
+		if (!RHI::IsMetalBackend())
+			glActiveTexture(GL_TEXTURE0);
 		currShader->DisableRaw();
 		return;
 	}
