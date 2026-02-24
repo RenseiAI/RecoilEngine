@@ -264,8 +264,8 @@ CGrassDrawer::CGrassDrawer()
 			return;
 		}
 
-		// needed to create the far tex
-		if (!GLAD_GL_EXT_framebuffer_blit) {
+		// needed to create the far tex (Metal has blit via RHI, skip GLAD check)
+		if (!RHI::IsMetalBackend() && !GLAD_GL_EXT_framebuffer_blit) {
 			grassOff = true;
 			return;
 		}
@@ -676,7 +676,8 @@ void CGrassDrawer::Draw()
 	// ATI crashes w/o an error when shadows are enabled!?
     const bool shadows = (shadowHandler.ShadowsLoaded() && globalRendering->amdHacks);
 
-	if (!shadows && (!blockDrawer.inviewFarGrass.empty() || !blockDrawer.inviewNearGrass.empty())) {
+	// Far billboard path uses legacy CVertexArray::DrawArrayTN(GL_QUADS) — skip on Metal
+	if (!shadows && !RHI::IsMetalBackend() && (!blockDrawer.inviewFarGrass.empty() || !blockDrawer.inviewNearGrass.empty())) {
 		SetupGlStateFar();
 			DrawFarBillboards(blockDrawer.inviewFarGrass);
 			DrawNearBillboards(blockDrawer.inviewNearGrass);
@@ -980,6 +981,11 @@ void CGrassDrawer::CreateFarTex()
 	fbo.CheckStatus("GRASSDRAWER2");
 
 	if (!fboTex.IsValid() || !fbo.IsValid()) {
+		if (RHI::IsMetalBackend()) {
+			// Metal: far-tex billboard rendering unavailable, near grass blades still work
+			farTex.reset();
+			return;
+		}
 		grassOff = true;
 		return;
 	}
