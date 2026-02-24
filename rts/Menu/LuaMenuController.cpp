@@ -7,6 +7,7 @@
 #include "Game/UI/MouseHandler.h"
 #include "Lua/LuaInputReceiver.h"
 #include "Lua/LuaMenu.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/EventHandler.h"
 #include "System/FileSystem/VFSHandler.h"
@@ -120,10 +121,12 @@ bool CLuaMenuController::Draw()
 		globalRendering->drawFrame = std::max(1U, globalRendering->drawFrame + 1);
 		ClearScreen();
 
-		eventHandler.DrawGenesis();
-		eventHandler.DrawScreen();
-		mouse->DrawCursor();
-		eventHandler.DrawScreenPost();
+		if (!RHI::IsMetalBackend()) {
+			eventHandler.DrawGenesis();
+			eventHandler.DrawScreen();
+			mouse->DrawCursor();
+			eventHandler.DrawScreenPost();
+		}
 
 		lastDrawFrameTime = spring_gettime();
 		return true;

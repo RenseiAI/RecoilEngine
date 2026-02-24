@@ -4,6 +4,7 @@
 #include "Modern/InfoTextureHandler.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/FBO.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/Exceptions.h"
 #include "System/Log/ILog.h"
@@ -22,7 +23,11 @@ void IInfoTextureHandler::Create()
 #ifdef HEADLESS
 		infoTextureHandler = std::make_unique<CNullInfoTextureHandler>();
 #else
-		infoTextureHandler = std::make_unique<CInfoTextureHandler>();
+		if (RHI::IsMetalBackend()) {
+			infoTextureHandler = std::make_unique<CNullInfoTextureHandler>();
+		} else {
+			infoTextureHandler = std::make_unique<CInfoTextureHandler>();
+		}
 #endif
 	} catch (const opengl_error& glerr) {
 		infoTextureHandler = nullptr;

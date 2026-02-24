@@ -1448,6 +1448,18 @@ bool CGame::Draw() {
 	// Bind per-drawFrame UBO
 	UniformConstants::GetInstance().Bind();
 
+	// Metal bypass: clear to solid color, skip all GL rendering subsystems
+	if (RHI::IsMetalBackend()) {
+		auto* ctx = RHI::GetDevice()->GetContext();
+		ctx->ClearColor(0.2f, 0.3f, 0.4f, 1.0f);
+		ctx->Clear(true, true, true);
+		camera->LoadViewport();
+		SetDrawMode(gameNotDrawing);
+		CTeamHighlight::Disable();
+		lastDrawFrameTime = spring_gettime();
+		return true;
+	}
+
 	{
 		SCOPED_TIMER("Draw::DrawGenesis");
 		eventHandler.DrawGenesis();

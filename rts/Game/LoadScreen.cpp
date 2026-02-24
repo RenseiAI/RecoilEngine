@@ -16,6 +16,8 @@
 #include "Map/MapInfo.h"
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Rendering/Textures/NamedTextures.h"
 #include "Sim/Misc/TeamHandler.h"
 #include "Sim/Path/IPathManager.h"
@@ -310,9 +312,15 @@ bool CLoadScreen::Draw()
 
 	if (luaIntro != nullptr) {
 		luaIntro->Update();
-		luaIntro->DrawGenesis();
-		ClearScreen();
-		luaIntro->DrawLoadScreen();
+		if (!RHI::IsMetalBackend()) {
+			luaIntro->DrawGenesis();
+			ClearScreen();
+			luaIntro->DrawLoadScreen();
+		} else {
+			auto* ctx = RHI::GetDevice()->GetContext();
+			ctx->ClearColor(0.1f, 0.1f, 0.15f, 1.0f);
+			ctx->Clear(true, true, true);
+		}
 	}
 
 	if (!mtLoading)

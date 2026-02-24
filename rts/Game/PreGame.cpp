@@ -25,6 +25,7 @@
 #include "Menu/LuaMenuController.h"
 #include "Net/GameServer.h"
 #include "Net/Protocol/NetProtocol.h"
+#include "Rendering/RHI/RHIFactory.h"
 
 #include "aGui/Gui.h"
 
@@ -189,6 +190,8 @@ bool CPreGame::Draw()
 	RECOIL_DETAILED_TRACY_ZONE;
 
 	ClearScreen();
+	if (RHI::IsMetalBackend())
+		return true;
 
 	static constexpr const float4 color = { 1.0f, 1.0f, 1.0f, 1.0f };
 
