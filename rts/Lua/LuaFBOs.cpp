@@ -46,6 +46,7 @@
 LuaFBOs::~LuaFBOs()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (RHI::IsMetalBackend()) return;
 	for (const auto* fbo: fbos) {
 		glDeleteFramebuffersEXT(1, &fbo->id);
 	}
@@ -197,6 +198,7 @@ void LuaFBOs::LuaFBO::Init(lua_State* L)
 void LuaFBOs::LuaFBO::Free(lua_State* L)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (RHI::IsMetalBackend()) return;
 	if (luaRef == LUA_NOREF)
 		return;
 
@@ -252,6 +254,7 @@ int LuaFBOs::meta_index(lua_State* L)
 int LuaFBOs::meta_newindex(lua_State* L)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (RHI::IsMetalBackend()) return 0;
 	auto* fbo = static_cast<LuaFBO*>(luaL_checkudata(L, 1, "FBO"));
 
 	if (fbo->luaRef == LUA_NOREF)
@@ -313,6 +316,7 @@ bool LuaFBOs::AttachObject(
 	GLenum attachLevel
 ) {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (RHI::IsMetalBackend()) return false;
 	if (lua_isnil(L, index)) {
 		// nil object
 		glFramebufferTexture2DEXT(fbo->target, attachID, GL_TEXTURE_2D, 0, 0);
@@ -364,6 +368,7 @@ bool LuaFBOs::AttachObject(
 void LuaFBOs::AttachObjectTexTarget(const char* funcName, GLenum fboTarget, GLenum texTarget, GLuint texId, GLenum attachID, GLenum attachLevel)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (RHI::IsMetalBackend()) return;
 	//  glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, tex.target, texID, 0);
 	switch (texTarget)
 	{
@@ -432,6 +437,7 @@ bool LuaFBOs::ApplyAttachment(
 bool LuaFBOs::ApplyDrawBuffers(lua_State* L, int index)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (RHI::IsMetalBackend()) return false;
 	if (lua_isnumber(L, index)) {
 		glDrawBuffer((GLenum)lua_toint(L, index));
 		return true;
@@ -488,6 +494,7 @@ bool LuaFBOs::ApplyDrawBuffers(lua_State* L, int index)
  */
 int LuaFBOs::CreateFBO(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	LuaFBO fbo;
 	fbo.Init(L);
 
@@ -583,6 +590,7 @@ int LuaFBOs::DeleteFBO(lua_State* L)
  */
 int LuaFBOs::IsValidFBO(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	if (lua_isnil(L, 1) || !lua_isuserdata(L, 1)) {
 		lua_pushboolean(L, false);
 		return 1;
@@ -631,6 +639,7 @@ int LuaFBOs::IsValidFBO(lua_State* L)
 int LuaFBOs::ActiveFBO(lua_State* L)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (RHI::IsMetalBackend()) return 0;
 	CheckDrawingEnabled(L, __func__);
 	
 	const auto* fbo = static_cast<LuaFBO*>(luaL_checkudata(L, 1, "FBO"));
@@ -716,6 +725,7 @@ int LuaFBOs::ActiveFBO(lua_State* L)
 int LuaFBOs::RawBindFBO(lua_State* L)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (RHI::IsMetalBackend()) return 0;
 	//CheckDrawingEnabled(L, __func__);
 
 	if (lua_isnil(L, 1)) {
@@ -773,6 +783,7 @@ int LuaFBOs::RawBindFBO(lua_State* L)
 int LuaFBOs::BlitFBO(lua_State* L)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (RHI::IsMetalBackend()) return 0;
 	if (lua_israwnumber(L, 1)) {
 		const GLint x0Src = (GLint)luaL_checknumber(L, 1);
 		const GLint y0Src = (GLint)luaL_checknumber(L, 2);
@@ -854,6 +865,7 @@ namespace Impl {
 
 int LuaFBOs::ClearAttachmentFBO(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	const auto ReportErrorAndReturn = [L](const char* errMsg = "", const char* func = __func__) {
 		LOG_L(L_ERROR, "[gl.%s] Error: %s", func, errMsg);
 		lua_pushboolean(L, false);

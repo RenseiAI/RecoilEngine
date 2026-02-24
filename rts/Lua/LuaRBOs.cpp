@@ -22,6 +22,7 @@
 #include "LuaHashString.h"
 #include "LuaUtils.h"
 #include "Rendering/GlobalRendering.h"
+#include "Rendering/RHI/RHIFactory.h"
 
 
 /******************************************************************************
@@ -31,6 +32,7 @@
 
 LuaRBOs::~LuaRBOs()
 {
+	if (RHI::IsMetalBackend()) return;
 	for (const RBO* rbo: rbos) {
 		glDeleteRenderbuffersEXT(1, &rbo->id);
 	}
@@ -90,6 +92,7 @@ void LuaRBOs::RBO::Init()
 
 void LuaRBOs::RBO::Free(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return;
 	if (id == 0)
 		return;
 
@@ -124,6 +127,7 @@ int LuaRBOs::meta_gc(lua_State* L)
 
 int LuaRBOs::meta_index(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	const RBO* rbo = static_cast<RBO*>(luaL_checkudata(L, 1, "RBO"));
 
 	switch (hashString(luaL_checkstring(L, 2))) {
@@ -177,6 +181,7 @@ int LuaRBOs::meta_newindex(lua_State* L)
  */
 int LuaRBOs::CreateRBO(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	RBO rbo;
 	rbo.Init();
 

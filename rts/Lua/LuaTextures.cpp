@@ -24,6 +24,7 @@
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/GL/FBO.h"
 #include "Rendering/GL/TexBind.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "System/SpringMath.h"
 #include "System/StringUtil.h"
 #include "System/Log/ILog.h"
@@ -58,6 +59,7 @@ namespace Impl {
 
 std::string LuaTextures::Create(const Texture& tex)
 {
+	if (RHI::IsMetalBackend()) return "";
 	GLenum query = 0;
 	if (Impl::IsValidLuaTextureTarget(tex.target)) {
 		query = GL::GetBindingQueryFromTarget(tex.target);
@@ -185,6 +187,7 @@ std::string LuaTextures::Create(const Texture& tex)
 
 bool LuaTextures::Bind(const std::string& name) const
 {
+	if (RHI::IsMetalBackend()) return false;
 	const auto it = textureMap.find(name);
 
 	if (it != textureMap.end()) {
@@ -199,6 +202,7 @@ bool LuaTextures::Bind(const std::string& name) const
 
 bool LuaTextures::Free(const std::string& name)
 {
+	if (RHI::IsMetalBackend()) return false;
 	const auto it = textureMap.find(name);
 
 	if (it != textureMap.end()) {
@@ -221,6 +225,7 @@ bool LuaTextures::Free(const std::string& name)
 
 bool LuaTextures::FreeFBO(const std::string& name)
 {
+	if (RHI::IsMetalBackend()) return false;
 	if (!FBO::IsSupported())
 		return false;
 
@@ -242,6 +247,7 @@ bool LuaTextures::FreeFBO(const std::string& name)
 
 void LuaTextures::FreeAll()
 {
+	if (RHI::IsMetalBackend()) return;
 	for (const auto& item: textureMap) {
 		const Texture& tex = textureVec[item.second];
 		glDeleteTextures(1, &tex.id);
@@ -260,6 +266,7 @@ void LuaTextures::FreeAll()
 
 void LuaTextures::ApplyParams(const Texture& tex) const
 {
+	if (RHI::IsMetalBackend()) return;
 	glTexParameteri(tex.target, GL_TEXTURE_WRAP_S, tex.wrap_s);
 	glTexParameteri(tex.target, GL_TEXTURE_WRAP_T, tex.wrap_t);
 	glTexParameteri(tex.target, GL_TEXTURE_WRAP_R, tex.wrap_r);

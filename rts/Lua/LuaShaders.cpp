@@ -206,13 +206,15 @@ bool LuaShaders::DeleteProgram(Program& p)
 	if (p.id == 0)
 		return false;
 
-	for (uint32_t o = 0; o < p.objects.size(); o++) {
-		Object& obj = p.objects[o];
-		glDetachShader(p.id, obj.id);
-		glDeleteShader(obj.id);
-	}
+	if (!RHI::IsMetalBackend()) {
+		for (uint32_t o = 0; o < p.objects.size(); o++) {
+			Object& obj = p.objects[o];
+			glDetachShader(p.id, obj.id);
+			glDeleteShader(obj.id);
+		}
 
-	glDeleteProgram(p.id);
+		glDeleteProgram(p.id);
+	}
 
 	p.objects.clear();
 	p.id = 0;
@@ -565,6 +567,9 @@ GLint LuaShaders::GetUniformLocation(LuaShaders::Program* p, const char* name)
 	if (!p)
 		return -1;
 
+	if (RHI::IsMetalBackend())
+		return -1;
+
 	const auto iter = p->activeUniformLocations.find(name);
 	if (iter == p->activeUniformLocations.cend()) {
 		ActiveUniformLocation ul;
@@ -657,6 +662,7 @@ GLint LuaShaders::GetUniformLocation(LuaShaders::Program* p, const char* name)
  */
 int LuaShaders::CreateShader(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	const int args = lua_gettop(L);
 
 	if ((args != 1) || !lua_istable(L, 1))
@@ -841,6 +847,7 @@ int LuaShaders::DeleteShader(lua_State* L)
  */
 int LuaShaders::UseShader(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	CheckDrawingEnabled(L, __func__);
 
 	const int progIdx = luaL_checkint(L, 1);
@@ -879,6 +886,7 @@ int LuaShaders::UseShader(lua_State* L)
  */
 int LuaShaders::ActiveShader(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	const int progIdx = luaL_checkint(L, 1);
 	luaL_checktype(L, 2, LUA_TFUNCTION);
 
@@ -1005,6 +1013,7 @@ int LuaShaders::GetActiveUniforms(lua_State* L)
  */
 int LuaShaders::GetUniformLocation(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
 	Program* prog = shaders.GetProgram(L, 1);
 
@@ -1019,6 +1028,7 @@ int LuaShaders::GetUniformLocation(lua_State* L)
 
 int LuaShaders::GetSubroutineIndex(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	if (!IS_GL_FUNCTION_AVAILABLE(glGetSubroutineIndex))
 		return 0;
 
@@ -1086,6 +1096,7 @@ int LuaShaders::SetFeatureBufferUniforms(lua_State* L) { return SetObjectBufferU
  */
 int LuaShaders::Uniform(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	if (activeShaderDepth <= 0)
 		CheckDrawingEnabled(L, __func__);
 
@@ -1127,6 +1138,7 @@ int LuaShaders::Uniform(lua_State* L)
  */
 int LuaShaders::UniformInt(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	if (activeShaderDepth <= 0)
 		CheckDrawingEnabled(L, __func__);
 
@@ -1197,6 +1209,7 @@ static bool GLUniformArray(lua_State* L, UniformFunc uf, ParseArrayFunc pf)
  */
 int LuaShaders::UniformArray(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	if (activeShaderDepth <= 0)
 		CheckDrawingEnabled(L, __func__);
 
@@ -1260,6 +1273,7 @@ int LuaShaders::UniformArray(lua_State* L)
  */
 int LuaShaders::UniformMatrix(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	if (activeShaderDepth <= 0)
 		CheckDrawingEnabled(L, __func__);
 
@@ -1321,6 +1335,7 @@ int LuaShaders::UniformMatrix(lua_State* L)
 
 int LuaShaders::UniformSubroutine(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	if (!IS_GL_FUNCTION_AVAILABLE(glUniformSubroutinesuiv))
 		return 0;
 	if (activeShaderDepth <= 0)
@@ -1407,6 +1422,7 @@ int LuaShaders::GetEngineModelUniformDataSize(lua_State* L)
  */
 int LuaShaders::SetGeometryShaderParameter(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	if (!IS_GL_FUNCTION_AVAILABLE(glProgramParameteriEXT))
 		return 0;
 
@@ -1438,6 +1454,7 @@ int LuaShaders::SetGeometryShaderParameter(lua_State* L)
  */
 int LuaShaders::SetTesselationShaderParameter(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	if (!IS_GL_FUNCTION_AVAILABLE(glPatchParameteri))
 		return 0;
 

@@ -736,7 +736,7 @@ void LuaOpenGL::EnableCommon(DrawMode mode)
 	assert(drawMode == DRAW_NONE);
 	drawMode = mode;
 	if (safeMode) {
-		glPushAttrib(AttribBits);
+		if (!RHI::IsMetalBackend()) { glPushAttrib(AttribBits); }
 		ResetGLState();
 	}
 	// FIXME  --  not needed by shadow or minimap   (use a WorldCommon ? )
@@ -752,7 +752,7 @@ void LuaOpenGL::DisableCommon(DrawMode mode)
 	if (!RHI::GetDevice()) { glLightModeli(GL_LIGHT_MODEL_COLOR_CONTROL, GL_SINGLE_COLOR); }
 	drawMode = DRAW_NONE;
 	if (safeMode) {
-		glPopAttrib();
+		if (!RHI::IsMetalBackend()) { glPopAttrib(); }
 	}
 	// Unbind any active shader
 	RHI::GetDevice()->GetContext()->BindShader(nullptr);
@@ -998,9 +998,11 @@ void LuaOpenGL::ResetDrawScreenCommon()
 
 void LuaOpenGL::EnableDrawInMiniMap()
 {
-	glMatrixMode(GL_TEXTURE   ); glPushMatrix();
-	glMatrixMode(GL_PROJECTION); glPushMatrix();
-	glMatrixMode(GL_MODELVIEW ); glPushMatrix();
+	if (!RHI::IsMetalBackend()) {
+		glMatrixMode(GL_TEXTURE   ); glPushMatrix();
+		glMatrixMode(GL_PROJECTION); glPushMatrix();
+		glMatrixMode(GL_MODELVIEW ); glPushMatrix();
+	}
 
 	if (drawMode == DRAW_SCREEN) {
 		prevDrawMode = DRAW_SCREEN;
@@ -1018,7 +1020,7 @@ void LuaOpenGL::DisableDrawInMiniMap()
 		DisableCommon(DRAW_MINIMAP);
 	} else {
 		if (safeMode) {
-			glPopAttrib();
+			if (!RHI::IsMetalBackend()) { glPopAttrib(); }
 		} else {
 			ResetGLState();
 		}
@@ -1028,9 +1030,11 @@ void LuaOpenGL::DisableDrawInMiniMap()
 		drawMode = DRAW_SCREEN;
 	}
 
-	glMatrixMode(GL_TEXTURE   ); glPopMatrix();
-	glMatrixMode(GL_PROJECTION); glPopMatrix();
-	glMatrixMode(GL_MODELVIEW ); glPopMatrix();
+	if (!RHI::IsMetalBackend()) {
+		glMatrixMode(GL_TEXTURE   ); glPopMatrix();
+		glMatrixMode(GL_PROJECTION); glPopMatrix();
+		glMatrixMode(GL_MODELVIEW ); glPopMatrix();
+	}
 }
 
 
@@ -1050,9 +1054,11 @@ void LuaOpenGL::ResetDrawInMiniMap()
 
 void LuaOpenGL::EnableDrawInMiniMapBackground()
 {
-	glMatrixMode(GL_TEXTURE   ); glPushMatrix();
-	glMatrixMode(GL_PROJECTION); glPushMatrix();
-	glMatrixMode(GL_MODELVIEW ); glPushMatrix();
+	if (!RHI::IsMetalBackend()) {
+		glMatrixMode(GL_TEXTURE   ); glPushMatrix();
+		glMatrixMode(GL_PROJECTION); glPushMatrix();
+		glMatrixMode(GL_MODELVIEW ); glPushMatrix();
+	}
 
 	if (drawMode == DRAW_SCREEN) {
 		prevDrawMode = DRAW_SCREEN;
@@ -1070,7 +1076,7 @@ void LuaOpenGL::DisableDrawInMiniMapBackground()
 		DisableCommon(DRAW_MINIMAP_BACKGROUND);
 	} else {
 		if (safeMode) {
-			glPopAttrib();
+			if (!RHI::IsMetalBackend()) { glPopAttrib(); }
 		} else {
 			ResetGLState();
 		}
@@ -1080,9 +1086,11 @@ void LuaOpenGL::DisableDrawInMiniMapBackground()
 		drawMode = DRAW_SCREEN;
 	}
 
-	glMatrixMode(GL_TEXTURE   ); glPopMatrix();
-	glMatrixMode(GL_PROJECTION); glPopMatrix();
-	glMatrixMode(GL_MODELVIEW ); glPopMatrix();
+	if (!RHI::IsMetalBackend()) {
+		glMatrixMode(GL_TEXTURE   ); glPopMatrix();
+		glMatrixMode(GL_PROJECTION); glPopMatrix();
+		glMatrixMode(GL_MODELVIEW ); glPopMatrix();
+	}
 }
 
 
@@ -1122,20 +1130,24 @@ void LuaOpenGL::RevertWorldLighting()
 
 void LuaOpenGL::SetupScreenMatrices()
 {
-	glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_TRUE);
+	if (!RHI::IsMetalBackend()) {
+		glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_TRUE);
 
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(&globalRendering->screenProjMatrix.m[0]);
+		glMatrixMode(GL_PROJECTION);
+		glLoadMatrixf(&globalRendering->screenProjMatrix.m[0]);
 
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(&globalRendering->screenViewMatrix.m[0]);
+		glMatrixMode(GL_MODELVIEW);
+		glLoadMatrixf(&globalRendering->screenViewMatrix.m[0]);
+	}
 }
 
 void LuaOpenGL::RevertScreenMatrices()
 {
-	glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
-	glMatrixMode(GL_PROJECTION); glLoadIdentity(); gluOrtho2D(0.0f, 1.0f, 0.0f, 1.0f);
-	glMatrixMode(GL_MODELVIEW ); glLoadIdentity();
+	if (!RHI::IsMetalBackend()) {
+		glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
+		glMatrixMode(GL_PROJECTION); glLoadIdentity(); gluOrtho2D(0.0f, 1.0f, 0.0f, 1.0f);
+		glMatrixMode(GL_MODELVIEW ); glLoadIdentity();
+	}
 }
 
 
@@ -1205,9 +1217,11 @@ void LuaOpenGL::ResetGenesisMatrices()
 	LuaGLMatrix::SetMode(LuaGLMatrix::MODELVIEW);
 	LuaGLMatrix::LoadIdentity();
 
-	glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
-	glMatrixMode(GL_PROJECTION); glLoadIdentity();
-	glMatrixMode(GL_MODELVIEW ); glLoadIdentity();
+	if (!RHI::IsMetalBackend()) {
+		glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
+		glMatrixMode(GL_PROJECTION); glLoadIdentity();
+		glMatrixMode(GL_MODELVIEW ); glLoadIdentity();
+	}
 }
 
 
@@ -1218,9 +1232,11 @@ void LuaOpenGL::ResetWorldMatrices()
 	LuaGLMatrix::SetMode(LuaGLMatrix::MODELVIEW);
 	LuaGLMatrix::LoadMatrix(camera->GetViewMatrix());
 
-	glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
-	glMatrixMode(GL_PROJECTION); glLoadMatrixf(camera->GetProjectionMatrix());
-	glMatrixMode(GL_MODELVIEW ); glLoadMatrixf(camera->GetViewMatrix());
+	if (!RHI::IsMetalBackend()) {
+		glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
+		glMatrixMode(GL_PROJECTION); glLoadMatrixf(camera->GetProjectionMatrix());
+		glMatrixMode(GL_MODELVIEW ); glLoadMatrixf(camera->GetViewMatrix());
+	}
 }
 
 void LuaOpenGL::ResetWorldShadowMatrices()
@@ -1231,9 +1247,11 @@ void LuaOpenGL::ResetWorldShadowMatrices()
 	LuaGLMatrix::SetMode(LuaGLMatrix::MODELVIEW);
 	LuaGLMatrix::LoadMatrix(shadowHandler.GetShadowMatrixRaw());
 
-	glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
-	glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, -1.0f);
-	glMatrixMode(GL_MODELVIEW ); glLoadMatrixf(shadowHandler.GetShadowMatrixRaw());
+	if (!RHI::IsMetalBackend()) {
+		glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
+		glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, -1.0f);
+		glMatrixMode(GL_MODELVIEW ); glLoadMatrixf(shadowHandler.GetShadowMatrixRaw());
+	}
 }
 
 
@@ -1244,9 +1262,11 @@ void LuaOpenGL::ResetScreenMatrices()
 	LuaGLMatrix::SetMode(LuaGLMatrix::MODELVIEW);
 	LuaGLMatrix::LoadMatrix(globalRendering->screenViewMatrix.m);
 
-	glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
-	glMatrixMode(GL_PROJECTION); glLoadIdentity();
-	glMatrixMode(GL_MODELVIEW ); glLoadIdentity();
+	if (!RHI::IsMetalBackend()) {
+		glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
+		glMatrixMode(GL_PROJECTION); glLoadIdentity();
+		glMatrixMode(GL_MODELVIEW ); glLoadIdentity();
+	}
 
 	SetupScreenMatrices();
 }
@@ -1265,9 +1285,11 @@ void LuaOpenGL::ResetMiniMapMatrices()
 	LuaGLMatrix::DoScale(1.0f / minimap->GetSizeX(), 1.0f / minimap->GetSizeY(), 1.0f);
 
 	// engine draws minimap in 0..1 range, lua uses 0..minimapSize{X,Y}
-	glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
-	glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, -1.0f); minimap->ApplyConstraintsMatrix();
-	glMatrixMode(GL_MODELVIEW ); glLoadIdentity(); glScalef(1.0f / minimap->GetSizeX(), 1.0f / minimap->GetSizeY(), 1.0f);
+	if (!RHI::IsMetalBackend()) {
+		glMatrixMode(GL_TEXTURE   ); glLoadIdentity();
+		glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, -1.0f); minimap->ApplyConstraintsMatrix();
+		glMatrixMode(GL_MODELVIEW ); glLoadIdentity(); glScalef(1.0f / minimap->GetSizeX(), 1.0f / minimap->GetSizeY(), 1.0f);
+	}
 }
 
 
@@ -1344,6 +1366,7 @@ int LuaOpenGL::HasExtension(lua_State* L)
  */
 int LuaOpenGL::GetNumber(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	const GLenum pname = (GLenum) luaL_checknumber(L, 1);
 	const GLuint count = (GLuint) luaL_optnumber(L, 2, 1);
 
@@ -1366,6 +1389,7 @@ int LuaOpenGL::GetNumber(lua_State* L)
  */
 int LuaOpenGL::GetString(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) { lua_pushstring(L, "[NULL]"); return 1; }
 	const GLenum pname = (GLenum) luaL_checknumber(L, 1);
 	const char* pstring = (const char*) glGetString(pname);
 
@@ -1912,6 +1936,7 @@ int LuaOpenGL::UnitMultMatrix(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const CUnit* unit = ParseUnit(L, __func__, 1);
 
@@ -1949,6 +1974,7 @@ int LuaOpenGL::UnitPieceMultMatrix(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	GLObjectPieceMultMatrix(L, ParseUnit(L, __func__, 1));
 	return 0;
 }
@@ -2078,6 +2104,7 @@ int LuaOpenGL::FeatureMultMatrix(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const CFeature* feature = ParseFeature(L, __func__, 1);
 
@@ -2117,6 +2144,7 @@ int LuaOpenGL::FeaturePieceMultMatrix(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	GLObjectPieceMultMatrix(L, ParseFeature(L, __func__, 1));
 	return 0;
 }
@@ -2142,6 +2170,7 @@ int LuaOpenGL::DrawListAtUnit(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	// is visible to current read team, is not an icon
 	const CUnit* unit = ParseDrawUnit(L, __func__, 1);
@@ -2192,6 +2221,7 @@ int LuaOpenGL::DrawListAtUnit(lua_State* L)
 int LuaOpenGL::DrawFuncAtUnit(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	// is visible to current read team, is not an icon
 	const CUnit* unit = ParseDrawUnit(L, __func__, 1);
@@ -2309,6 +2339,7 @@ int LuaOpenGL::DrawGroundQuad(lua_State* L)
 {
 	// FIXME: incomplete (esp. texcoord clamping)
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	const float x0 = luaL_checknumber(L, 1);
 	const float z0 = luaL_checknumber(L, 2);
 	const float x1 = luaL_checknumber(L, 3);
@@ -2503,6 +2534,7 @@ int LuaOpenGL::Shape(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	if (!lua_istable(L, 2)) {
 		luaL_error(L, "Incorrect arguments to gl.Shape(type, elements[])");
@@ -2550,6 +2582,7 @@ int LuaOpenGL::BeginEnd(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const int args = lua_gettop(L); // number of arguments
 	if ((args < 2) || !lua_isfunction(L, 2)) {
@@ -2600,6 +2633,7 @@ int LuaOpenGL::Vertex(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const int args = lua_gettop(L); // number of arguments
 
@@ -2673,6 +2707,7 @@ int LuaOpenGL::Normal(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const int args = lua_gettop(L); // number of arguments
 
@@ -2734,6 +2769,7 @@ int LuaOpenGL::TexCoord(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const int args = lua_gettop(L); // number of arguments
 
@@ -2830,6 +2866,7 @@ int LuaOpenGL::MultiTexCoord(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const int texNum = luaL_checkint(L, 1);
 	if ((texNum < 0) || (texNum >= CGlobalRendering::MAX_TEXTURE_UNITS)) {
@@ -2914,6 +2951,7 @@ int LuaOpenGL::SecondaryColor(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const int args = lua_gettop(L); // number of arguments
 
@@ -2956,6 +2994,7 @@ int LuaOpenGL::FogCoord(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const float value = luaL_checkfloat(L, 1);
 	glFogCoordf(value);
@@ -2971,6 +3010,7 @@ int LuaOpenGL::EdgeFlag(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	if (lua_isboolean(L, 1)) {
 		glEdgeFlag(lua_toboolean(L, 1));
@@ -2991,6 +3031,7 @@ int LuaOpenGL::EdgeFlag(lua_State* L)
 int LuaOpenGL::Rect(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	const float x1 = luaL_checkfloat(L, 1);
 	const float y1 = luaL_checkfloat(L, 2);
 	const float x2 = luaL_checkfloat(L, 3);
@@ -3024,6 +3065,7 @@ int LuaOpenGL::Rect(lua_State* L)
 int LuaOpenGL::TexRect(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const int args = lua_gettop(L); // number of arguments
 
@@ -3084,6 +3126,7 @@ int LuaOpenGL::TexRect(lua_State* L)
  */
 int LuaOpenGL::DispatchCompute(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	const GLuint numGroupX = (GLuint)luaL_checknumber(L, 1);
 	const GLuint numGroupY = (GLuint)luaL_checknumber(L, 2);
 	const GLuint numGroupZ = (GLuint)luaL_checknumber(L, 3);
@@ -3120,6 +3163,7 @@ int LuaOpenGL::DispatchCompute(lua_State* L)
  */
 int LuaOpenGL::MemoryBarrier(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	GLbitfield barriers = (GLbitfield)luaL_optint(L, 1, 0);
 	//skip checking the correctness of values :)
 
@@ -3288,6 +3332,7 @@ int LuaOpenGL::ResetState(lua_State* L)
 int LuaOpenGL::ResetMatrices(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const int args = lua_gettop(L); // number of arguments
 	if (args != 0) {
@@ -3936,6 +3981,7 @@ int LuaOpenGL::StencilOp(lua_State* L)
 int LuaOpenGL::StencilMaskSeparate(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	const GLenum face = luaL_checkint(L, 1);
 	const GLuint mask = luaL_checkint(L, 2);
 	glStencilMaskSeparate(face, mask);
@@ -3954,6 +4000,7 @@ int LuaOpenGL::StencilMaskSeparate(lua_State* L)
 int LuaOpenGL::StencilFuncSeparate(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	const GLenum face = luaL_checkint(L, 1);
 	const GLenum func = luaL_checkint(L, 2);
 	const GLint  ref  = luaL_checkint(L, 3);
@@ -3974,6 +4021,7 @@ int LuaOpenGL::StencilFuncSeparate(lua_State* L)
 int LuaOpenGL::StencilOpSeparate(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	const GLenum face  = luaL_checkint(L, 1);
 	const GLenum fail  = luaL_checkint(L, 2);
 	const GLenum zfail = luaL_checkint(L, 3);
@@ -4130,6 +4178,7 @@ int LuaOpenGL::PointSprite(lua_State* L)
 int LuaOpenGL::PointParameter(lua_State* L)
 {
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	GLfloat atten[3];
 	atten[0] = (GLfloat)luaL_checknumber(L, 1);
 	atten[1] = (GLfloat)luaL_checknumber(L, 2);
@@ -4192,6 +4241,7 @@ int LuaOpenGL::Texture(lua_State* L)
 	//
 
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) { lua_pushboolean(L, false); return 1; }
 
 	if (lua_gettop(L) < 1)
 		luaL_error(L, "Incorrect [number of] arguments to gl.Texture()");
@@ -4508,6 +4558,7 @@ int LuaOpenGL::TextureInfo(lua_State* L)
 int LuaOpenGL::CopyToTexture(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const std::string& texture = luaL_checkstring(L, 1);
 
@@ -4550,6 +4601,7 @@ int LuaOpenGL::CopyToTexture(lua_State* L)
 int LuaOpenGL::RenderToTexture(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const std::string& texture = luaL_checkstring(L, 1);
 
@@ -4602,6 +4654,7 @@ int LuaOpenGL::RenderToTexture(lua_State* L)
 int LuaOpenGL::GenerateMipmap(lua_State* L)
 {
 	//CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	const std::string& texStr = luaL_checkstring(L, 1);
 
 	if (texStr[0] != LuaTextures::prefix) // '!'
@@ -4629,6 +4682,7 @@ int LuaOpenGL::GenerateMipmap(lua_State* L)
 int LuaOpenGL::ActiveTexture(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const int args = lua_gettop(L); // number of arguments
 	if ((args < 2) || !lua_isnumber(L, 1) || !lua_isfunction(L, 2)) {
@@ -4939,6 +4993,7 @@ int LuaOpenGL::MultiTexGen(lua_State* L)
 int LuaOpenGL::BindImageTexture(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	int argNum = 1;
 	//unit
@@ -5289,9 +5344,11 @@ int LuaOpenGL::Clear(lua_State* L)
 					                (float)lua_tonumber(L, 4), (float)lua_tonumber(L, 5));
 				} break;
 				case GL_ACCUM_BUFFER_BIT: {
-					// Accum buffer is deprecated FFP — no RHI equivalent, keep GL fallback
-					glClearAccum((GLfloat)lua_tonumber(L, 2), (GLfloat)lua_tonumber(L, 3),
-					             (GLfloat)lua_tonumber(L, 4), (GLfloat)lua_tonumber(L, 5));
+					// Accum buffer is deprecated FFP — no RHI equivalent, skip on Metal
+					if (!RHI::IsMetalBackend()) {
+						glClearAccum((GLfloat)lua_tonumber(L, 2), (GLfloat)lua_tonumber(L, 3),
+						             (GLfloat)lua_tonumber(L, 4), (GLfloat)lua_tonumber(L, 5));
+					}
 				} break;
 				default: {} break;
 			}
@@ -5342,6 +5399,7 @@ int LuaOpenGL::Translate(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	const float x = luaL_checkfloat(L, 1);
 	const float y = luaL_checkfloat(L, 2);
 	const float z = luaL_checkfloat(L, 3);
@@ -5361,6 +5419,7 @@ int LuaOpenGL::Scale(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	const float x = luaL_checkfloat(L, 1);
 	const float y = luaL_checkfloat(L, 2);
 	const float z = luaL_checkfloat(L, 3);
@@ -5381,6 +5440,7 @@ int LuaOpenGL::Rotate(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	const float r = luaL_checkfloat(L, 1);
 	const float x = luaL_checkfloat(L, 2);
 	const float y = luaL_checkfloat(L, 3);
@@ -5404,6 +5464,7 @@ int LuaOpenGL::Ortho(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	const float left   = luaL_checknumber(L, 1);
 	const float right  = luaL_checknumber(L, 2);
 	const float bottom = luaL_checknumber(L, 3);
@@ -5429,6 +5490,7 @@ int LuaOpenGL::Frustum(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	const float left   = luaL_checknumber(L, 1);
 	const float right  = luaL_checknumber(L, 2);
 	const float bottom = luaL_checknumber(L, 3);
@@ -5448,6 +5510,7 @@ int LuaOpenGL::Billboard(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	LuaGLMatrix::MultMatrix(camera->GetBillBoardMatrix().m);
 	glMultMatrixf(camera->GetBillBoardMatrix());
 	return 0;
@@ -5583,6 +5646,7 @@ int LuaOpenGL::ClipPlane(lua_State* L)
  */
 int LuaOpenGL::ClipDistance(lua_State* L) {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const int clipId = luaL_checkint(L, 1);
 
@@ -5617,6 +5681,7 @@ int LuaOpenGL::MatrixMode(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	GLenum mode = (GLenum)luaL_checkint(L, 1);
 	if (!GetLuaContextData(L)->glMatrixTracker.SetMatrixMode(mode))
 		luaL_error(L, "Incorrect value to gl.MatrixMode");
@@ -5633,6 +5698,7 @@ int LuaOpenGL::LoadIdentity(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const int args = lua_gettop(L); // number of arguments
 	if (args != 0) {
@@ -5696,6 +5762,7 @@ int LuaOpenGL::LoadMatrix(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const int luaType = lua_type(L, 1);
 	if (luaType == LUA_TSTRING) {
@@ -5757,6 +5824,7 @@ int LuaOpenGL::MultMatrix(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const int luaType = lua_type(L, 1);
 	if (luaType == LUA_TSTRING) {
@@ -5794,6 +5862,7 @@ int LuaOpenGL::PushMatrix(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const int args = lua_gettop(L); // number of arguments
 	if (args != 0) {
@@ -5816,6 +5885,7 @@ int LuaOpenGL::PopMatrix(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	const int args = lua_gettop(L); // number of arguments
 	if (args != 0) {
@@ -5845,6 +5915,7 @@ int LuaOpenGL::PushPopMatrix(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	std::vector<GLenum> matModes;
 	int arg;
@@ -5919,6 +5990,7 @@ int LuaOpenGL::GetMatrixData(lua_State* L)
 {
 	const int luaType = lua_type(L, 1);
 	CondWarnDeprecatedGL(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 
 	if (luaType == LUA_TNUMBER) {
 		const GLenum type = (GLenum)lua_tonumber(L, 1);
@@ -5984,6 +6056,7 @@ int LuaOpenGL::GetMatrixData(lua_State* L)
 int LuaOpenGL::PushAttrib(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	int mask = luaL_optnumber(L, 1, GL_ALL_ATTRIB_BITS);
 	if (mask < 0) {
 		mask = -mask;
@@ -6000,6 +6073,7 @@ int LuaOpenGL::PushAttrib(lua_State* L)
 int LuaOpenGL::PopAttrib(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	glPopAttrib();
 	return 0;
 }
@@ -6021,6 +6095,7 @@ int LuaOpenGL::PopAttrib(lua_State* L)
 int LuaOpenGL::UnsafeState(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	const GLenum state = (GLenum)luaL_checkint(L, 1);
 	int funcLoc = 2;
 	bool reverse = false;
@@ -6054,6 +6129,7 @@ int LuaOpenGL::UnsafeState(lua_State* L)
 int LuaOpenGL::GetFixedState(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
+	if (RHI::IsMetalBackend()) return 0;
 	const char* param = luaL_checkstring(L, 1);
 	const bool toStr = luaL_optboolean(L, 2, false);
 
@@ -6558,6 +6634,7 @@ static void PushPixelData(lua_State* L, int fSize, const float*& data)
  */
 int LuaOpenGL::ReadPixels(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	const GLint x = luaL_checkint(L, 1);
 	const GLint y = luaL_checkint(L, 2);
 	const GLint w = luaL_checkint(L, 3);
@@ -6648,6 +6725,7 @@ int LuaOpenGL::ReadPixels(lua_State* L)
  */
 int LuaOpenGL::SaveImage(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	const GLint x = (GLint)luaL_checknumber(L, 1);
 	const GLint y = (GLint)luaL_checknumber(L, 2);
 	const GLsizei width  = (GLsizei)luaL_checknumber(L, 3);
@@ -6725,6 +6803,7 @@ int LuaOpenGL::SaveImage(lua_State* L)
  */
 int LuaOpenGL::CreateQuery(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	GLuint id;
 	glGenQueries(1, &id);
 
@@ -6749,6 +6828,7 @@ int LuaOpenGL::CreateQuery(lua_State* L)
  */
 int LuaOpenGL::DeleteQuery(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	if (lua_isnil(L, 1))
 		return 0;
 
@@ -6776,6 +6856,7 @@ int LuaOpenGL::DeleteQuery(lua_State* L)
  */
 int LuaOpenGL::RunQuery(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	static bool running = false;
 
 	if (running)
@@ -6817,6 +6898,7 @@ int LuaOpenGL::RunQuery(lua_State* L)
  */
 int LuaOpenGL::GetQuery(lua_State* L)
 {
+	if (RHI::IsMetalBackend()) return 0;
 	if (!lua_islightuserdata(L, 1))
 		luaL_error(L, "gl.GetQuery(q) expects a userdata query");
 
@@ -7273,6 +7355,7 @@ int LuaOpenGL::GetMapRendering(lua_State* L)
  * @param label string A string containing the label to be assigned to the object.
  */
 int LuaOpenGL::ObjectLabel(lua_State* L) {
+	if (RHI::IsMetalBackend()) return 0;
 	const auto identifier = static_cast<GLenum>(luaL_checkinteger(L, 1));
 
 	switch (identifier) {
@@ -7318,6 +7401,7 @@ int LuaOpenGL::ObjectLabel(lua_State* L) {
  * @return nil
  */
 int LuaOpenGL::PushDebugGroup(lua_State* L) {
+	if (RHI::IsMetalBackend()) return 0;
 	const auto id = static_cast<GLuint>(luaL_checkinteger(L, 1));
 	std::string message = luaL_checkstring(L, 2);
 	const bool sourceIsThirdParty = luaL_optboolean(L, 3, false);
@@ -7347,6 +7431,7 @@ int LuaOpenGL::PushDebugGroup(lua_State* L) {
  * @return nil
  */
 int LuaOpenGL::PopDebugGroup(lua_State* L) {
+	if (RHI::IsMetalBackend()) return 0;
 	glPopDebugGroup();
 	return 0;
 }

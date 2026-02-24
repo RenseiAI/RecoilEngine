@@ -791,6 +791,7 @@ sol::as_table_t<std::vector<lua_Number>> LuaVBOImpl::Download(sol::optional<int>
 
 void LuaVBOImpl::Clear()
 {
+	if (RHI::IsMetalBackend()) return;
 	VBOExistenceCheck(vbo, __func__);
 
 	GLubyte val = 0;
