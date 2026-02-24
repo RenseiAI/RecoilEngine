@@ -486,6 +486,10 @@ bool CSMFGroundTextures::GetSquareLuaTexture(int texSquareX, int texSquareY, int
 		return false;
 
 	// Lua texture path: raw GL calls remain (Lua provides GLuint texID)
+	// Not supported on Metal — GLAD is null, no GL texture operations possible
+	if (RHI::IsMetalBackend())
+		return false;
+
 	const GLenum glTexFormat = (rhiTexFormat == RHI::TextureFormat::CompressedETC2)
 		? GL_COMPRESSED_RGB8_ETC2
 		: GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
@@ -641,8 +645,9 @@ void CSMFGroundTextures::BindSquareTexture(int texSquareX, int texSquareY)
 	GroundSquare* square = &squares[texSquareY * smfMap->numBigTexX + texSquareX];
 
 	if (square->HasLuaTexture()) {
-		// Lua texture is a raw GL ID — bind directly
-		glBindTexture(GL_TEXTURE_2D, square->GetLuaTextureID());
+		// Lua texture is a raw GL ID — not supported on Metal
+		if (!RHI::IsMetalBackend())
+			glBindTexture(GL_TEXTURE_2D, square->GetLuaTextureID());
 	} else if (auto* tex = square->GetRHITexture()) {
 		tex->Bind(0);
 	}

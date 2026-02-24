@@ -5,8 +5,8 @@
  * ============================
  * - Atlas storage uses RHI::IRHITexture (migrated)
  * - FBO render-to-texture pipeline still uses GL (out of scope)
- * - filenameToTexID intermediate textures still use raw GLuint (out of scope)
- * - glDeleteTextures for intermediate cleanup still GL (out of scope)
+ * - filenameToTexID intermediate textures still use raw GLuint on GL path
+ * - filenameToRHITex stores RHI textures on Metal path (no raw GL)
  */
 #pragma once
 
@@ -17,6 +17,7 @@
 
 #include "TextureAtlas.h"
 #include "IAtlasAllocator.h"
+#include "Rendering/RHI/RHITexture.h"
 #include "System/type2.h"
 #include "System/float4.h"
 #include "System/Color.h"
@@ -85,6 +86,7 @@ private:
 	bool AddTexFromBitmapRaw(const std::string& name, const CBitmap& bm, const float4& subTexCoords, const std::string& refFileName);
 
 	spring::unordered_map<std::string, uint32_t> filenameToTexID;
+	spring::unordered_map<std::string, std::unique_ptr<RHI::IRHITexture>> filenameToRHITex;
 	spring::unordered_map<std::string, UniqueSubTexture> uniqueSubTextureMap;
 	spring::unordered_map<std::string, std::string> nameToUniqueSubTexStr;
 

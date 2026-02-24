@@ -10,10 +10,14 @@
  * Remaining GL (render-to-texture pipeline):
  *   - FBO attachment/rendering still uses GL
  *   - glDrawBuffer/glReadBuffer for FBO attachment selection
- *   - filenameToTexID stores raw GLuint from CBitmap::CreateMipMapTexture
- *   - glDeleteTextures for intermediate texture cleanup
+ *   - filenameToTexID stores raw GLuint from CBitmap::CreateMipMapTexture (GL path only)
+ *   - glDeleteTextures for intermediate texture cleanup (GL path only)
  *
- * Note: Full migration blocked by FBO RHI wrapper and CBitmap RHI return types.
+ * Metal path:
+ *   - filenameToRHITex stores RHI textures (no raw GL)
+ *   - Atlas render-to-texture is not supported (FBO returns not-ready on Metal)
+ *
+ * Note: Full FBO-based atlas rendering blocked by FBO RHI wrapper.
  */
 
 #include "TextureRenderAtlas.h"
@@ -152,11 +156,11 @@ CTextureRenderAtlas::~CTextureRenderAtlas()
 
 	for (auto& [_, tID] : filenameToTexID) {
 		if (tID) {
-			// RHI_TODO: migrate once CBitmap returns RHI textures (CreateMipMapTexture -> CreateTextureRHI)
 			glDeleteTextures(1, &tID);
 			tID = 0;
 		}
 	}
+	filenameToRHITex.clear();
 
 	atlasTex = nullptr;
 }
@@ -210,8 +214,13 @@ bool CTextureRenderAtlas::AddTexFromBitmapRaw(const std::string& name, const CBi
 
 	auto it = filenameToTexID.find(refFileName);
 	if (it == filenameToTexID.end()) {
-		// RHI_TODO: migrate to bm.CreateTextureRHI() once atlas rendering pipeline supports RHI textures
-		it = filenameToTexID.emplace(refFileName, bm.CreateMipMapTexture()).first;
+		if (RHI::IsMetalBackend()) {
+			// Metal: create RHI texture (no raw GL); store 0 as GLuint placeholder
+			filenameToRHITex.emplace(refFileName, bm.CreateTextureRHI());
+			it = filenameToTexID.emplace(refFileName, 0).first;
+		} else {
+			it = filenameToTexID.emplace(refFileName, bm.CreateMipMapTexture()).first;
+		}
 	}
 
 	const auto uniqueSubTex = UniqueSubTexture(
@@ -514,11 +523,11 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 
 	for (auto& [_, texID] : filenameToTexID) {
 		if (texID) {
-			// RHI_TODO: migrate once CBitmap returns RHI textures (CreateMipMapTexture -> CreateTextureRHI)
 			glDeleteTextures(1, &texID);
 			texID = 0;
 		}
 	}
+	filenameToRHITex.clear();
 
 	return true;
 }
