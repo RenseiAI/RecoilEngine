@@ -31,6 +31,10 @@ CInfoTextureCombiner::CInfoTextureCombiner()
 : CModernInfoTexture("info")
 , disabled(true)
 {
+	// Metal has no GL context — Combiner uses glBegin/glEnd which cannot be migrated
+	if (RHI::IsMetalBackend())
+		throw opengl_error("[CInfoTextureCombiner] not supported on Metal backend");
+
 	texSize = int2(mapDims.pwr2mapx, mapDims.pwr2mapy);
 
 	GL::TextureCreationParams tcp{
@@ -43,7 +47,7 @@ CInfoTextureCombiner::CInfoTextureCombiner()
 	texture = GL::Texture2D(texSize, GL_RGB10_A2, tcp, false);
 
 	if (FBO::IsSupported()) {
-		auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+		auto* device = RHI::GetDevice();
 		auto* ctx = device->GetContext();
 		fbo.Bind();
 		fbo.AttachTexture(texture.GetId());
@@ -104,7 +108,7 @@ bool CInfoTextureCombiner::CreateShader(const std::string& filename, const bool 
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (clear) {
 		// clear
-		auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+		auto* device = RHI::GetDevice();
 		auto* ctx = device->GetContext();
 		fbo.Bind();
 		ctx->ClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
@@ -134,7 +138,7 @@ void CInfoTextureCombiner::Update()
 		ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE)
 	);
 
-	auto device = RHI::CreateDevice(RHI::GetDefaultBackend());
+	auto* device = RHI::GetDevice();
 	auto* ctx = device->GetContext();
 
 	fbo.Bind();

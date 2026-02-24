@@ -1086,6 +1086,9 @@ void CMiniMap::FlushMatrices() const
 void CMiniMap::ApplyConstraintsMatrix() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (RHI::IsMetalBackend())
+		return;
+
 	if (!renderToTexture) {
 		if (globalRendering->dualScreenMode) {
 			glTranslatef(curPos.x, curPos.y, 0.0f);

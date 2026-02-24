@@ -292,15 +292,16 @@ void CCamera::UpdateLoadViewport(int px, int py, int sx, int sy)
 void CCamera::LoadMatrices() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	// RHI_TODO: FFP matrix stack - no RHI equivalent
-	// Modern path uses uniform buffers; legacy GLSL path still needs FFP state
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(&projectionMatrix.m[0]);
+	if (!RHI::IsMetalBackend()) {
+		// FFP matrix stack — needed by legacy GLSL path on GL backend
+		glMatrixMode(GL_PROJECTION);
+		glLoadMatrixf(&projectionMatrix.m[0]);
 
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(&viewMatrix.m[0]);
+		glMatrixMode(GL_MODELVIEW);
+		glLoadMatrixf(&viewMatrix.m[0]);
+	}
 
-	// Update global matrix cache for RenderBuffer auto-sync (Metal compat)
+	// Update global matrix cache for RenderBuffer auto-sync (works on all backends)
 	RenderBuffer::globalProjection = projectionMatrix;
 	RenderBuffer::globalModelView = viewMatrix;
 }

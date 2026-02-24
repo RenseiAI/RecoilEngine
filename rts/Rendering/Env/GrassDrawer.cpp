@@ -443,12 +443,14 @@ static float3 GetTurfParams(GrassRNG& rng, const int x, const int y)
 
 void CGrassDrawer::FlushMatrices() const
 {
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(projStack.Top());
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(mvStack.Top());
+	if (!RHI::IsMetalBackend()) {
+		glMatrixMode(GL_PROJECTION);
+		glLoadMatrixf(projStack.Top());
+		glMatrixMode(GL_MODELVIEW);
+		glLoadMatrixf(mvStack.Top());
+	}
 
-	// Update global matrix cache for RenderBuffer auto-sync (Metal compat)
+	// Update global matrix cache for RenderBuffer auto-sync (works on all backends)
 	RenderBuffer::globalProjection = projStack.Top();
 	RenderBuffer::globalModelView = mvStack.Top();
 }

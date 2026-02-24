@@ -418,10 +418,12 @@ void ClearScreen()
 	ctx->ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	ctx->Clear(true, true, false);
 
-	glMatrixMode(GL_PROJECTION);
-	glLoadMatrixf(CMatrix44f::ClipOrthoProj01());
-	glMatrixMode(GL_MODELVIEW);
-	glLoadMatrixf(CMatrix44f::Identity());
+	if (!RHI::IsMetalBackend()) {
+		glMatrixMode(GL_PROJECTION);
+		glLoadMatrixf(CMatrix44f::ClipOrthoProj01());
+		glMatrixMode(GL_MODELVIEW);
+		glLoadMatrixf(CMatrix44f::Identity());
+	}
 
 	ctx->SetBlendEnabled(true);
 	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
