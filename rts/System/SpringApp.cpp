@@ -305,18 +305,6 @@ bool SpringApp::Init()
 
 	InitFonts();
 
-	// Metal path: fonts initialized (RHI-safe), skip VFS/Lua/full game init
-	// activeController remains nullptr — Update() renders agui test frame
-	if (RHI::IsMetalBackend()) {
-		ClearScreen();
-
-		#ifndef HEADLESS
-		agui::gui = new agui::Gui();
-		#endif
-
-		return true;
-	}
-
 	ClearScreen();
 
 	if (!InitFileSystem())
@@ -916,33 +904,6 @@ bool SpringApp::Update()
 	configHandler->Update();
 	globalRendering->UpdateWindow();
 	globalRendering->UpdateTimer();
-
-#ifdef RHI_HAS_METAL
-	// Metal test frame: render agui (font + boxes) to prove the UI pipeline
-	if (RHI::IsMetalBackend() && activeController == nullptr) {
-		auto* ctx = RHI::GetDevice()->GetContext();
-
-		RHI::RenderPassDesc passDesc{};
-		passDesc.colorAttachmentCount = 1;
-		passDesc.colorAttachments[0].loadAction = RHI::LoadAction::Clear;
-		passDesc.colorAttachments[0].clearColor = {0.1f, 0.1f, 0.15f, 1.0f};
-		ctx->BeginDefaultRenderPass(passDesc);
-
-		// Draw font test string
-		if (font) {
-			font->Begin();
-			font->SetTextColor(1.0f, 1.0f, 1.0f, 1.0f);
-			font->glPrint(0.1f, 0.9f, 1.5f, FONT_SCALE | FONT_NORM, "Recoil - Metal Backend");
-			font->glPrint(0.1f, 0.85f, 1.0f, FONT_SCALE | FONT_NORM, "Phase 10.1: Font + agui rendering");
-			font->End();
-		}
-
-		ctx->EndRenderPass();
-
-		globalRendering->SwapBuffers(true, false);
-		return true;
-	}
-#endif
 
 	#if 0
 	if (activeController == nullptr)

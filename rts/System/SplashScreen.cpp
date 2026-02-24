@@ -23,20 +23,6 @@ void ShowSplashScreen(
 	const std::string& springVersionStr,
 	const std::function<bool()>& testDoneFunc
 ) {
-	// Metal path: no fonts loaded yet, just wait for FS init with clear frames
-	if (RHI::IsMetalBackend()) {
-		auto* ctx = RHI::GetDevice()->GetContext();
-		while (!testDoneFunc()) {
-			ctx->ClearColor(0.1f, 0.1f, 0.15f, 1.0f);
-			ctx->Clear(true, false, false);
-			globalRendering->SwapBuffers(true, true);
-			Watchdog::ClearTimer();
-			SDL_PollEvent(nullptr);
-			spring_msecs(50).sleep(true);
-		}
-		return;
-	}
-
 	CBitmap bmp;
 
 	VA_TYPE_2DT quadElems[] = {
@@ -88,7 +74,16 @@ void ShowSplashScreen(
 
 	for (spring_time t0 = spring_now(), t1 = t0; !testDoneFunc(); t1 = spring_now()) {
 		auto* ctx = RHI::GetDevice()->GetContext();
-		ctx->Clear(true, false, false);
+
+		if (RHI::IsMetalBackend()) {
+			RHI::RenderPassDesc passDesc{};
+			passDesc.colorAttachmentCount = 1;
+			passDesc.colorAttachments[0].loadAction = RHI::LoadAction::Clear;
+			passDesc.colorAttachments[0].clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+			ctx->BeginDefaultRenderPass(passDesc);
+		} else {
+			ctx->Clear(true, false, false);
+		}
 
 		splashTex->Bind(0);
 
@@ -99,9 +94,13 @@ void ShowSplashScreen(
 			{ quadElems[3].x, quadElems[3].y, quadElems[3].s, quadElems[3].t }
 		);
 
-		sh.Enable();
+		if (!RHI::IsMetalBackend()) {
+			sh.Enable();
+		}
 		rb.DrawElements(GL_TRIANGLES);
-		sh.Disable();
+		if (!RHI::IsMetalBackend()) {
+			sh.Disable();
+		}
 
 		font->Begin();
 		font->SetTextColor(color.x, color.y, color.z, color.w);
