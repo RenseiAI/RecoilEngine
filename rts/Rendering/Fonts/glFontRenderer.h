@@ -4,6 +4,7 @@
 
 #include "Rendering/GL/VertexArrayTypes.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHIShader.h"
 #include "Rendering/RHI/RHITexture.h"
 #include "System/Matrix44f.h"
 
@@ -56,19 +57,26 @@ public:
 	void PopGLState(const CglFont& font) override;
 
 	bool IsLegacy() const override { return false; }
-	bool IsValid() const override { return fontShader->IsValid(); }
+	bool IsValid() const override;
 	void GetStats(std::array<size_t, 8>& stats) const override;
 private:
+	static std::unique_ptr<RHI::IRHIShader> CreateRHIFontShader(bool colorMode);
+
 	TypedRenderBuffer<VA_TYPE_TC> primaryBufferTC;
 	TypedRenderBuffer<VA_TYPE_TC> outlineBufferTC;
 
 	CMatrix44f worldTransform;
 	bool hasWorldTransform = false;
+	RHI::IRHIShader* activeRHIFontShader = nullptr; // set by PushGLState, used by DrawTraingleElements
 
 	static inline size_t fontShaderRefs = 0;
 	static inline std::unique_ptr<Shader::IProgramObject> fontShader = nullptr;
 	static inline size_t fontShaderColorRefs = 0;
 	static inline std::unique_ptr<Shader::IProgramObject> fontShaderColor = nullptr;
+
+	// RHI font shaders (for Metal path, cross-compiled GLSL->MSL)
+	static inline std::unique_ptr<RHI::IRHIShader> fontShaderRHI = nullptr;
+	static inline std::unique_ptr<RHI::IRHIShader> fontShaderColorRHI = nullptr;
 };
 
 class CglNullFontRenderer final : public CglFontRenderer {

@@ -303,13 +303,19 @@ bool SpringApp::Init()
 
 	UpdateInterfaceGeometry();
 
-	// Metal test path: skip font/GUI/VFS initialization, run a minimal render loop
+	InitFonts();
+
+	// Metal path: fonts initialized (RHI-safe), skip VFS/Lua/full game init
+	// activeController remains nullptr — Update() renders agui test frame
 	if (RHI::IsMetalBackend()) {
 		ClearScreen();
+
+		#ifndef HEADLESS
+		agui::gui = new agui::Gui();
+		#endif
+
 		return true;
 	}
-
-	InitFonts();
 
 	ClearScreen();
 
@@ -912,10 +918,9 @@ bool SpringApp::Update()
 	globalRendering->UpdateTimer();
 
 #ifdef RHI_HAS_METAL
-	// Metal test frame: draw a colored triangle each frame
+	// Metal test frame: render agui (font + boxes) to prove the UI pipeline
 	if (RHI::IsMetalBackend() && activeController == nullptr) {
-		auto* device = RHI::GetDevice();
-		auto* ctx = device->GetContext();
+		auto* ctx = RHI::GetDevice()->GetContext();
 
 		RHI::RenderPassDesc passDesc{};
 		passDesc.colorAttachmentCount = 1;
@@ -923,14 +928,14 @@ bool SpringApp::Update()
 		passDesc.colorAttachments[0].clearColor = {0.1f, 0.1f, 0.15f, 1.0f};
 		ctx->BeginDefaultRenderPass(passDesc);
 
-		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
-		const CMatrix44f ortho = CMatrix44f::ClipOrthoProj01();
-		rb.SetTransformMatrix(ortho);
-
-		rb.AddVertex({{0.25f, 0.25f, 0.0f}, SColor(1.0f, 0.0f, 0.0f, 1.0f)});
-		rb.AddVertex({{0.75f, 0.25f, 0.0f}, SColor(0.0f, 1.0f, 0.0f, 1.0f)});
-		rb.AddVertex({{0.50f, 0.75f, 0.0f}, SColor(0.0f, 0.0f, 1.0f, 1.0f)});
-		rb.DrawArrays(GL_TRIANGLES);
+		// Draw font test string
+		if (font) {
+			font->Begin();
+			font->SetTextColor(1.0f, 1.0f, 1.0f, 1.0f);
+			font->glPrint(0.1f, 0.9f, 1.5f, FONT_SCALE | FONT_NORM, "Recoil - Metal Backend");
+			font->glPrint(0.1f, 0.85f, 1.0f, FONT_SCALE | FONT_NORM, "Phase 10.1: Font + agui rendering");
+			font->End();
+		}
 
 		ctx->EndRenderPass();
 

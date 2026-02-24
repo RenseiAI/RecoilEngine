@@ -42,7 +42,6 @@ void Window::DrawSelf()
 	DrawBox(GL_QUADS, { 0.0f,0.0f,0.0f, opacity });
 
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2DC>();
-	auto& sh = rb.GetShader();
 
 	const SColor color = { 0.7f,0.7f,0.7f, opacity };
 	rb.AddQuadTriangles(
@@ -51,10 +50,16 @@ void Window::DrawSelf()
 		{ pos[0] + size[0], pos[1] + size[1]              , color },
 		{ pos[0] + size[0], pos[1] + size[1] - titleHeight, color }
 	);
-	sh.Enable();
+	if (!RHI::IsMetalBackend()) {
+		auto& sh = rb.GetShader();
+		sh.Enable();
+	}
 	rb.SetTransformMatrix(CMatrix44f::ClipOrthoProj01());
 	rb.DrawElements(GL_TRIANGLES);
-	sh.Disable();
+	if (!RHI::IsMetalBackend()) {
+		auto& sh = rb.GetShader();
+		sh.Disable();
+	}
 
 	ctx->SetLineWidth(2.0f);
 	DrawBox(GL_LINE_LOOP, { 1.0f,1.0f,1.0f, opacity });

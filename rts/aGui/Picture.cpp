@@ -4,6 +4,7 @@
 #include "Picture.h"
 
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHITexture.h"
 #include "Rendering/Shaders/Shader.h"
 #include "System/Matrix44f.h"
@@ -44,7 +45,6 @@ namespace agui
 	{
 		if (rhiTexture) {
 			auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2DTC>();
-			auto& sh = rb.GetShader();
 			const SColor color = { 1.0f, 1.0f, 1.0f, 1.0f };
 
 			rb.AddQuadTriangles(
@@ -55,10 +55,16 @@ namespace agui
 			);
 
 			rhiTexture->Bind(0);
-			sh.Enable();
+			if (!RHI::IsMetalBackend()) {
+				auto& sh = rb.GetShader();
+				sh.Enable();
+			}
 			rb.SetTransformMatrix(CMatrix44f::ClipOrthoProj01());
 			rb.DrawElements(GL_TRIANGLES);
-			sh.Disable();
+			if (!RHI::IsMetalBackend()) {
+				auto& sh = rb.GetShader();
+				sh.Disable();
+			}
 		}
 	}
 #endif

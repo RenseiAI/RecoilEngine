@@ -88,11 +88,16 @@ void LineEdit::DrawSelf()
 				{ float3(csx + cw, textCenter - cursorHeight/2, 0.0f), color },
 				{ float3(csx, textCenter - cursorHeight/2, 0.0f), color }
 			);
-			auto& sh = rb.GetShader();
-			sh.Enable();
+			if (!RHI::IsMetalBackend()) {
+				auto& sh = rb.GetShader();
+				sh.Enable();
+			}
 			rb.SetTransformMatrix(CMatrix44f::ClipOrthoProj01());
 			rb.DrawElements(GL_TRIANGLES);
-			sh.Disable();
+			if (!RHI::IsMetalBackend()) {
+				auto& sh = rb.GetShader();
+				sh.Disable();
+			}
 		}
 	}
 

@@ -5,6 +5,7 @@
 
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/RenderBuffers.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/Shaders/Shader.h"
 #include "System/Matrix44f.h"
 
@@ -138,11 +139,13 @@ void GuiElement::DrawBox(int primType, const SColor& color) {}
 void GuiElement::DrawBox(int primType, const SColor& color)
 {
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2DC>();
-	auto& sh = rb.GetShader();
 
 	const CMatrix44f ortho01 = CMatrix44f::ClipOrthoProj01();
 
-	sh.Enable();
+	if (!RHI::IsMetalBackend()) {
+		auto& sh = rb.GetShader();
+		sh.Enable();
+	}
 	switch (primType)
 	{
 	case GL_QUADS: {
@@ -169,7 +172,10 @@ void GuiElement::DrawBox(int primType, const SColor& color)
 		assert(false);
 		break;
 	}
-	sh.Disable();
+	if (!RHI::IsMetalBackend()) {
+		auto& sh = rb.GetShader();
+		sh.Disable();
+	}
 }
 #endif // !HEADLESS
 

@@ -11,6 +11,7 @@
 #include "Rendering/GlobalRendering.h"
 #include "System/Matrix44f.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/Shaders/Shader.h"
 #include "Rendering/Shaders/ShaderHandler.h"
@@ -139,6 +140,84 @@ void main() {
 
 ////////////////////////////////////////////
 
+// RHI-compatible font GLSL (for GLSL -> SPIR-V -> MSL cross-compilation)
+static constexpr const char* vsFontRHI = R"(
+#version 330 core
+#extension GL_ARB_separate_shader_objects : require
+layout(location = 0) in vec3 pos;
+layout(location = 1) in vec2 uv;
+layout(location = 2) in vec4 col;
+layout(std140) uniform FontUniforms { mat4 transformMatrix; };
+layout(location = 0) out vec2 vUV;
+layout(location = 1) out vec4 vCol;
+void main() {
+	vCol = col;
+	vUV  = uv;
+	gl_Position = transformMatrix * vec4(pos, 1.0);
+}
+)";
+
+static constexpr const char* fsFontRHI = R"(
+#version 330 core
+#extension GL_ARB_separate_shader_objects : require
+uniform sampler2D tex;
+layout(std140) uniform FontUniforms { mat4 transformMatrix; };
+layout(location = 0) in vec2 vUV;
+layout(location = 1) in vec4 vCol;
+out vec4 outColor;
+void main() {
+	vec2 texSize = vec2(textureSize(tex, 0));
+	float alpha = texture(tex, vUV / texSize).x;
+	outColor = vec4(vCol.r, vCol.g, vCol.b, vCol.a * alpha);
+}
+)";
+
+static constexpr const char* fsFontColorRHI = R"(
+#version 330 core
+#extension GL_ARB_separate_shader_objects : require
+uniform sampler2D tex;
+layout(std140) uniform FontUniforms { mat4 transformMatrix; };
+layout(location = 0) in vec2 vUV;
+layout(location = 1) in vec4 vCol;
+out vec4 outColor;
+void main() {
+	vec2 texSize = vec2(textureSize(tex, 0));
+	outColor = texture(tex, vUV / texSize) * vCol;
+}
+)";
+
+std::unique_ptr<RHI::IRHIShader> CglShaderFontRenderer::CreateRHIFontShader(bool colorMode)
+{
+	auto* device = RHI::GetDevice();
+	if (!device)
+		return nullptr;
+
+	auto shader = device->CreateShader(colorMode ? "[RHI-FontColor]" : "[RHI-Font]");
+	shader->AttachStageFromSource(RHI::ShaderStage::Vertex, std::string(vsFontRHI));
+	shader->AttachStageFromSource(RHI::ShaderStage::Fragment,
+		std::string(colorMode ? fsFontColorRHI : fsFontRHI));
+
+	shader->BindAttribLocation("pos", 0);
+	shader->BindAttribLocation("uv", 1);
+	shader->BindAttribLocation("col", 2);
+
+	shader->Link();
+
+	if (!shader->Validate()) {
+		LOG_L(L_ERROR, "[CglShaderFontRenderer::%s] Failed to create RHI font shader (color=%d)",
+			__func__, colorMode);
+		return nullptr;
+	}
+
+	// Set texture sampler uniform
+	shader->Bind();
+	shader->SetUniform1i("tex", 0);
+	shader->Unbind();
+
+	LOG("[CglShaderFontRenderer::%s] Created RHI font shader (color=%d)", __func__, colorMode);
+	return shader;
+}
+
 CglShaderFontRenderer::CglShaderFontRenderer()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -150,6 +229,14 @@ CglShaderFontRenderer::CglShaderFontRenderer()
 	if (fontShaderRefs > 1)
 		return;
 
+	if (RHI::IsMetalBackend()) {
+		// Metal path: create cross-compiled RHI font shaders
+		fontShaderRHI = CreateRHIFontShader(false);
+		fontShaderColorRHI = CreateRHIFontShader(true);
+		return;
+	}
+
+	// GL path: create GLSLProgramObjects
 	// can't use shaderHandler here because it invalidates the objects on reload
 	// but fonts are expected to be available all the time
 	fontShader = std::make_unique<Shader::GLSLProgramObject>("[GL-Font]");
@@ -199,6 +286,15 @@ CglShaderFontRenderer::~CglShaderFontRenderer()
 
 	fontShader = nullptr; // fontShader->Release() is called implicitly
 	fontShaderColor = nullptr; // fontShader->Release() is called implicitly
+	fontShaderRHI = nullptr;
+	fontShaderColorRHI = nullptr;
+}
+
+bool CglShaderFontRenderer::IsValid() const
+{
+	if (RHI::IsMetalBackend())
+		return fontShaderRHI && fontShaderRHI->IsValid();
+	return fontShader && fontShader->IsValid();
 }
 
 void CglShaderFontRenderer::AddQuadTrianglesPB(VA_TYPE_TC&& tl, VA_TYPE_TC&& tr, VA_TYPE_TC&& br, VA_TYPE_TC&& bl)
@@ -218,8 +314,17 @@ void CglShaderFontRenderer::DrawTraingleElements()
 	RECOIL_DETAILED_TRACY_ZONE;
 	// Always set explicit transform — either world transform or identity for screen-space NDC
 	const CMatrix44f& xform = hasWorldTransform ? worldTransform : CMatrix44f::Identity();
+
+	// On Metal, re-set the shader override before each draw (consumed per-draw by TypedRenderBuffer)
+	if (activeRHIFontShader) {
+		TypedRenderBuffer<VA_TYPE_TC>::SetExternalShaderOverride(activeRHIFontShader);
+	}
 	outlineBufferTC.SetTransformMatrix(xform);
 	outlineBufferTC.DrawElements(GL_TRIANGLES);
+
+	if (activeRHIFontShader) {
+		TypedRenderBuffer<VA_TYPE_TC>::SetExternalShaderOverride(activeRHIFontShader);
+	}
 	primaryBufferTC.SetTransformMatrix(xform);
 	primaryBufferTC.DrawElements(GL_TRIANGLES);
 }
@@ -259,27 +364,37 @@ void CglShaderFontRenderer::PushGLState(const CglFont& fnt)
 	if (auto* tex = fnt.GetAtlasTexture())
 		tex->Bind(0);
 
-	prevBoundProgram = shaderHandler->GetCurrentlyBoundProgram();
-	if (prevBoundProgram)
-		prevBoundProgram->Disable();
+	if (RHI::IsMetalBackend()) {
+		// Metal: store active font shader — DrawTraingleElements sets the per-draw override
+		activeRHIFontShader = fnt.HasColor() ? fontShaderColorRHI.get() : fontShaderRHI.get();
+	} else {
+		prevBoundProgram = shaderHandler->GetCurrentlyBoundProgram();
+		if (prevBoundProgram)
+			prevBoundProgram->Disable();
 
-	if (fnt.HasColor()) {
-		fontShaderColor->Enable();
+		if (fnt.HasColor())
+			fontShaderColor->Enable();
+		else
+			fontShader->Enable();
 	}
-	else
-		fontShader->Enable();
 }
 
 void CglShaderFontRenderer::PopGLState(const CglFont& fnt)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	if (fnt.HasColor())
-		fontShaderColor->Disable();
-	else
-		fontShader->Disable();
 
-	if (prevBoundProgram)
-		prevBoundProgram->Enable();
+	if (RHI::IsMetalBackend()) {
+		// Metal: clear active font shader
+		activeRHIFontShader = nullptr;
+	} else {
+		if (fnt.HasColor())
+			fontShaderColor->Disable();
+		else
+			fontShader->Disable();
+
+		if (prevBoundProgram)
+			prevBoundProgram->Enable();
+	}
 
 	// Unbind font atlas texture via RHI
 	if (auto* tex = fnt.GetAtlasTexture())

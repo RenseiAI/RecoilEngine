@@ -845,6 +845,11 @@ public:
 	/// Returns nullptr on GL backend.
 	static RHI::IRHIShader* GetRHIShader() { return shader.GetRHIShader(); }
 
+	/// Set an external RHI shader override for the next draw call(s).
+	/// When set, DrawArrays/DrawElements will use this shader instead of
+	/// the auto-generated one. Consumed (reset to nullptr) after each draw.
+	static void SetExternalShaderOverride(RHI::IRHIShader* s) { externalShaderOverride = s; }
+
 	/// Set an explicit MVP transform for the next draw call, bypassing
 	/// the automatic FFP matrix sync. The value is consumed (reset) after
 	/// each DrawArrays/DrawElements call.
@@ -1038,6 +1043,7 @@ private:
 	CMatrix44f explicitTransform;
 	bool hasExplicitTransform = false;
 
+	inline static RHI::IRHIShader* externalShaderOverride = nullptr;
 	inline static RenderBufferShader<T> shader;
 
 	static constexpr const char* vboTypeName = spring::TypeToCStr<VertType>();
@@ -1133,6 +1139,7 @@ template<typename T>
 inline void TypedRenderBuffer<T>::AssertBoundShader() const
 {
 #if defined(DEBUG) && !defined(HEADLESS)
+	if (rhiVbo) return; // RHI path handles its own shader
 	auto* shader = shaderHandler->GetCurrentlyBoundProgram();
 	assert(shader);
 	assert(shader->IsValid());
@@ -1165,8 +1172,10 @@ inline void TypedRenderBuffer<T>::DrawArrays(uint32_t mode, bool rewind)
 			mvp = RenderBuffer::globalProjection * RenderBuffer::globalModelView;
 		}
 
-		// Use the cross-compiled RHI shader if available, else fall back to legacy
-		auto* rhiSh = GetRHIShader();
+		// Use external override if set, else cross-compiled RHI shader, else GL fallback
+		auto* rhiSh = externalShaderOverride ? externalShaderOverride : GetRHIShader();
+		if (externalShaderOverride)
+			externalShaderOverride = nullptr; // consumed
 		if (rhiSh) {
 			ctx->BindShader(rhiSh);
 			rhiSh->Bind();
@@ -1261,8 +1270,10 @@ inline void TypedRenderBuffer<T>::DrawElements(uint32_t mode, bool rewind)
 			mvp = RenderBuffer::globalProjection * RenderBuffer::globalModelView;
 		}
 
-		// Use the cross-compiled RHI shader if available, else fall back to legacy
-		auto* rhiSh = GetRHIShader();
+		// Use external override if set, else cross-compiled RHI shader, else GL fallback
+		auto* rhiSh = externalShaderOverride ? externalShaderOverride : GetRHIShader();
+		if (externalShaderOverride)
+			externalShaderOverride = nullptr; // consumed
 		if (rhiSh) {
 			ctx->BindShader(rhiSh);
 			rhiSh->Bind();
