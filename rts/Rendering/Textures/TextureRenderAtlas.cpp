@@ -96,6 +96,7 @@ CTextureRenderAtlas::CTextureRenderAtlas(
 	CTextureAtlas::AllocatorType allocType_,
 	int atlasSizeX,
 	int atlasSizeY,
+	int maxLevels,
 	uint32_t glInternalType_,
 	const std::string& atlasName_
 	)
@@ -127,6 +128,7 @@ CTextureRenderAtlas::CTextureRenderAtlas(
 	atlasSizeY = std::min<int>(RHI::GetDevice()->GetMaxTextureSize(), (atlasSizeY > 0) ? atlasSizeY : configHandler->GetInt("MaxTextureAtlasSizeY"));
 
 	atlasAllocator->SetMaxSize(atlasSizeX, atlasSizeY);
+	atlasAllocator->SetMaxTexLevel(maxLevels);
 
 	if (shaderRef == 0) {
 		shader = shaderHandler->CreateProgramObject("[TextureRenderAtlas]", "TextureRenderAtlas");
@@ -268,7 +270,7 @@ AtlasedTexture CTextureRenderAtlas::GetTexture(const std::string& texName)
 	if (it == nameToUniqueSubTexStr.end())
 		return AtlasedTexture::DefaultAtlasTexture;
 
-	return AtlasedTexture(atlasAllocator->GetTexCoords(it->second));
+	return AtlasedTexture(atlasAllocator->GetTexCoordsEdge(it->second));
 }
 
 AtlasedTexture CTextureRenderAtlas::GetTexture(const std::string& texName, const std::string& texBackupName)
@@ -279,7 +281,7 @@ AtlasedTexture CTextureRenderAtlas::GetTexture(const std::string& texName, const
 
 	auto it = nameToUniqueSubTexStr.find(texName);
 	if (it != nameToUniqueSubTexStr.end())
-		return AtlasedTexture(atlasAllocator->GetTexCoords(it->second));
+		return AtlasedTexture(atlasAllocator->GetTexCoordsEdge(it->second));
 
 	if (texBackupName.empty())
 		return AtlasedTexture::DefaultAtlasTexture;
@@ -319,7 +321,7 @@ int CTextureRenderAtlas::GetMinDim() const
 	return atlasAllocator->GetMinDim();
 }
 
-const int2& CTextureRenderAtlas::GetAtlasSize() const
+const uint2& CTextureRenderAtlas::GetAtlasSize() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	return atlasAllocator->GetAtlasSize();
@@ -329,12 +331,6 @@ int CTextureRenderAtlas::GetNumTexLevels() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	return atlasAllocator->GetNumTexLevels();
-}
-
-void CTextureRenderAtlas::SetMaxTexLevel(int maxLevels)
-{
-	RECOIL_DETAILED_TRACY_ZONE;
-	atlasAllocator->SetMaxTexLevel(maxLevels);
 }
 
 bool CTextureRenderAtlas::IsValid() const
@@ -403,7 +399,7 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 	const auto numLevels = atlasAllocator->GetNumTexLevels();
 	const auto numPages = atlasAllocator->GetNumPages();
 
-	const auto atlasSize = atlasAllocator->GetAtlasSize();
+	const auto& atlasSize = atlasAllocator->GetAtlasSize();
 
 	{
 		auto* device = RHI::GetDevice();
@@ -454,8 +450,8 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 				for (uint32_t level = 0; level < numLevels; ++level) {
 					ctx->SetViewport({
 						0.0f, 0.0f,
-						static_cast<float>(std::max(atlasSize.x >> level, 1)),
-						static_cast<float>(std::max(atlasSize.y >> level, 1))
+						static_cast<float>(std::max(atlasSize.x >> level, 1u)),
+						static_cast<float>(std::max(atlasSize.y >> level, 1u))
 					});
 
 					// RHI_TODO: FBO attachment still uses GL; migrate once FBO has RHI wrapper
@@ -475,7 +471,7 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 						if (entry.texCoords.pageNum != page)
 							continue;
 
-						const auto atlasedTexCoords = atlasAllocator->GetTexCoords(uniqTexName);
+						const auto atlasedTexCoords = atlasAllocator->GetTexCoordsEdge(uniqTexName);
 						const auto& [srcTexID, srcSubTC] = uniqueSubTextureMap[uniqTexName];
 
 						if (srcTexID == 0)

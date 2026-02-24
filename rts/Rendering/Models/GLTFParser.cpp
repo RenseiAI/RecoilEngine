@@ -22,6 +22,10 @@
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
 #include <fastgltf/math.hpp>
+// smmalloc.h leaks `#define INLINE inline` which conflicts with simdjson's layout_mode::INLINE enum
+#ifdef INLINE
+#undef INLINE
+#endif
 #include <simdjson.h>
 
 
@@ -110,8 +114,8 @@ namespace Impl {
 					} break;
 					case hashString("TANGENT"): {
 						fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec4>(asset, accessor, [&](const auto& val, std::size_t idx) {
-							verts[prevVertSize + idx].sTangent = (val.w() * float3{ val.x(), val.y(), val.z() }).ANormalize();
-							verts[prevVertSize + idx].tTangent = verts[prevVertSize + idx].normal.cross(verts[prevVertSize + idx].sTangent).ANormalize();
+							verts[prevVertSize + idx].sTangent = float3{ val.x(), val.y(), val.z() }.ANormalize();
+							verts[prevVertSize + idx].tTangent = val.w() * verts[prevVertSize + idx].normal.cross(verts[prevVertSize + idx].sTangent).ANormalize();
 						});
 						seenTangents = true;
 					} break;

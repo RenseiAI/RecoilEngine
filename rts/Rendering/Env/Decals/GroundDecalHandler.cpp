@@ -387,7 +387,7 @@ uint32_t CGroundDecalHandler::GetNextId()
 }
 
 // RHI MIGRATED (Phase 5.8): vertex attribute setup via SetVertexLayout/ClearVertexLayout
-void CGroundDecalHandler::BindVertexAtrribs()
+void CGroundDecalHandler::BindVertexAttributes()
 {
 	auto* device = RHI::GetDevice();
 	if (!device)
@@ -412,7 +412,7 @@ void CGroundDecalHandler::BindVertexAtrribs()
 	ctx->SetVertexLayout(layout);
 }
 
-void CGroundDecalHandler::UnbindVertexAtrribs()
+void CGroundDecalHandler::UnbindVertexAttributes()
 {
 	auto* device = RHI::GetDevice();
 	if (!device)
@@ -427,12 +427,10 @@ uint32_t CGroundDecalHandler::GetDepthBufferTextureTarget() const
 	return highQuality ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
 }
 
-static constexpr CTextureAtlas::AllocatorType defAllocType = CTextureAtlas::ATLAS_ALLOC_MP_LEGACY;
-static constexpr int defNumLevels = 4;
+static constexpr auto DEFAULT_ALLOC_TYPE = CTextureAtlas::ATLAS_ALLOC_MP_LEGACY;
+static constexpr auto DEFAULT_NUM_OF_TEXTURE_LEVELS = 4;
 void CGroundDecalHandler::GenerateAtlasTexture() {
-	atlasTex = std::make_unique<CTextureRenderAtlas>(defAllocType, 0, 0, GL_RGBA8, "Decals");
-
-	atlasTex->SetMaxTexLevel(defNumLevels);
+	atlasTex = std::make_unique<CTextureRenderAtlas>(DEFAULT_ALLOC_TYPE, 0, 0, DEFAULT_NUM_OF_TEXTURE_LEVELS, GL_RGBA8, "Decals");
 
 	// often represented by compressed textures, cannot be added to the regular atlas
 	AddBuildingDecalTextures();
@@ -781,11 +779,11 @@ void CGroundDecalHandler::Draw()
 
 		instVBO.Bind();
 		instVBO.New(decals.capacity() * sizeof(GroundDecal), GL_STREAM_DRAW);
-		BindVertexAtrribs();
+		BindVertexAttributes();
 
 		vao.Unbind();
 
-		UnbindVertexAtrribs();
+		UnbindVertexAttributes();
 		instVBO.Unbind();
 
 		// RHI path: create instance buffer for Metal
@@ -1465,7 +1463,7 @@ void CGroundDecalHandler::AddTrack(const CUnit* unit, const float3& newPos, bool
 	// replace the old entry
 	decalOwners[unit] = decals.size() - 1;
 
-	idToPos[newDecal.info.id], decals.size() - 1;
+	idToPos[newDecal.info.id] = decals.size() - 1;
 	decalsUpdateList.EmplaceBackUpdate();
 }
 
