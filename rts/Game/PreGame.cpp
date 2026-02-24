@@ -26,6 +26,7 @@
 #include "Net/GameServer.h"
 #include "Net/Protocol/NetProtocol.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 
 #include "aGui/Gui.h"
 
@@ -190,8 +191,15 @@ bool CPreGame::Draw()
 	RECOIL_DETAILED_TRACY_ZONE;
 
 	ClearScreen();
-	if (RHI::IsMetalBackend())
-		return true;
+
+	if (RHI::IsMetalBackend()) {
+		auto* ctx = RHI::GetDevice()->GetContext();
+		RHI::RenderPassDesc passDesc{};
+		passDesc.colorAttachmentCount = 1;
+		passDesc.colorAttachments[0].loadAction = RHI::LoadAction::Clear;
+		passDesc.colorAttachments[0].clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+		ctx->BeginDefaultRenderPass(passDesc);
+	}
 
 	static constexpr const float4 color = { 1.0f, 1.0f, 1.0f, 1.0f };
 
@@ -231,6 +239,10 @@ bool CPreGame::Draw()
 	font->glPrint(0.5f, 0.02f, 0.6f, FONT_CENTER | FONT_SCALE | FONT_NORM, "This program is distributed under the GNU General Public License, see doc/LICENSE for more info");
 
 	font->End();
+
+	if (RHI::IsMetalBackend()) {
+		RHI::GetDevice()->GetContext()->EndRenderPass();
+	}
 #endif
 	return true;
 }

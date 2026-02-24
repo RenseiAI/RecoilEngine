@@ -318,8 +318,29 @@ bool CLoadScreen::Draw()
 			luaIntro->DrawLoadScreen();
 		} else {
 			auto* ctx = RHI::GetDevice()->GetContext();
-			ctx->ClearColor(0.1f, 0.1f, 0.15f, 1.0f);
-			ctx->Clear(true, true, true);
+			RHI::RenderPassDesc passDesc{};
+			passDesc.colorAttachmentCount = 1;
+			passDesc.colorAttachments[0].loadAction = RHI::LoadAction::Clear;
+			passDesc.colorAttachments[0].clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+			ctx->BeginDefaultRenderPass(passDesc);
+
+			// Show loading messages via font rendering (RHI dual-path)
+			font->Begin();
+			font->SetTextColor(1.0f, 1.0f, 1.0f, 1.0f);
+			font->glPrint(0.5f, 0.55f, 2.0f, FONT_CENTER | FONT_SCALE | FONT_NORM, "Loading...");
+
+			{
+				std::lock_guard<spring::recursive_mutex> lck(mutex);
+				float y = 0.45f;
+				const int start = std::max(0, static_cast<int>(loadMessages.size()) - 5);
+				for (int i = start; i < static_cast<int>(loadMessages.size()); ++i) {
+					font->glPrint(0.5f, y, 0.8f, FONT_CENTER | FONT_SCALE | FONT_NORM, loadMessages[i].first);
+					y -= 0.04f;
+				}
+			}
+
+			font->End();
+			ctx->EndRenderPass();
 		}
 	}
 
