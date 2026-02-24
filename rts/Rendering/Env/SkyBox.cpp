@@ -200,7 +200,8 @@ void CSkyBox::Init(uint32_t textureID, uint32_t xsize, uint32_t ysize, bool conv
 			}
 		}
 
-		glDeleteTextures(1, &textureID); // release 2D texture
+		if (!RHI::IsMetalBackend())
+			glDeleteTextures(1, &textureID); // release 2D texture
 
 		// Transfer cubemap to MapTexture via RHI (owning wrapper handles lifecycle)
 		skyTex.SetRawTexID(cubeTexRHI->GetNativeHandle());

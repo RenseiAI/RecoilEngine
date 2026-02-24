@@ -369,7 +369,8 @@ void CSMFGroundDrawer::DrawBorder(const DrawPass::e drawPass)
 	rhiHeight->Bind(1);
 
 	//for CSMFGroundTextures::BindSquareTexture()
-	glActiveTexture(GL_TEXTURE0);
+	if (!RHI::IsMetalBackend())
+		glActiveTexture(GL_TEXTURE0);
 
 	ctx->SetPolygonMode(wireframe ? RHI::PolygonMode::Line : RHI::PolygonMode::Fill);
 

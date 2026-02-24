@@ -2714,6 +2714,9 @@ bool CGuiHandler::DrawUnitBuildIcon(const IconInfo& icon, int unitDefID)
 	const Box& b = icon.visual;
 	const SColor col(1.0f, 1.0f, 1.0f, textureAlpha);
 
+	if (RHI::IsMetalBackend())
+		return false; // unit build icons not yet supported on Metal
+
 	glBindTexture(GL_TEXTURE_2D, CUnitDrawer::GetUnitDefImage(ud));
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_TC>();
 	auto& sh = rb.GetShader();
@@ -2786,6 +2789,9 @@ static inline bool BindUnitTexByString(const std::string& str)
 	if (ud == nullptr)
 		return false;
 
+	if (RHI::IsMetalBackend())
+		return false;
+
 	glBindTexture(GL_TEXTURE_2D, CUnitDrawer::GetUnitDefImage(ud));
 	return true;
 }
@@ -2849,6 +2855,9 @@ static inline bool BindLuaTexByString(const std::string& str)
 	if (texInfo->target != GL_TEXTURE_2D) {
 		return false;
 	}
+
+	if (RHI::IsMetalBackend())
+		return false;
 
 	glBindTexture(GL_TEXTURE_2D, texInfo->id);
 	return true;
