@@ -5,6 +5,7 @@
 
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Rendering/ShadowHandler.h"
 #include "Rendering/Env/ISky.h"
 #include "Rendering/Env/SunLighting.h"
@@ -109,6 +110,9 @@ CR_REG_METADATA(UniformParamsBuffer, (
 
 bool UniformConstants::Supported()
 {
+	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL)
+		return true;
+
 	static bool supported = VBO::IsSupported(GL_UNIFORM_BUFFER) && GLAD_GL_ARB_shading_language_420pack; //UBO && UBO layout(binding=x)
 	return supported;
 }
@@ -125,7 +129,13 @@ void UniformConstants::Init()
 		return;
 	}
 
-	{
+	useRHIPath = (RHI::GetDefaultBackend() != RHI::Backend::OpenGL);
+
+	if (useRHIPath) {
+		auto* device = RHI::GetDevice();
+		umbRHI = device->CreateBuffer(RHI::BufferType::Uniform, RHI::BufferUsage::Stream, sizeof(UniformMatricesBuffer));
+		upbRHI = device->CreateBuffer(RHI::BufferType::Uniform, RHI::BufferUsage::Stream, sizeof(UniformParamsBuffer));
+	} else {
 		IStreamBufferConcept::StreamBufferCreationParams p;
 		p.target = GL_UNIFORM_BUFFER;
 		p.numElems = 1;
@@ -149,11 +159,16 @@ void UniformConstants::Kill()
 	if (!Supported() || !initialized)
 		return;
 
-	umbSBT->UnbindBufferRange(UBO_MATRIX_IDX);
-	upbSBT->UnbindBufferRange(UBO_PARAMS_IDX);
+	if (useRHIPath) {
+		umbRHI.reset();
+		upbRHI.reset();
+	} else {
+		umbSBT->UnbindBufferRange(UBO_MATRIX_IDX);
+		upbSBT->UnbindBufferRange(UBO_PARAMS_IDX);
 
-	umbSBT = nullptr;
-	upbSBT = nullptr;
+		umbSBT = nullptr;
+		upbSBT = nullptr;
+	}
 
 	initialized = false;
 }
@@ -306,9 +321,15 @@ void UniformConstants::UpdateMatrices()
 	if (!Supported())
 		return;
 
-	auto umbMap = umbSBT->Map();
-	UniformConstants::UpdateMatricesImpl(umbMap);
-	umbSBT->Unmap();
+	if (useRHIPath) {
+		auto* ptr = static_cast<UniformMatricesBuffer*>(umbRHI->Map(0, sizeof(UniformMatricesBuffer), false));
+		UniformConstants::UpdateMatricesImpl(ptr);
+		umbRHI->Unmap();
+	} else {
+		auto umbMap = umbSBT->Map();
+		UniformConstants::UpdateMatricesImpl(umbMap);
+		umbSBT->Unmap();
+	}
 }
 
 void UniformConstants::UpdateParams()
@@ -316,9 +337,15 @@ void UniformConstants::UpdateParams()
 	if (!Supported())
 		return;
 
-	auto upbMap = upbSBT->Map();
-	UniformConstants::UpdateParamsImpl(upbMap);
-	upbSBT->Unmap();
+	if (useRHIPath) {
+		auto* ptr = static_cast<UniformParamsBuffer*>(upbRHI->Map(0, sizeof(UniformParamsBuffer), false));
+		UniformConstants::UpdateParamsImpl(ptr);
+		upbRHI->Unmap();
+	} else {
+		auto upbMap = upbSBT->Map();
+		UniformConstants::UpdateParamsImpl(upbMap);
+		upbSBT->Unmap();
+	}
 }
 
 void UniformConstants::Bind()
@@ -326,8 +353,14 @@ void UniformConstants::Bind()
 	if (!Supported())
 		return;
 
-	assert(umbSBT->GetID() && upbSBT->GetID());
+	if (useRHIPath) {
+		auto* ctx = RHI::GetDevice()->GetContext();
+		ctx->BindUniformBuffer(umbRHI.get(), UBO_MATRIX_IDX);
+		ctx->BindUniformBuffer(upbRHI.get(), UBO_PARAMS_IDX);
+	} else {
+		assert(umbSBT->GetID() && upbSBT->GetID());
 
-	umbSBT->BindBufferRange(UBO_MATRIX_IDX);
-	upbSBT->BindBufferRange(UBO_PARAMS_IDX);
+		umbSBT->BindBufferRange(UBO_MATRIX_IDX);
+		upbSBT->BindBufferRange(UBO_PARAMS_IDX);
+	}
 }

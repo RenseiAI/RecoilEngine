@@ -13,6 +13,7 @@
 #include "System/creg/creg.h"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/GL/StreamBuffer.h"
+#include "Rendering/RHI/RHIBuffer.h"
 
 #include "fmt/format.h"
 
@@ -123,6 +124,11 @@ private:
 
 	std::unique_ptr<IStreamBuffer<UniformMatricesBuffer>> umbSBT;
 	std::unique_ptr<IStreamBuffer<UniformParamsBuffer  >> upbSBT;
+
+	// RHI path (Metal and future non-GL backends)
+	std::unique_ptr<RHI::IRHIBuffer> umbRHI;
+	std::unique_ptr<RHI::IRHIBuffer> upbRHI;
+	bool useRHIPath = false;
 
 	bool initialized = false;
 
