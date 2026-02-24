@@ -302,6 +302,13 @@ bool SpringApp::Init()
 	CBitmap::InitPool(configHandler->GetInt("TextureMemPoolSize"));
 
 	UpdateInterfaceGeometry();
+
+	// Metal test path: skip font/GUI/VFS initialization, run a minimal render loop
+	if (RHI::IsMetalBackend()) {
+		ClearScreen();
+		return true;
+	}
+
 	InitFonts();
 
 	ClearScreen();
@@ -903,6 +910,34 @@ bool SpringApp::Update()
 	configHandler->Update();
 	globalRendering->UpdateWindow();
 	globalRendering->UpdateTimer();
+
+#ifdef RHI_HAS_METAL
+	// Metal test frame: draw a colored triangle each frame
+	if (RHI::IsMetalBackend() && activeController == nullptr) {
+		auto* device = RHI::GetDevice();
+		auto* ctx = device->GetContext();
+
+		RHI::RenderPassDesc passDesc{};
+		passDesc.colorAttachmentCount = 1;
+		passDesc.colorAttachments[0].loadAction = RHI::LoadAction::Clear;
+		passDesc.colorAttachments[0].clearColor = {0.1f, 0.1f, 0.15f, 1.0f};
+		ctx->BeginDefaultRenderPass(passDesc);
+
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		const CMatrix44f ortho = CMatrix44f::ClipOrthoProj01();
+		rb.SetTransformMatrix(ortho);
+
+		rb.AddVertex({{0.25f, 0.25f, 0.0f}, SColor(1.0f, 0.0f, 0.0f, 1.0f)});
+		rb.AddVertex({{0.75f, 0.25f, 0.0f}, SColor(0.0f, 1.0f, 0.0f, 1.0f)});
+		rb.AddVertex({{0.50f, 0.75f, 0.0f}, SColor(0.0f, 0.0f, 1.0f, 1.0f)});
+		rb.DrawArrays(GL_TRIANGLES);
+
+		ctx->EndRenderPass();
+
+		globalRendering->SwapBuffers(true, false);
+		return true;
+	}
+#endif
 
 	#if 0
 	if (activeController == nullptr)

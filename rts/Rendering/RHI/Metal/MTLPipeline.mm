@@ -99,6 +99,43 @@ MTLTriangleFillMode MTLPipeline::ToMTLFillMode(PolygonMode mode) {
 	return MTLTriangleFillModeFill;
 }
 
+MTLVertexFormat MTLPipeline::ToMTLVertexFormat(VertexFormat format) {
+	switch (format) {
+		case VertexFormat::Float1:     return MTLVertexFormatFloat;
+		case VertexFormat::Float2:     return MTLVertexFormatFloat2;
+		case VertexFormat::Float3:     return MTLVertexFormatFloat3;
+		case VertexFormat::Float4:     return MTLVertexFormatFloat4;
+		case VertexFormat::UByte4:     return MTLVertexFormatUChar4;
+		case VertexFormat::UByte4Norm: return MTLVertexFormatUChar4Normalized;
+		case VertexFormat::Short2:     return MTLVertexFormatShort2;
+		case VertexFormat::Short2Norm: return MTLVertexFormatShort2Normalized;
+		case VertexFormat::Short4:     return MTLVertexFormatShort4;
+		case VertexFormat::Short4Norm: return MTLVertexFormatShort4Normalized;
+		case VertexFormat::Int1:       return MTLVertexFormatInt;
+		case VertexFormat::Int2:       return MTLVertexFormatInt2;
+		case VertexFormat::Int3:       return MTLVertexFormatInt3;
+		case VertexFormat::Int4:       return MTLVertexFormatInt4;
+		case VertexFormat::UInt1:      return MTLVertexFormatUInt;
+		case VertexFormat::UInt2:      return MTLVertexFormatUInt2;
+		case VertexFormat::UInt3:      return MTLVertexFormatUInt3;
+		case VertexFormat::UInt4:      return MTLVertexFormatUInt4;
+	}
+	return MTLVertexFormatFloat4;
+}
+
+size_t MTLPipeline::HashVertexLayout(const VertexLayout& layout) {
+	size_t hash = layout.stride;
+	hash ^= static_cast<size_t>(layout.attributeCount) << 16;
+	for (uint32_t i = 0; i < layout.attributeCount; ++i) {
+		const auto& a = layout.attributes[i];
+		hash ^= (static_cast<size_t>(a.location) * 2654435761u);
+		hash ^= (static_cast<size_t>(a.offset) << 8);
+		hash ^= (static_cast<size_t>(a.format) << 24);
+		hash ^= (static_cast<size_t>(a.divisor) << 4);
+	}
+	return hash;
+}
+
 MTLPipeline::MTLPipeline(MTLDevice* device, const PipelineDesc& desc)
 	: device(device)
 	, desc(desc)
@@ -148,13 +185,17 @@ void MTLPipeline::CreateDepthStencilState() {
 
 id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader,
                                                                 MTLPixelFormat colorFormat,
-                                                                MTLPixelFormat depthFormat) {
+                                                                MTLPixelFormat depthFormat,
+                                                                const VertexLayout* vertexLayout) {
 	if (!shader || !shader->IsValid()) {
 		return nil;
 	}
 
-	// Check cache
+	// Cache key: shader pointer XOR vertex layout hash
 	uintptr_t key = reinterpret_cast<uintptr_t>(shader);
+	if (vertexLayout)
+		key ^= HashVertexLayout(*vertexLayout);
+
 	auto it = pipelineCache.find(key);
 	if (it != pipelineCache.end()) {
 		return it->second;
@@ -191,6 +232,20 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
 	if (desc.blend.colorMask[2]) writeMask |= MTLColorWriteMaskBlue;
 	if (desc.blend.colorMask[3]) writeMask |= MTLColorWriteMaskAlpha;
 	colorAttachment.writeMask = writeMask;
+
+	// Vertex descriptor — maps RHI VertexLayout to Metal vertex descriptor
+	if (vertexLayout && vertexLayout->attributeCount > 0) {
+		MTLVertexDescriptor* vd = [[MTLVertexDescriptor alloc] init];
+		for (uint32_t i = 0; i < vertexLayout->attributeCount; ++i) {
+			const auto& attr = vertexLayout->attributes[i];
+			vd.attributes[attr.location].format = ToMTLVertexFormat(attr.format);
+			vd.attributes[attr.location].offset = attr.offset;
+			vd.attributes[attr.location].bufferIndex = 1; // vertex buffer at index 1 (index 0 = uniforms)
+		}
+		vd.layouts[1].stride = vertexLayout->stride;
+		vd.layouts[1].stepFunction = MTLVertexStepFunctionPerVertex;
+		pipelineDesc.vertexDescriptor = vd;
+	}
 
 	// Depth format
 	pipelineDesc.depthAttachmentPixelFormat = depthFormat;

@@ -365,21 +365,53 @@ private:
 	}
 	/// Generate GLSL vertex and fragment source for this type.
 	/// Always uses explicit attrib locations when useExplicitLoc is true.
+	/// For the RHI/Metal path: produces SPIR-V friendly GLSL (#version 330 core,
+	/// no GL extensions, no default uniform initializers, inlined alpha discard,
+	/// clean \n line endings).
 	static void GenerateGLSLSource(std::string& outVert, std::string& outFrag, bool useExplicitLoc = true) {
 		std::string vsInputs, varyingsData, vsAssignment, vsPosVertex;
-		std::string vsHeader, fsHeader;
 
-		GetShaderHeaders(vsHeader, fsHeader, useExplicitLoc);
+		// Use #version 330 core for SPIR-V compatibility.
+		// GL_ARB_separate_shader_objects enables layout(location=N) on
+		// varyings, needed so Metal matches VS outputs to FS inputs by
+		// location when compiled into separate Metal libraries.
+		std::string vsHeader = "#version 330 core\n#extension GL_ARB_separate_shader_objects : require";
+		std::string fsHeader = "#version 330 core\n#extension GL_ARB_separate_shader_objects : require";
+
 		GetAttributesStrings(vsInputs, varyingsData, vsAssignment, vsPosVertex, useExplicitLoc);
 
-		static const char* fmtString = "%s Data {%s%s};";
-		const std::string varyingsVS = (varyingsData.empty()) ? "" : fmt::sprintf(fmtString, "out", nl, varyingsData);
-		const std::string varyingsFS = (varyingsData.empty()) ? "" : fmt::sprintf(fmtString, "in", nl, varyingsData);
+		// Build standalone varyings with explicit location qualifiers.
+		// Interface blocks get different mangled names when VS and FS are
+		// compiled into separate Metal libraries. Standalone varyings with
+		// locations are matched by location number, avoiding name mismatches.
+		std::string varyingsVS, varyingsFS;
+		{
+			uint32_t varyingLoc = 0;
+			for (const AttributeDef& ad : T::attributeDefs) {
+				if (ad.index == 0) continue; // pos → gl_Position, not a varying
+				std::string type = TypeToString(ad);
+				varyingsVS += fmt::format("layout(location = {}) out {} v{};\n", varyingLoc, type, ad.name);
+				varyingsFS += fmt::format("layout(location = {}) in {} v{};\n", varyingLoc, type, ad.name);
+				varyingLoc++;
+			}
+		}
 
-		outVert = fmt::sprintf(vsRenderBufferSrc, vsHeader, vsInputs, varyingsVS, vsAssignment, vsPosVertex);
+		outVert = fmt::sprintf(vsRenderBufferSrcRHI, vsHeader, vsInputs, varyingsVS, vsAssignment, vsPosVertex);
 
+		// Use the RHI fragment template: no default initializers, inlined alpha discard
+		// (avoids SPIRV-Cross address-space mismatch for helper functions)
 		const std::string fragOutput = GetFragOutput();
-		outFrag = fmt::sprintf(fsRenderBufferSrc, fsHeader, varyingsFS, fragOutput);
+		outFrag = fmt::sprintf(fsRenderBufferSrcRHI, fsHeader, varyingsFS, fragOutput);
+
+		// Normalize \r\n to \n for consistent GLSL parsing in glslang
+		auto normalizeNewlines = [](std::string& s) {
+			size_t pos = 0;
+			while ((pos = s.find("\r\n", pos)) != std::string::npos) {
+				s.erase(pos, 1); // remove the \r, keep the \n
+			}
+		};
+		normalizeNewlines(outVert);
+		normalizeNewlines(outFrag);
 	}
 
 public:
@@ -397,6 +429,9 @@ public:
 		std::string vertSrc, fragSrc;
 		GenerateGLSLSource(vertSrc, fragSrc, true);
 
+		LOG("[RenderBufferShader<%s>] Compiling RHI shader (VS: %zu bytes, FS: %zu bytes)",
+		    typeName, vertSrc.size(), fragSrc.size());
+
 		rhiShaderCache = device->CreateShader(std::string("[RBShader_") + typeName + "]");
 		rhiShaderCache->AttachStageFromSource(RHI::ShaderStage::Vertex, vertSrc);
 		rhiShaderCache->AttachStageFromSource(RHI::ShaderStage::Fragment, fragSrc);
@@ -409,6 +444,8 @@ public:
 
 		if (!rhiShaderCache->Validate()) {
 			LOG_L(L_ERROR, "[RenderBufferShader<%s>] Failed to create RHI shader", typeName);
+			LOG_L(L_ERROR, "[RenderBufferShader<%s>] VS source:\n%s", typeName, vertSrc.c_str());
+			LOG_L(L_ERROR, "[RenderBufferShader<%s>] FS source:\n%s", typeName, fragSrc.c_str());
 			rhiShaderCache.reset();
 			return nullptr;
 		}
@@ -1131,6 +1168,7 @@ inline void TypedRenderBuffer<T>::DrawArrays(uint32_t mode, bool rewind)
 		// Use the cross-compiled RHI shader if available, else fall back to legacy
 		auto* rhiSh = GetRHIShader();
 		if (rhiSh) {
+			ctx->BindShader(rhiSh);
 			rhiSh->Bind();
 			rhiSh->SetUniformMatrix4fv("transformMatrix", false, mvp);
 		} else {
@@ -1164,6 +1202,7 @@ inline void TypedRenderBuffer<T>::DrawArrays(uint32_t mode, bool rewind)
 
 		if (rhiSh) {
 			rhiSh->Unbind();
+			ctx->BindShader(nullptr);
 		}
 #endif
 	} else {
@@ -1225,6 +1264,7 @@ inline void TypedRenderBuffer<T>::DrawElements(uint32_t mode, bool rewind)
 		// Use the cross-compiled RHI shader if available, else fall back to legacy
 		auto* rhiSh = GetRHIShader();
 		if (rhiSh) {
+			ctx->BindShader(rhiSh);
 			rhiSh->Bind();
 			rhiSh->SetUniformMatrix4fv("transformMatrix", false, mvp);
 		} else {
@@ -1243,6 +1283,7 @@ inline void TypedRenderBuffer<T>::DrawElements(uint32_t mode, bool rewind)
 
 		if (rhiSh) {
 			rhiSh->Unbind();
+			ctx->BindShader(nullptr);
 		}
 #endif
 	} else {

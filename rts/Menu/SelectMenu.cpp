@@ -15,7 +15,10 @@
 #include "Game/PreGame.h"
 #include "Rendering/Fonts/glFont.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/GL/RenderBuffers.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/Exceptions.h"
 #include "System/Log/ILog.h"
@@ -188,8 +191,29 @@ bool SelectMenu::Draw()
 	spring_msecs(10).sleep(true);
 	globalRendering->drawFrame = std::max(1U, globalRendering->drawFrame + 1);
 	ClearScreen();
-	if (RHI::IsMetalBackend())
+	if (RHI::IsMetalBackend()) {
+		// Metal test frame: draw a colored triangle to prove the full pipeline
+		auto* device = RHI::GetDevice();
+		auto* ctx = device->GetContext();
+
+		RHI::RenderPassDesc passDesc{};
+		passDesc.colorAttachmentCount = 1;
+		passDesc.colorAttachments[0].loadAction = RHI::LoadAction::Clear;
+		passDesc.colorAttachments[0].clearColor = {0.1f, 0.1f, 0.15f, 1.0f};
+		ctx->BeginDefaultRenderPass(passDesc);
+
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
+		const CMatrix44f ortho = CMatrix44f::ClipOrthoProj01();
+		rb.SetTransformMatrix(ortho);
+
+		rb.AddVertex({{0.25f, 0.25f, 0.0f}, SColor(1.0f, 0.0f, 0.0f, 1.0f)});
+		rb.AddVertex({{0.75f, 0.25f, 0.0f}, SColor(0.0f, 1.0f, 0.0f, 1.0f)});
+		rb.AddVertex({{0.50f, 0.75f, 0.0f}, SColor(0.0f, 0.0f, 1.0f, 1.0f)});
+		rb.DrawArrays(GL_TRIANGLES);
+
+		ctx->EndRenderPass();
 		return true;
+	}
 
 	agui::gui->Draw();
 

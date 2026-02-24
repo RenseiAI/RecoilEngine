@@ -50,10 +50,11 @@ public:
 	// --- Metal-specific accessors ---
 
 	/// Get or create a render pipeline state for the given shader.
-	/// Caches compiled states by shader pointer.
+	/// Caches compiled states by shader pointer + vertex layout hash.
 	id<MTLRenderPipelineState> GetRenderPipelineState(MTLShader* shader,
 	                                                   MTLPixelFormat colorFormat,
-	                                                   MTLPixelFormat depthFormat);
+	                                                   MTLPixelFormat depthFormat,
+	                                                   const VertexLayout* vertexLayout = nullptr);
 
 	/// Get the depth-stencil state
 	id<MTLDepthStencilState> GetDepthStencilState() const { return depthStencilState; }
@@ -69,6 +70,8 @@ public:
 	static MTLCullMode ToMTLCullMode(CullMode mode);
 	static MTLWinding ToMTLWinding(FrontFace face);
 	static MTLTriangleFillMode ToMTLFillMode(PolygonMode mode);
+	static MTLVertexFormat ToMTLVertexFormat(VertexFormat format);
+	static size_t HashVertexLayout(const VertexLayout& layout);
 #endif
 
 private:

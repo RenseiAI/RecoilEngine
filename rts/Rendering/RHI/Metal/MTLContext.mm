@@ -242,9 +242,26 @@ void MTLContext::BindShader(IRHIShader* shader) {
 	currentShader = static_cast<MTLShader*>(shader);
 }
 
-void MTLContext::ApplyPipelineState() {
-	if (!renderEncoder || !currentPipeline || !currentShader) {
-		return;
+MTLPipeline* MTLContext::GetOrCreateDefaultPipeline() {
+	if (!defaultPipeline) {
+		PipelineDesc desc;
+		desc.depthStencil.depthTestEnabled  = false;
+		desc.depthStencil.depthWriteEnabled = false;
+		desc.blend.enabled = false;
+		desc.blend.colorMask[0] = true;
+		desc.blend.colorMask[1] = true;
+		desc.blend.colorMask[2] = true;
+		desc.blend.colorMask[3] = true;
+		desc.rasterizer.cullMode = CullMode::None;
+		defaultPipeline = std::make_unique<MTLPipeline>(device, desc);
+	}
+	return defaultPipeline.get();
+}
+
+bool MTLContext::ApplyPipelineState() {
+	MTLPipeline* pipeline = currentPipeline ? currentPipeline : GetOrCreateDefaultPipeline();
+	if (!renderEncoder || !pipeline || !currentShader) {
+		return false;
 	}
 
 	// Get or create the render pipeline state
@@ -257,20 +274,24 @@ void MTLContext::ApplyPipelineState() {
 	}
 
 	id<MTLRenderPipelineState> pipelineState =
-		currentPipeline->GetRenderPipelineState(currentShader, colorFormat, depthFormat);
+		pipeline->GetRenderPipelineState(currentShader, colorFormat, depthFormat,
+		                                 hasVertexLayout ? &currentVertexLayout : nullptr);
 
-	if (pipelineState) {
-		[renderEncoder setRenderPipelineState:pipelineState];
+	if (!pipelineState) {
+		return false;
 	}
 
+	[renderEncoder setRenderPipelineState:pipelineState];
+
 	// Apply depth-stencil state
-	id<MTLDepthStencilState> dsState = currentPipeline->GetDepthStencilState();
+	id<MTLDepthStencilState> dsState = pipeline->GetDepthStencilState();
 	if (dsState) {
 		[renderEncoder setDepthStencilState:dsState];
 	}
 
 	// Apply rasterizer state
-	currentPipeline->ApplyRasterizerState(renderEncoder);
+	pipeline->ApplyRasterizerState(renderEncoder);
+	return true;
 }
 
 void MTLContext::BindCurrentResources() {
@@ -324,7 +345,7 @@ void MTLContext::Draw(PrimitiveType primitive, uint32_t vertexCount, uint32_t fi
 	EnsureRenderEncoder();
 	if (!renderEncoder) return;
 
-	ApplyPipelineState();
+	if (!ApplyPipelineState()) return;
 	BindCurrentResources();
 
 	[renderEncoder drawPrimitives:ToMTLPrimitiveType(primitive)
@@ -336,7 +357,7 @@ void MTLContext::DrawIndexed(PrimitiveType primitive, uint32_t indexCount, uint3
 	EnsureRenderEncoder();
 	if (!renderEncoder || !currentIndexBuffer) return;
 
-	ApplyPipelineState();
+	if (!ApplyPipelineState()) return;
 	BindCurrentResources();
 
 	MTLIndexType indexType = ToMTLIndexType(currentIndexType);
@@ -356,7 +377,7 @@ void MTLContext::DrawInstanced(PrimitiveType primitive, uint32_t vertexCount, ui
 	EnsureRenderEncoder();
 	if (!renderEncoder) return;
 
-	ApplyPipelineState();
+	if (!ApplyPipelineState()) return;
 	BindCurrentResources();
 
 	[renderEncoder drawPrimitives:ToMTLPrimitiveType(primitive)
@@ -370,7 +391,7 @@ void MTLContext::DrawIndexedInstanced(PrimitiveType primitive, uint32_t indexCou
 	EnsureRenderEncoder();
 	if (!renderEncoder || !currentIndexBuffer) return;
 
-	ApplyPipelineState();
+	if (!ApplyPipelineState()) return;
 	BindCurrentResources();
 
 	MTLIndexType indexType = ToMTLIndexType(currentIndexType);
@@ -390,7 +411,7 @@ void MTLContext::DrawIndirect(PrimitiveType primitive, IRHIBuffer* buffer, size_
 	EnsureRenderEncoder();
 	if (!renderEncoder || !buffer) return;
 
-	ApplyPipelineState();
+	if (!ApplyPipelineState()) return;
 	BindCurrentResources();
 
 	MTLBuffer* indirectBuffer = static_cast<MTLBuffer*>(buffer);
@@ -406,7 +427,7 @@ void MTLContext::DrawIndexedIndirect(PrimitiveType primitive, IRHIBuffer* buffer
 	EnsureRenderEncoder();
 	if (!renderEncoder || !buffer || !currentIndexBuffer) return;
 
-	ApplyPipelineState();
+	if (!ApplyPipelineState()) return;
 	BindCurrentResources();
 
 	MTLBuffer* indirectBuffer = static_cast<MTLBuffer*>(buffer);

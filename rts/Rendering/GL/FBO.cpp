@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "FBO.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "System/ContainerUtil.h"
 #include "System/Log/ILog.h"
 #include "System/Config/ConfigHandler.h"
@@ -579,7 +580,11 @@ GLsizei FBO::GetMaxSamples()
 #else
 	// set maxSamples once
 	if (maxSamples == -1) {
-		glGetIntegerv(GL_MAX_SAMPLES_EXT, &maxSamples);
+		if (RHI::IsMetalBackend()) {
+			maxSamples = 8; // Metal supports at least 8 MSAA samples on all Apple GPUs
+		} else {
+			glGetIntegerv(GL_MAX_SAMPLES_EXT, &maxSamples);
+		}
 		maxSamples = std::max(0, maxSamples);
 	}
 #endif // HEADLESS

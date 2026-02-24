@@ -26,6 +26,7 @@
 
 #include "Rendering/RHI/RHIContext.h"
 #include <array>
+#include <memory>
 
 #ifdef __OBJC__
 #import <Metal/Metal.h>
@@ -158,8 +159,9 @@ private:
 #ifdef __OBJC__
 	void EnsureCommandBuffer();
 	void EnsureRenderEncoder();
-	void ApplyPipelineState();
+	bool ApplyPipelineState();
 	void BindCurrentResources();
+	MTLPipeline* GetOrCreateDefaultPipeline();
 
 	static MTLPrimitiveType ToMTLPrimitiveType(PrimitiveType type);
 	static MTLIndexType ToMTLIndexType(IndexType type);
@@ -177,6 +179,9 @@ private:
 #endif
 
 	MTLDevice*      device;
+
+	// Default pipeline for draw calls without explicit BindPipeline
+	std::unique_ptr<MTLPipeline> defaultPipeline;
 
 	// Current bound state
 	MTLPipeline*    currentPipeline   = nullptr;

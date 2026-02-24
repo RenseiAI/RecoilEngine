@@ -23,6 +23,20 @@ void ShowSplashScreen(
 	const std::string& springVersionStr,
 	const std::function<bool()>& testDoneFunc
 ) {
+	// Metal path: no fonts loaded yet, just wait for FS init with clear frames
+	if (RHI::IsMetalBackend()) {
+		auto* ctx = RHI::GetDevice()->GetContext();
+		while (!testDoneFunc()) {
+			ctx->ClearColor(0.1f, 0.1f, 0.15f, 1.0f);
+			ctx->Clear(true, false, false);
+			globalRendering->SwapBuffers(true, true);
+			Watchdog::ClearTimer();
+			SDL_PollEvent(nullptr);
+			spring_msecs(50).sleep(true);
+		}
+		return;
+	}
+
 	CBitmap bmp;
 
 	VA_TYPE_2DT quadElems[] = {

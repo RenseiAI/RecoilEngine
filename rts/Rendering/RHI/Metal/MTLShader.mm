@@ -9,10 +9,30 @@
 #include <cstring>
 
 #include "Rendering/RHI/ShaderCompiler.h"
+#include "Rendering/RHI/ShaderReflection.h"
 #include "System/Log/ILog.h"
 #include "System/FileSystem/FileHandler.h"
 
 namespace RHI {
+
+static size_t ShaderDataTypeSize(ShaderDataType type) {
+	switch (type) {
+		case ShaderDataType::Float:           return  4;
+		case ShaderDataType::Vec2:            return  8;
+		case ShaderDataType::Vec3:            return 12;
+		case ShaderDataType::Vec4:            return 16;
+		case ShaderDataType::Int:             return  4;
+		case ShaderDataType::IVec2:           return  8;
+		case ShaderDataType::IVec3:           return 12;
+		case ShaderDataType::IVec4:           return 16;
+		case ShaderDataType::Mat3:            return 36;
+		case ShaderDataType::Mat4:            return 64;
+		case ShaderDataType::Sampler2D:       return  4;
+		case ShaderDataType::SamplerCube:     return  4;
+		case ShaderDataType::Sampler2DShadow: return  4;
+		default:                              return  4;
+	}
+}
 
 // Static shader compiler instance
 std::unique_ptr<ShaderCompiler> MTLShader::shaderCompiler;
@@ -109,69 +129,103 @@ void MTLShader::Link() {
 		}
 	}
 
-	// Combine into a single MSL library source
-	std::ostringstream combinedMSL;
-	combinedMSL << "#include <metal_stdlib>\n";
-	combinedMSL << "using namespace metal;\n\n";
-
-	if (!vertexMSL.empty()) {
-		combinedMSL << "// === Vertex Shader ===\n";
-		combinedMSL << vertexMSL << "\n\n";
-	}
-
-	if (!fragmentMSL.empty()) {
-		combinedMSL << "// === Fragment Shader ===\n";
-		combinedMSL << fragmentMSL << "\n\n";
-	}
-
-	std::string mslSource = combinedMSL.str();
-
-	// Compile MSL to MTLLibrary
+	// Compile vertex and fragment MSL into separate Metal libraries.
+	// They must be separate because SPIRV-Cross generates identical struct
+	// definitions for interface blocks (e.g. "struct Data") in both stages,
+	// which causes "redefinition" errors when combined.
 	NSError* error = nil;
 	MTLCompileOptions* options = [[MTLCompileOptions alloc] init];
 	options.languageVersion = MTLLanguageVersion2_1;
 
-	NSString* sourceNS = [NSString stringWithUTF8String:mslSource.c_str()];
-	library = [device->GetMTLDevice() newLibraryWithSource:sourceNS
-	                                               options:options
-	                                                 error:&error];
-
-	if (!library) {
-		LOG_L(L_ERROR, "[MTLShader] %s: Failed to compile Metal library: %s",
-		      shaderName.c_str(), [[error localizedDescription] UTF8String]);
-		return;
-	}
-
-	library.label = [NSString stringWithUTF8String:shaderName.c_str()];
-
-	// Get vertex and fragment functions
-	if (!vertexSource.empty()) {
-		vertexFunction = [library newFunctionWithName:@"vertexMain"];
-		if (!vertexFunction) {
-			// Try alternative name
-			vertexFunction = [library newFunctionWithName:@"main0"];
+	if (!vertexMSL.empty()) {
+		NSString* vsSrc = [NSString stringWithUTF8String:vertexMSL.c_str()];
+		id<MTLLibrary> vsLib = [device->GetMTLDevice() newLibraryWithSource:vsSrc
+		                                                            options:options
+		                                                              error:&error];
+		if (!vsLib) {
+			LOG_L(L_ERROR, "[MTLShader] %s: Failed to compile vertex Metal library: %s",
+			      shaderName.c_str(), [[error localizedDescription] UTF8String]);
+			return;
 		}
+		vsLib.label = [NSString stringWithUTF8String:(shaderName + "_VS").c_str()];
+		vertexFunction = [vsLib newFunctionWithName:@"vertexMain"];
+		if (!vertexFunction)
+			vertexFunction = [vsLib newFunctionWithName:@"main0"];
 		if (!vertexFunction) {
 			LOG_L(L_ERROR, "[MTLShader] %s: Vertex function not found in library", shaderName.c_str());
 		}
+		library = vsLib; // keep a reference to prevent deallocation
 	}
 
-	if (!fragmentSource.empty()) {
-		fragmentFunction = [library newFunctionWithName:@"fragmentMain"];
-		if (!fragmentFunction) {
-			// Try alternative name
-			fragmentFunction = [library newFunctionWithName:@"main0"];
+	if (!fragmentMSL.empty()) {
+		error = nil;
+		NSString* fsSrc = [NSString stringWithUTF8String:fragmentMSL.c_str()];
+		id<MTLLibrary> fsLib = [device->GetMTLDevice() newLibraryWithSource:fsSrc
+		                                                            options:options
+		                                                              error:&error];
+		if (!fsLib) {
+			LOG_L(L_ERROR, "[MTLShader] %s: Failed to compile fragment Metal library: %s",
+			      shaderName.c_str(), [[error localizedDescription] UTF8String]);
+			LOG_L(L_ERROR, "[MTLShader] %s: Fragment MSL source:\n%s",
+			      shaderName.c_str(), fragmentMSL.c_str());
+			return;
 		}
+		fsLib.label = [NSString stringWithUTF8String:(shaderName + "_FS").c_str()];
+		fragmentFunction = [fsLib newFunctionWithName:@"fragmentMain"];
+		if (!fragmentFunction)
+			fragmentFunction = [fsLib newFunctionWithName:@"main0"];
 		if (!fragmentFunction) {
 			LOG_L(L_ERROR, "[MTLShader] %s: Fragment function not found in library", shaderName.c_str());
 		}
+		if (!library) library = fsLib;
+		fragmentLibrary = fsLib;
 	}
 
 	valid = (vertexFunction != nil || fragmentFunction != nil);
 
-	if (valid) {
-		LOG("[MTLShader] %s: Linked successfully", shaderName.c_str());
+	if (!valid)
+		return;
+
+	// Pre-populate uniform map from SPIR-V reflection data so offsets match
+	// the std140 layout that SPIRV-Cross generates in the MSL struct.
+	uniformMap.clear();
+	uniformData.clear();
+	uniformBufferSize = 0;
+
+	size_t maxEnd = 0;
+	auto populateFromReflection = [&](const ShaderReflection* refl) {
+		if (!refl)
+			return;
+		for (const auto& u : refl->uniforms) {
+			// Skip if already present (vertex stage has priority)
+			if (uniformMap.count(u.name))
+				continue;
+			size_t dataSize = ShaderDataTypeSize(u.type) * static_cast<size_t>(u.arraySize);
+			size_t offset = static_cast<size_t>(u.offset);
+			uniformMap[u.name] = {offset, dataSize, (u.type == ShaderDataType::Mat3 || u.type == ShaderDataType::Mat4)};
+			size_t end = offset + dataSize;
+			if (end > maxEnd)
+				maxEnd = end;
+		}
+	};
+
+	if (!vertexSource.empty()) {
+		const auto* vsRefl = shaderCompiler->GetCachedReflection(
+			vertexDefines + "\n" + vertexSource, CompilerShaderStage::Vertex);
+		populateFromReflection(vsRefl);
 	}
+	if (!fragmentSource.empty()) {
+		const auto* fsRefl = shaderCompiler->GetCachedReflection(
+			fragmentDefines + "\n" + fragmentSource, CompilerShaderStage::Fragment);
+		populateFromReflection(fsRefl);
+	}
+
+	// Align total buffer size to 16 bytes
+	uniformBufferSize = (maxEnd + 15) & ~size_t(15);
+	uniformData.resize(uniformBufferSize, 0);
+
+	LOG("[MTLShader] %s: Linked successfully (%zu uniforms, %zu bytes)",
+	    shaderName.c_str(), uniformMap.size(), uniformBufferSize);
 }
 
 bool MTLShader::Validate() {
@@ -181,6 +235,7 @@ bool MTLShader::Validate() {
 void MTLShader::Release() {
 	fragmentFunction = nil;
 	vertexFunction = nil;
+	fragmentLibrary = nil;
 	library = nil;
 	valid = false;
 	bound = false;
@@ -215,11 +270,12 @@ size_t MTLShader::GetOrCreateUniformSlot(const char* name, size_t size) {
 		return it->second.offset;
 	}
 
-	// Align to 16 bytes for Metal requirements
-	size_t alignedSize = (size + 15) & ~15;
+	// Uniform not found in reflection — allocate sequentially at the end.
+	// This handles uniforms set at runtime that weren't in the GLSL source
+	// (e.g., engine-injected uniforms).
+	size_t alignedSize = (size + 15) & ~size_t(15);
 	size_t offset = uniformBufferSize;
 
-	// Ensure uniform data has enough space
 	uniformBufferSize += alignedSize;
 	if (uniformData.size() < uniformBufferSize) {
 		uniformData.resize(uniformBufferSize, 0);

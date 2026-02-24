@@ -115,10 +115,12 @@ private:
 
 #ifdef __OBJC__
 	id<MTLLibrary>  library          = nil;
+	id<MTLLibrary>  fragmentLibrary  = nil; // separate library for fragment stage
 	id<MTLFunction> vertexFunction   = nil;
 	id<MTLFunction> fragmentFunction = nil;
 #else
 	void*           library          = nullptr;
+	void*           fragmentLibrary  = nullptr;
 	void*           vertexFunction   = nullptr;
 	void*           fragmentFunction = nullptr;
 #endif

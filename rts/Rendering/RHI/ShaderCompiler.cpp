@@ -109,9 +109,10 @@ std::vector<uint32_t> ShaderCompiler::CompileGLSLToSPIRV(
 	shader.setEntryPoint(entryPoint.c_str());
 	shader.setSourceEntryPoint(entryPoint.c_str());
 
-	// ECompatibilityProfile for legacy GLSL 120/130 built-ins:
-	// gl_ModelViewMatrix, gl_Fog, gl_LightSource, gl_TexCoord,
-	// gl_MultiTexCoord0, gl_FragColor, gl_FragData, gl_ClipVertex, etc.
+	// ECompatibilityProfile allows legacy GLSL built-ins (gl_ModelViewMatrix, etc.)
+	// while still generating SPIR-V. We don't use setEnvTarget here because that
+	// enforces strict SPIR-V rules (uniform locations, bindings) which our shaders
+	// don't have. Instead, we fix up the SPIR-V version header after generation.
 	const int defaultVersion = 110;
 	const EProfile profile = ECompatibilityProfile;
 	const bool forwardCompatible = false;
@@ -136,8 +137,8 @@ std::vector<uint32_t> ShaderCompiler::CompileGLSLToSPIRV(
 	spv::SpvBuildLogger logger;
 	glslang::SpvOptions spvOptions;
 	spvOptions.generateDebugInfo = false;
-	spvOptions.disableOptimizer  = false;
-	spvOptions.optimizeSize      = true;
+	spvOptions.disableOptimizer  = true;
+	spvOptions.optimizeSize      = false;
 
 	glslang::GlslangToSpv(*program.getIntermediate(glslangStage), spirv, &logger, &spvOptions);
 
@@ -145,6 +146,19 @@ std::vector<uint32_t> ShaderCompiler::CompileGLSLToSPIRV(
 		lastError = std::string("SPIR-V generation failed:\n") + logger.getAllMessages();
 		LOG_L(L_ERROR, "[ShaderCompiler] %s", lastError.c_str());
 		return {};
+	}
+
+	// Without setEnvTarget, glslang emits SPIR-V version 0 in the header.
+	// SPIRV-Cross requires a valid version (1.0+). Patch it to SPIR-V 1.0.
+	if (spirv.size() >= 5) {
+		if (spirv[0] != 0x07230203) {
+			lastError = "SPIR-V magic mismatch: 0x" + std::to_string(spirv[0]);
+			LOG_L(L_ERROR, "[ShaderCompiler] %s", lastError.c_str());
+			return {};
+		}
+		if (spirv[1] == 0) {
+			spirv[1] = 0x00010000; // SPIR-V 1.0
+		}
 	}
 
 	return spirv;
@@ -155,6 +169,15 @@ std::string ShaderCompiler::TranslateSPIRVToMSL(
 	const MSLCompilerOptions& options)
 {
 	lastError.clear();
+
+	if (spirv.size() < 5) {
+		lastError = "SPIR-V data too small (" + std::to_string(spirv.size()) + " words)";
+		LOG_L(L_ERROR, "[ShaderCompiler] %s", lastError.c_str());
+		return {};
+	}
+
+	LOG("[ShaderCompiler] TranslateSPIRVToMSL: %zu words, magic=0x%08x version=0x%08x",
+	    spirv.size(), spirv[0], spirv[1]);
 
 	try {
 		spirv_cross::CompilerMSL mslCompiler(spirv);
@@ -168,6 +191,16 @@ std::string ShaderCompiler::TranslateSPIRVToMSL(
 		mslOpts.enable_point_size_builtin = options.enablePointSize;
 
 		mslCompiler.set_msl_options(mslOpts);
+
+		// Rename entry points to avoid main0 collision when vertex+fragment
+		// are combined into one MTLLibrary
+		auto ep = mslCompiler.get_entry_points_and_stages();
+		for (auto& e : ep) {
+			if (e.execution_model == spv::ExecutionModelVertex)
+				mslCompiler.rename_entry_point(e.name, "vertexMain", e.execution_model);
+			else if (e.execution_model == spv::ExecutionModelFragment)
+				mslCompiler.rename_entry_point(e.name, "fragmentMain", e.execution_model);
+		}
 
 		return mslCompiler.compile();
 	} catch (const spirv_cross::CompilerError& e) {
@@ -293,6 +326,16 @@ std::string ShaderCompiler::CompileGLSLToMSL(
 	return msl;
 }
 
+const ShaderReflection* ShaderCompiler::GetCachedReflection(
+	const std::string& source, CompilerShaderStage stage) const
+{
+	const uint64_t key = HashSource(source, stage);
+	auto it = cache.find(key);
+	if (it != cache.end())
+		return &it->second.reflection;
+	return nullptr;
+}
+
 void ShaderCompiler::ClearCache() {
 	cache.clear();
 }
@@ -328,6 +371,7 @@ std::string ShaderCompiler::CompileGLSLToMSL(const std::string&, CompilerShaderS
 }
 
 uint64_t ShaderCompiler::HashSource(const std::string&, CompilerShaderStage) const { return 0; }
+const ShaderReflection* ShaderCompiler::GetCachedReflection(const std::string&, CompilerShaderStage) const { return nullptr; }
 void ShaderCompiler::ClearCache() { cache.clear(); }
 
 } // namespace RHI

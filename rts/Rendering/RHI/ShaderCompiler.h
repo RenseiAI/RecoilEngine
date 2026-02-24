@@ -70,6 +70,11 @@ public:
 		const std::string& source,
 		CompilerShaderStage stage);
 
+	/// Retrieve cached reflection data for a previously compiled shader.
+	/// Returns nullptr if not found in cache.
+	const ShaderReflection* GetCachedReflection(
+		const std::string& source, CompilerShaderStage stage) const;
+
 	void ClearCache();
 
 	const std::string& GetLastError() const { return lastError; }
