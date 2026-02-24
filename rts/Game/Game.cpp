@@ -1448,41 +1448,6 @@ bool CGame::Draw() {
 	// Bind per-drawFrame UBO
 	UniformConstants::GetInstance().Bind();
 
-	// Metal test frame: draw a colored triangle to prove the full pipeline works
-	// (buffer creation → shader compile GLSL→MSL → vertex upload → draw → present)
-	if (RHI::IsMetalBackend()) {
-		auto* device = RHI::GetDevice();
-		auto* ctx = device->GetContext();
-
-		// Begin render pass with clear
-		RHI::RenderPassDesc passDesc{};
-		passDesc.colorAttachmentCount = 1;
-		passDesc.colorAttachments[0].loadAction = RHI::LoadAction::Clear;
-		passDesc.colorAttachments[0].clearColor = {0.1f, 0.1f, 0.15f, 1.0f};
-		ctx->BeginDefaultRenderPass(passDesc);
-
-		// Draw a test triangle using TypedRenderBuffer<VA_TYPE_C>
-		{
-			auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_C>();
-			const CMatrix44f ortho = CMatrix44f::ClipOrthoProj01();
-			rb.SetTransformMatrix(ortho);
-
-			// Colored triangle in 0..1 range
-			rb.AddVertex({{0.25f, 0.25f, 0.0f}, SColor(1.0f, 0.0f, 0.0f, 1.0f)});
-			rb.AddVertex({{0.75f, 0.25f, 0.0f}, SColor(0.0f, 1.0f, 0.0f, 1.0f)});
-			rb.AddVertex({{0.50f, 0.75f, 0.0f}, SColor(0.0f, 0.0f, 1.0f, 1.0f)});
-			rb.DrawArrays(GL_TRIANGLES);
-		}
-
-		ctx->EndRenderPass();
-
-		camera->LoadViewport();
-		SetDrawMode(gameNotDrawing);
-		CTeamHighlight::Disable();
-		lastDrawFrameTime = spring_gettime();
-		return true;
-	}
-
 	{
 		SCOPED_TIMER("Draw::DrawGenesis");
 		eventHandler.DrawGenesis();
