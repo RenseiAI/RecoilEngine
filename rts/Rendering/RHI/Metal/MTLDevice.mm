@@ -110,7 +110,7 @@ bool MTLDevice::SetupMetalLayer(SDL_Window* window) {
 	// Configure the layer
 	metalLayer.device = mtlDevice;
 	metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
-	metalLayer.framebufferOnly = YES;
+	metalLayer.framebufferOnly = NO;  // Allow drawable texture reads (blit source, ReadPixels)
 
 	// Enable display sync (vsync)
 	if (@available(macOS 10.13, *)) {

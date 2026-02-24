@@ -74,6 +74,12 @@ public:
 
 	/// Get the depth pixel format (for pipeline creation)
 	MTLPixelFormat GetDepthPixelFormat() const;
+
+	/// Get the Metal texture for a color attachment (for blit operations)
+	id<MTLTexture> GetColorTexture(uint32_t index = 0) const;
+
+	/// Get the Metal texture for the depth attachment (for blit operations)
+	id<MTLTexture> GetDepthTexture() const;
 #endif
 
 private:

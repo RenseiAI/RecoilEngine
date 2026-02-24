@@ -1,12 +1,10 @@
 /**
  * CTextureRenderAtlas - GPU-rendered texture atlas with mipmap generation.
  *
- * RHI Migration Status: PARTIAL
- * ============================
- * - Atlas storage uses RHI::IRHITexture (migrated)
- * - FBO render-to-texture pipeline still uses GL (out of scope)
- * - filenameToTexID intermediate textures still use raw GLuint on GL path
- * - filenameToRHITex stores RHI textures on Metal path (no raw GL)
+ * RHI Migration Status: COMPLETE (Phase 16.2)
+ * ============================================
+ * Metal: RHI framebuffer render-to-texture + GenerateMipmaps
+ * GL: Legacy FBO render-to-texture with per-mip LOD shader (unchanged)
  */
 #pragma once
 
@@ -100,6 +98,7 @@ private:
 	static inline Shader::IProgramObject* shader = nullptr;
 	bool atlasFinalized;
 	bool atlasRendered;
+	uint32_t nextMetalTexID = 1; // Monotonic counter for unique texture IDs on Metal (replaces GL handles)
 public:
 	static inline AtlasedTexture dummy = AtlasedTexture{};
 };

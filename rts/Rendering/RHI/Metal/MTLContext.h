@@ -133,7 +133,7 @@ public:
 	                     bool colorBit, bool depthBit, bool filterLinear) override;
 
 	// --- Readback ---
-	void ReadPixels(int x, int y, int width, int height, uint32_t format, uint32_t type, void* data) override {} // Metal: TBD - use MTLTexture getBytes
+	void ReadPixels(int x, int y, int width, int height, uint32_t format, uint32_t type, void* data) override;
 
 	// --- Synchronization ---
 	void Flush() override;
@@ -163,11 +163,29 @@ private:
 	void BindCurrentResources();
 	MTLPipeline* GetOrCreateDefaultPipeline();
 
+	// Blit helpers
+	void BlitTexture(id<MTLTexture> srcTex, id<MTLTexture> dstTex,
+	                 int srcX0, int srcY0, int srcX1, int srcY1,
+	                 int dstX0, int dstY0, int dstX1, int dstY1,
+	                 bool filterLinear);
+	void EnsureBlitPipeline(MTLPixelFormat destFormat);
+	void BlitViaRenderPass(id<MTLTexture> srcTex, id<MTLTexture> dstTex,
+	                       int srcX0, int srcY0, int srcX1, int srcY1,
+	                       int dstX0, int dstY0, int dstX1, int dstY1,
+	                       bool filterLinear);
+
 	static MTLPrimitiveType ToMTLPrimitiveType(PrimitiveType type);
 	static MTLIndexType ToMTLIndexType(IndexType type);
 
 	id<MTLCommandBuffer>        commandBuffer = nil;
 	id<MTLRenderCommandEncoder> renderEncoder = nil;
+
+	// Blit pipeline state (lazy-initialized for scaled/flipped blits)
+	id<MTLLibrary>              blitLibrary = nil;
+	id<MTLRenderPipelineState>  blitPSO = nil;
+	MTLPixelFormat              blitPSOFormat = MTLPixelFormatInvalid;
+	id<MTLSamplerState>         blitSamplerLinear = nil;
+	id<MTLSamplerState>         blitSamplerNearest = nil;
 
 	// Triple buffering semaphore
 	dispatch_semaphore_t frameSemaphore;

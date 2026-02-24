@@ -10,6 +10,10 @@
 
 #import <Metal/Metal.h>
 
+#include <algorithm>
+#include <cstring>
+#include <vector>
+
 #include "System/Log/ILog.h"
 
 namespace RHI {
@@ -49,6 +53,12 @@ MTLContext::~MTLContext() {
 
 	renderEncoder = nil;
 	commandBuffer = nil;
+
+	// Release blit pipeline resources
+	blitLibrary = nil;
+	blitPSO = nil;
+	blitSamplerLinear = nil;
+	blitSamplerNearest = nil;
 }
 
 void MTLContext::EnsureCommandBuffer() {
@@ -561,39 +571,344 @@ void MTLContext::Clear(bool color, bool depth, bool stencil) {
 	}
 }
 
+// MSL source for the blit shader (compiled lazily on first use)
+static NSString* const kBlitShaderSource = @R"msl(
+#include <metal_stdlib>
+using namespace metal;
+
+struct BlitVaryings {
+    float4 position [[position]];
+};
+
+// Fullscreen triangle covering entire clip space
+vertex BlitVaryings rhi_blitVS(uint vid [[vertex_id]]) {
+    float2 pos;
+    pos.x = (vid == 1) ? 3.0 : -1.0;
+    pos.y = (vid == 2) ? -3.0 : 1.0;
+    BlitVaryings out;
+    out.position = float4(pos, 0.0, 1.0);
+    return out;
+}
+
+// params.xy = per-pixel UV scale
+// params.zw = UV offset (UV at framebuffer pixel 0,0)
+fragment float4 rhi_blitFS(BlitVaryings in [[stage_in]],
+                            texture2d<float> srcTex [[texture(0)]],
+                            sampler s [[sampler(0)]],
+                            constant float4& params [[buffer(0)]]) {
+    float2 uv = in.position.xy * params.xy + params.zw;
+    return srcTex.sample(s, uv);
+}
+)msl";
+
+void MTLContext::EnsureBlitPipeline(MTLPixelFormat destFormat) {
+	// Compile blit shader library (once)
+	if (!blitLibrary) {
+		NSError* error = nil;
+		blitLibrary = [device->GetMTLDevice() newLibraryWithSource:kBlitShaderSource
+		                                                   options:nil
+		                                                     error:&error];
+		if (!blitLibrary) {
+			LOG_L(L_ERROR, "[MTLContext] Failed to compile blit shader: %s",
+			      error ? [[error description] UTF8String] : "unknown error");
+			return;
+		}
+	}
+
+	// Create pipeline state if format changed
+	if (!blitPSO || blitPSOFormat != destFormat) {
+		id<MTLFunction> vertexFunc = [blitLibrary newFunctionWithName:@"rhi_blitVS"];
+		id<MTLFunction> fragmentFunc = [blitLibrary newFunctionWithName:@"rhi_blitFS"];
+
+		if (!vertexFunc || !fragmentFunc) {
+			LOG_L(L_ERROR, "[MTLContext] Failed to find blit shader functions");
+			return;
+		}
+
+		MTLRenderPipelineDescriptor* desc = [[MTLRenderPipelineDescriptor alloc] init];
+		desc.label = @"RHI Blit Pipeline";
+		desc.vertexFunction = vertexFunc;
+		desc.fragmentFunction = fragmentFunc;
+		desc.colorAttachments[0].pixelFormat = destFormat;
+
+		NSError* error = nil;
+		blitPSO = [device->GetMTLDevice() newRenderPipelineStateWithDescriptor:desc error:&error];
+		if (!blitPSO) {
+			LOG_L(L_ERROR, "[MTLContext] Failed to create blit pipeline: %s",
+			      error ? [[error description] UTF8String] : "unknown error");
+			return;
+		}
+		blitPSOFormat = destFormat;
+	}
+
+	// Create samplers (once)
+	if (!blitSamplerLinear) {
+		MTLSamplerDescriptor* sampDesc = [[MTLSamplerDescriptor alloc] init];
+		sampDesc.minFilter = MTLSamplerMinMagFilterLinear;
+		sampDesc.magFilter = MTLSamplerMinMagFilterLinear;
+		sampDesc.sAddressMode = MTLSamplerAddressModeClampToEdge;
+		sampDesc.tAddressMode = MTLSamplerAddressModeClampToEdge;
+		blitSamplerLinear = [device->GetMTLDevice() newSamplerStateWithDescriptor:sampDesc];
+
+		sampDesc.minFilter = MTLSamplerMinMagFilterNearest;
+		sampDesc.magFilter = MTLSamplerMinMagFilterNearest;
+		blitSamplerNearest = [device->GetMTLDevice() newSamplerStateWithDescriptor:sampDesc];
+	}
+}
+
+void MTLContext::BlitViaRenderPass(id<MTLTexture> srcTex, id<MTLTexture> dstTex,
+                                    int srcX0, int srcY0, int srcX1, int srcY1,
+                                    int dstX0, int dstY0, int dstX1, int dstY1,
+                                    bool filterLinear) {
+	EnsureBlitPipeline(dstTex.pixelFormat);
+	if (!blitPSO) return;
+
+	const float srcTexW = (float)srcTex.width;
+	const float srcTexH = (float)srcTex.height;
+	const uint32_t dstTexH = (uint32_t)dstTex.height;
+
+	// Compute linear UV mapping: UV = position * scale + offset
+	// Maps Metal framebuffer pixel coordinates to source texture UV coordinates,
+	// handling GL-to-Metal coordinate conversion (GL origin = bottom-left,
+	// Metal texture UV origin = top-left).
+	const float dstDx = (float)(dstX1 - dstX0);
+	const float dstDy = (float)(dstY1 - dstY0);
+
+	const float scaleU = (dstDx != 0.0f)
+		? (float)(srcX1 - srcX0) / (dstDx * srcTexW) : 0.0f;
+	const float scaleV = (dstDy != 0.0f)
+		? (float)(srcY1 - srcY0) / (dstDy * srcTexH) : 0.0f;
+
+	const float offsetU = (float)srcX0 / srcTexW - (float)dstX0 * scaleU;
+	const float offsetV = 1.0f - (float)srcY0 / srcTexH
+		- (float)((int)dstTexH - dstY0) * scaleV;
+
+	const float params[4] = { scaleU, scaleV, offsetU, offsetV };
+
+	// Create render pass targeting destination texture
+	MTLRenderPassDescriptor* rpDesc = [MTLRenderPassDescriptor renderPassDescriptor];
+	rpDesc.colorAttachments[0].texture = dstTex;
+	rpDesc.colorAttachments[0].loadAction = MTLLoadActionLoad;
+	rpDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
+
+	id<MTLRenderCommandEncoder> encoder = [commandBuffer renderCommandEncoderWithDescriptor:rpDesc];
+	encoder.label = @"RHI Blit (scaled)";
+
+	// Set viewport to destination rect (in Metal coordinates, top-left origin)
+	const int minDstX = std::min(dstX0, dstX1);
+	const int maxDstX = std::max(dstX0, dstX1);
+	const int minDstY = std::min(dstY0, dstY1);
+	const int maxDstY = std::max(dstY0, dstY1);
+
+	MTLViewport vp;
+	vp.originX = minDstX;
+	vp.originY = (int)dstTexH - maxDstY;
+	vp.width = maxDstX - minDstX;
+	vp.height = maxDstY - minDstY;
+	vp.znear = 0.0;
+	vp.zfar = 1.0;
+	[encoder setViewport:vp];
+
+	// Bind pipeline, texture, sampler, uniforms
+	[encoder setRenderPipelineState:blitPSO];
+	[encoder setFragmentTexture:srcTex atIndex:0];
+	[encoder setFragmentSamplerState:(filterLinear ? blitSamplerLinear : blitSamplerNearest) atIndex:0];
+	[encoder setFragmentBytes:params length:sizeof(params) atIndex:0];
+
+	// Draw fullscreen triangle
+	[encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+
+	[encoder endEncoding];
+}
+
+void MTLContext::BlitTexture(id<MTLTexture> srcTex, id<MTLTexture> dstTex,
+                              int srcX0, int srcY0, int srcX1, int srcY1,
+                              int dstX0, int dstY0, int dstX1, int dstY1,
+                              bool filterLinear) {
+	const int srcW = srcX1 - srcX0;
+	const int srcH = srcY1 - srcY0;
+	const int dstW = dstX1 - dstX0;
+	const int dstH = dstY1 - dstY0;
+
+	const bool sameSize = (srcW == dstW && srcH == dstH);
+	const bool noFlip = (srcW > 0 && srcH > 0 && dstW > 0 && dstH > 0);
+	const bool sameFormat = (srcTex.pixelFormat == dstTex.pixelFormat);
+
+	if (sameSize && noFlip && sameFormat) {
+		// Fast path: use blit command encoder for pixel-exact copy
+		const uint32_t srcTexH = (uint32_t)srcTex.height;
+		const uint32_t dstTexH = (uint32_t)dstTex.height;
+
+		// Convert GL coordinates (bottom-left origin) to Metal (top-left origin)
+		MTLOrigin srcOrigin = MTLOriginMake(srcX0, srcTexH - srcY1, 0);
+		MTLSize   copySize  = MTLSizeMake(srcW, srcH, 1);
+		MTLOrigin dstOrigin = MTLOriginMake(dstX0, dstTexH - dstY1, 0);
+
+		id<MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
+		blit.label = @"RHI Blit (copy)";
+		[blit copyFromTexture:srcTex sourceSlice:0 sourceLevel:0
+		         sourceOrigin:srcOrigin sourceSize:copySize
+		            toTexture:dstTex destinationSlice:0 destinationLevel:0
+		    destinationOrigin:dstOrigin];
+		[blit endEncoding];
+	} else {
+		// Slow path: render pass with fullscreen triangle for scaling/flipping
+		BlitViaRenderPass(srcTex, dstTex,
+			srcX0, srcY0, srcX1, srcY1,
+			dstX0, dstY0, dstX1, dstY1,
+			filterLinear);
+	}
+}
+
 void MTLContext::BlitFramebuffer(IRHIFramebuffer* src, IRHIFramebuffer* dst,
                                   int srcX0, int srcY0, int srcX1, int srcY1,
                                   int dstX0, int dstY0, int dstX1, int dstY1,
                                   bool colorBit, bool depthBit, bool filterLinear) {
-	// End any active render pass
+	// End any active render pass before blit
 	if (inRenderPass) {
 		EndRenderPass();
 	}
 
 	EnsureCommandBuffer();
 
-	// Create a blit command encoder
-	id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
-	blitEncoder.label = @"RHI Blit";
-
 	MTLFramebuffer* srcFB = static_cast<MTLFramebuffer*>(src);
 	MTLFramebuffer* dstFB = static_cast<MTLFramebuffer*>(dst);
 
-	// Blit color
-	if (colorBit && srcFB && dstFB) {
-		// Get source and dest textures
-		// Note: This is a simplified implementation. Full blit with scaling
-		// would require a compute shader or render pass.
-		LOG_L(L_WARNING, "[MTLContext] BlitFramebuffer with scaling not fully implemented");
+	// Blit color attachment
+	if (colorBit) {
+		id<MTLTexture> srcTex = srcFB ? srcFB->GetColorTexture(0) : device->GetDrawableTexture();
+		id<MTLTexture> dstTex = dstFB ? dstFB->GetColorTexture(0) : device->GetDrawableTexture();
+
+		if (srcTex && dstTex) {
+			BlitTexture(srcTex, dstTex,
+				srcX0, srcY0, srcX1, srcY1,
+				dstX0, dstY0, dstX1, dstY1,
+				filterLinear);
+		} else {
+			LOG_L(L_WARNING, "[MTLContext] BlitFramebuffer: missing color texture (src=%p dst=%p)",
+			      (void*)srcTex, (void*)dstTex);
+		}
 	}
 
-	[blitEncoder endEncoding];
+	// Blit depth attachment
+	if (depthBit) {
+		id<MTLTexture> srcTex = srcFB ? srcFB->GetDepthTexture() : nil;
+		id<MTLTexture> dstTex = dstFB ? dstFB->GetDepthTexture() : nil;
+
+		if (srcTex && dstTex) {
+			// Depth blits always use nearest filtering
+			BlitTexture(srcTex, dstTex,
+				srcX0, srcY0, srcX1, srcY1,
+				dstX0, dstY0, dstX1, dstY1,
+				false);
+		} else {
+			LOG_L(L_WARNING, "[MTLContext] BlitFramebuffer: missing depth texture (src=%p dst=%p)",
+			      (void*)srcTex, (void*)dstTex);
+		}
+	}
+}
+
+void MTLContext::ReadPixels(int x, int y, int width, int height,
+                            uint32_t format, uint32_t type, void* data) {
+	if (!data || width <= 0 || height <= 0) return;
+
+	// End any active render pass so texture contents are committed
+	if (inRenderPass) {
+		EndRenderPass();
+	}
+
+	// Get the texture to read from
+	id<MTLTexture> tex = nil;
+	if (currentFramebuffer) {
+		tex = static_cast<MTLFramebuffer*>(currentFramebuffer)->GetColorTexture(0);
+	} else {
+		tex = device->GetDrawableTexture();
+	}
+
+	if (!tex) {
+		LOG_L(L_WARNING, "[MTLContext] ReadPixels: no texture available");
+		return;
+	}
+
+	// Commit and wait for GPU work to complete
+	if (commandBuffer) {
+		[commandBuffer commit];
+		[commandBuffer waitUntilCompleted];
+		commandBuffer = nil;
+	}
+
+	// Determine bytes per pixel from GL format/type
+	// Common cases: GL_RGBA + GL_UNSIGNED_BYTE = 4 bpp
+	// GL_BGR_EXT + GL_UNSIGNED_BYTE = 3 bpp (but we'll read 4 and swizzle)
+	uint32_t bytesPerPixel = 4;  // Default RGBA8
+
+	// Convert GL y (bottom-left origin) to Metal y (top-left origin)
+	const uint32_t texH = (uint32_t)tex.height;
+	const uint32_t metalY = texH - y - height;
+
+	const MTLRegion region = MTLRegionMake2D(x, metalY, width, height);
+	const uint32_t bytesPerRow = width * bytesPerPixel;
+
+	// Check if we can read directly from this texture
+	if (tex.storageMode == MTLStorageModePrivate) {
+		// Private storage: need a staging texture
+		MTLTextureDescriptor* stagingDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:tex.pixelFormat
+		                                                                                      width:width height:height mipmapped:NO];
+		stagingDesc.storageMode = MTLStorageModeShared;
+		stagingDesc.usage = MTLTextureUsageShaderRead;
+
+		id<MTLTexture> staging = [device->GetMTLDevice() newTextureWithDescriptor:stagingDesc];
+		if (!staging) {
+			LOG_L(L_WARNING, "[MTLContext] ReadPixels: failed to create staging texture");
+			return;
+		}
+
+		// Blit from source to staging
+		EnsureCommandBuffer();
+		id<MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
+		blit.label = @"RHI ReadPixels staging blit";
+		[blit copyFromTexture:tex sourceSlice:0 sourceLevel:0
+		         sourceOrigin:MTLOriginMake(x, metalY, 0) sourceSize:MTLSizeMake(width, height, 1)
+		            toTexture:staging destinationSlice:0 destinationLevel:0
+		    destinationOrigin:MTLOriginMake(0, 0, 0)];
+		[blit endEncoding];
+		[commandBuffer commit];
+		[commandBuffer waitUntilCompleted];
+		commandBuffer = nil;
+
+		// Read from staging texture
+		[staging getBytes:data bytesPerRow:bytesPerRow fromRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0];
+	} else {
+		// Shared/managed storage: read directly
+		[tex getBytes:data bytesPerRow:bytesPerRow fromRegion:region mipmapLevel:0];
+	}
+
+	// Metal reads top-to-bottom, but GL expects bottom-to-top.
+	// Flip the rows in-place.
+	std::vector<uint8_t> rowBuffer(bytesPerRow);
+	uint8_t* pixels = static_cast<uint8_t*>(data);
+	for (int row = 0; row < height / 2; ++row) {
+		uint8_t* top = pixels + row * bytesPerRow;
+		uint8_t* bot = pixels + (height - 1 - row) * bytesPerRow;
+		memcpy(rowBuffer.data(), top, bytesPerRow);
+		memcpy(top, bot, bytesPerRow);
+		memcpy(bot, rowBuffer.data(), bytesPerRow);
+	}
 }
 
 void MTLContext::Flush() {
-	// In Metal, commands are buffered in the command buffer
-	// To flush immediately, we'd need to commit the buffer
-	// For now, this is a no-op as we commit at frame end
+	// Commit current command buffer synchronously and create a new one.
+	// Used for resource synchronization (e.g., render-to-texture before mipmap generation).
+	if (inRenderPass) {
+		EndRenderPass();
+	}
+	if (commandBuffer) {
+		[commandBuffer commit];
+		[commandBuffer waitUntilCompleted];
+		// Create new command buffer so EndFrame can still present the drawable
+		commandBuffer = [device->GetCommandQueue() commandBuffer];
+		commandBuffer.label = @"RHI Command Buffer (post-flush)";
+	}
 }
 
 void MTLContext::Finish() {

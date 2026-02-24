@@ -286,4 +286,18 @@ MTLPixelFormat MTLFramebuffer::GetDepthPixelFormat() const {
 	return MTLPixelFormatInvalid;
 }
 
+id<MTLTexture> MTLFramebuffer::GetColorTexture(uint32_t index) const {
+	if (index < colorAttachmentCount && colorAttachments[index].texture) {
+		return colorAttachments[index].texture->GetMTLTexture();
+	}
+	return nil;
+}
+
+id<MTLTexture> MTLFramebuffer::GetDepthTexture() const {
+	if (depthAttachment.texture) {
+		return depthAttachment.texture->GetMTLTexture();
+	}
+	return depthRenderbuffer;
+}
+
 } // namespace RHI

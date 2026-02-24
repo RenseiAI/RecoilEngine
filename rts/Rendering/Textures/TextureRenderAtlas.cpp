@@ -1,23 +1,17 @@
 /**
  * TextureRenderAtlas.cpp - GPU-rendered texture atlas implementation.
  *
- * RHI Migration Status: PARTIAL
- * ============================
- * Migrated:
- *   - Atlas storage uses RHI::IRHITexture (lines 391-408)
- *   - RHI::IRHIContext::SetViewport for FBO rendering (lines 437-441)
+ * RHI Migration Status: COMPLETE (Phase 16.2)
+ * ============================================
+ * Metal path (RHI::IsMetalBackend()):
+ *   - Source textures created via CBitmap::CreateTextureRHI() with unique monotonic IDs
+ *   - Atlas render-to-texture via IRHIFramebuffer + BeginRenderPass + RenderBuffer draw
+ *   - Renders level 0 only, then GenerateMipmaps() for remaining mip chain
+ *   - GL shader/FBO code entirely bypassed
  *
- * Remaining GL (render-to-texture pipeline):
- *   - FBO attachment/rendering still uses GL
- *   - glDrawBuffer/glReadBuffer for FBO attachment selection
- *   - filenameToTexID stores raw GLuint from CBitmap::CreateMipMapTexture (GL path only)
- *   - glDeleteTextures for intermediate texture cleanup (GL path only)
- *
- * Metal path:
- *   - filenameToRHITex stores RHI textures (no raw GL)
- *   - Atlas render-to-texture is not supported (FBO returns not-ready on Metal)
- *
- * Note: Full FBO-based atlas rendering blocked by FBO RHI wrapper.
+ * GL path (OpenGL backend):
+ *   - Legacy FBO render-to-texture with per-mip-level LOD shader (unchanged)
+ *   - Source textures via CBitmap::CreateMipMapTexture() (raw GLuint)
  */
 
 #include "TextureRenderAtlas.h"
@@ -32,6 +26,7 @@
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIFramebuffer.h"
 #include "Rendering/GL/myGL.h" // needed for FBO, SubState, RenderBuffers, TexBind (rendering pipeline)
 #include "Rendering/GL/FBO.h"
 #include "Rendering/GL/TexBind.h"
@@ -130,36 +125,41 @@ CTextureRenderAtlas::CTextureRenderAtlas(
 	atlasAllocator->SetMaxSize(atlasSizeX, atlasSizeY);
 	atlasAllocator->SetMaxTexLevel(maxLevels);
 
-	if (shaderRef == 0) {
-		shader = shaderHandler->CreateProgramObject("[TextureRenderAtlas]", "TextureRenderAtlas");
-		shader->AttachShaderObject(shaderHandler->CreateShaderObject(vsTRA, "", GL_VERTEX_SHADER));
-		shader->AttachShaderObject(shaderHandler->CreateShaderObject(fsTRA, "", GL_FRAGMENT_SHADER));
-		shader->BindAttribLocation("pos", 0);
-		shader->BindAttribLocation("uv", 1);
-		shader->Link();
+	if (!RHI::IsMetalBackend()) {
+		if (shaderRef == 0) {
+			shader = shaderHandler->CreateProgramObject("[TextureRenderAtlas]", "TextureRenderAtlas");
+			shader->AttachShaderObject(shaderHandler->CreateShaderObject(vsTRA, "", GL_VERTEX_SHADER));
+			shader->AttachShaderObject(shaderHandler->CreateShaderObject(fsTRA, "", GL_FRAGMENT_SHADER));
+			shader->BindAttribLocation("pos", 0);
+			shader->BindAttribLocation("uv", 1);
+			shader->Link();
 
-		shader->Enable();
-		shader->SetUniform("tex", 0);
-		shader->SetUniform("lod", 0.0f);
-		shader->Disable();
-		shader->Validate();
+			shader->Enable();
+			shader->SetUniform("tex", 0);
+			shader->SetUniform("lod", 0.0f);
+			shader->Disable();
+			shader->Validate();
+		}
+
+		shaderRef++;
 	}
-
-	shaderRef++;
 }
 
 CTextureRenderAtlas::~CTextureRenderAtlas()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	shaderRef--;
 
-	if (shaderRef == 0)
-		shaderHandler->ReleaseProgramObjects("[TextureRenderAtlas]");
+	if (!RHI::IsMetalBackend()) {
+		shaderRef--;
 
-	for (auto& [_, tID] : filenameToTexID) {
-		if (tID) {
-			glDeleteTextures(1, &tID);
-			tID = 0;
+		if (shaderRef == 0)
+			shaderHandler->ReleaseProgramObjects("[TextureRenderAtlas]");
+
+		for (auto& [_, tID] : filenameToTexID) {
+			if (tID) {
+				glDeleteTextures(1, &tID);
+				tID = 0;
+			}
 		}
 	}
 	filenameToRHITex.clear();
@@ -217,9 +217,9 @@ bool CTextureRenderAtlas::AddTexFromBitmapRaw(const std::string& name, const CBi
 	auto it = filenameToTexID.find(refFileName);
 	if (it == filenameToTexID.end()) {
 		if (RHI::IsMetalBackend()) {
-			// Metal: create RHI texture (no raw GL); store 0 as GLuint placeholder
+			// Metal: create RHI texture with unique ID for atlas entry deduplication
 			filenameToRHITex.emplace(refFileName, bm.CreateTextureRHI());
-			it = filenameToTexID.emplace(refFileName, 0).first;
+			it = filenameToTexID.emplace(refFileName, nextMetalTexID++).first;
 		} else {
 			it = filenameToTexID.emplace(refFileName, bm.CreateMipMapTexture()).first;
 		}
@@ -391,16 +391,11 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 	if (atlasRendered)
 		return true;
 
-	LOG_L(L_INFO, "CTextureRenderAtlas::%s()[0] atlas=%s FBO::ready=%d", __func__, atlasName.c_str(), FBO::IsReady());
-
-	if (!FBO::IsReady())
-		return false;
-
 	const auto numLevels = atlasAllocator->GetNumTexLevels();
 	const auto numPages = atlasAllocator->GetNumPages();
-
 	const auto& atlasSize = atlasAllocator->GetAtlasSize();
 
+	// Create atlas texture via RHI (common to both paths)
 	{
 		auto* device = RHI::GetDevice();
 		const auto rhiFormat = GLInternalToRHIFormat(glInternalType);
@@ -420,6 +415,92 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 		atlasTex->SetWrapS(RHI::TextureWrap::ClampToEdge);
 		atlasTex->SetWrapT(RHI::TextureWrap::ClampToEdge);
 	}
+
+	if (RHI::IsMetalBackend()) {
+		// Metal: render-to-texture via RHI framebuffer + GenerateMipmaps
+		// (FBO::IsReady() is false on Metal since GLAD is not loaded)
+		auto* device = RHI::GetDevice();
+		auto* ctx = device->GetContext();
+
+		// Build texID -> RHI texture lookup for source textures
+		spring::unordered_map<uint32_t, RHI::IRHITexture*> idToRHITex;
+		for (auto& [filename, texID] : filenameToTexID) {
+			auto rhiIt = filenameToRHITex.find(filename);
+			if (rhiIt != filenameToRHITex.end())
+				idToRHITex[texID] = rhiIt->second.get();
+		}
+
+		static const auto Norm2SNorm = [](float value) { return (value * 2.0f - 1.0f); };
+		auto rhiFBO = device->CreateFramebuffer();
+		auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2DT>();
+
+		for (uint32_t page = 0; page < numPages; ++page) {
+			// Attach atlas texture page at mip level 0
+			rhiFBO->AttachColor(atlasTex.get(), 0, 0, page);
+
+			RHI::RenderPassDesc passDesc{};
+			passDesc.colorAttachmentCount = 1;
+			passDesc.colorAttachments[0].loadAction = RHI::LoadAction::Clear;
+			passDesc.colorAttachments[0].storeAction = RHI::StoreAction::Store;
+			passDesc.colorAttachments[0].clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
+
+			ctx->BeginRenderPass(rhiFBO.get(), passDesc);
+			ctx->SetViewport({0.0f, 0.0f,
+				static_cast<float>(atlasSize.x),
+				static_cast<float>(atlasSize.y)});
+
+			for (auto& [uniqTexName, entry] : atlasAllocator->GetEntries()) {
+				if (entry.texCoords.pageNum != page)
+					continue;
+
+				const auto atlasedTexCoords = atlasAllocator->GetTexCoordsEdge(uniqTexName);
+				const auto& [srcTexID, srcSubTC] = uniqueSubTextureMap[uniqTexName];
+
+				auto texIt = idToRHITex.find(srcTexID);
+				if (texIt == idToRHITex.end() || !texIt->second)
+					continue;
+
+				// Bind source texture and draw textured quad into atlas
+				ctx->BindTexture(texIt->second, 0);
+
+				auto posTL = VA_TYPE_2DT{ .x = Norm2SNorm(atlasedTexCoords.x1), .y = Norm2SNorm(atlasedTexCoords.y1), .s = srcSubTC.x, .t = srcSubTC.y };
+				auto posTR = VA_TYPE_2DT{ .x = Norm2SNorm(atlasedTexCoords.x2), .y = Norm2SNorm(atlasedTexCoords.y1), .s = srcSubTC.z, .t = srcSubTC.y };
+				auto posBL = VA_TYPE_2DT{ .x = Norm2SNorm(atlasedTexCoords.x1), .y = Norm2SNorm(atlasedTexCoords.y2), .s = srcSubTC.x, .t = srcSubTC.w };
+				auto posBR = VA_TYPE_2DT{ .x = Norm2SNorm(atlasedTexCoords.x2), .y = Norm2SNorm(atlasedTexCoords.y2), .s = srcSubTC.z, .t = srcSubTC.w };
+
+				rb.SetTransformMatrix(CMatrix44f());  // identity — positions are already in NDC
+				rb.AddQuadTriangles(
+					std::move(posTL), std::move(posTR),
+					std::move(posBR), std::move(posBL)
+				);
+				rb.DrawElements(GL_TRIANGLES);
+			}
+
+			ctx->EndRenderPass();
+		}
+
+		// Commit rendering work to GPU before mipmap generation
+		ctx->Flush();
+
+		// Generate mipmaps (uses separate command buffer internally)
+		if (numLevels > 1) {
+			atlasTex->GenerateMipmaps();
+		}
+
+		atlasRendered = true;
+		filenameToRHITex.clear();
+		globalRendering->LoadViewport();
+
+		LOG_L(L_INFO, "CTextureRenderAtlas::%s() atlas=%s Metal render complete (%ux%u, %u pages, %u levels)",
+			__func__, atlasName.c_str(), atlasSize.x, atlasSize.y, numPages, numLevels);
+		return true;
+	}
+
+	// GL path: render-to-texture via FBO
+	LOG_L(L_INFO, "CTextureRenderAtlas::%s()[0] atlas=%s FBO::ready=%d", __func__, atlasName.c_str(), FBO::IsReady());
+
+	if (!FBO::IsReady())
+		return false;
 
 	{
 		using namespace GL::State;
@@ -454,13 +535,11 @@ bool CTextureRenderAtlas::CreateAtlasTexture()
 						static_cast<float>(std::max(atlasSize.y >> level, 1u))
 					});
 
-					// RHI_TODO: FBO attachment still uses GL; migrate once FBO has RHI wrapper
 					if (numPages > 1)
 						fbo.AttachTextureLayer(atlasTex->GetNativeHandle(), GL_COLOR_ATTACHMENT0, level, page);
 					else
 						fbo.AttachTexture(atlasTex->GetNativeHandle(), GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0, level);
 
-					// RHI_TODO: migrate to RHI framebuffer binding API once available
 					glDrawBuffer(GL_COLOR_ATTACHMENT0);
 					glReadBuffer(GL_COLOR_ATTACHMENT0);
 

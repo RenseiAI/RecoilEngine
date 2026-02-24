@@ -958,9 +958,8 @@ void CBumpWater::Draw()
 			true, false);
 	}
 
-	if (depthCopy && depthTexture) {
-		// Screen copy for depth texture
-		// Note: Depth copies may need special handling on Metal (explicit depth resolve)
+	if (depthCopy && depthTexture && !RHI::IsMetalBackend()) {
+		// Screen copy for depth texture (GL only — Metal has no default FB depth texture)
 		depthTexture->Bind(0);
 		glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, globalRendering->viewPosX,
 		                    globalRendering->viewPosY, globalRendering->viewSizeX, globalRendering->viewSizeY);
