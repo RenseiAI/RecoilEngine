@@ -1,27 +1,13 @@
 /* This file is part of the Spring engine (GPL v2 or later), see LICENSE.html */
 
-/**
- * UnitDefImage - Stores a texture for unit definition icons.
- *
- * RHI Migration Status: NOT MIGRATED
- * ==================================
- * - Stores raw GLuint textureID
- * - Free() uses glDeleteTextures directly
- *
- * Migration Path:
- * 1. Replace uint32_t textureID with std::unique_ptr<RHI::IRHITexture>
- * 2. Free() becomes: texture.reset(); return true;
- * 3. For backward compat, add GetTextureID() returning GetNativeHandle()
- *
- * Note: This is a simple struct used for unit buildpic/icon textures.
- * The CREG serialization may need adjustment for RHI texture ownership.
- */
-
 #ifndef UNIT_DEF_IMAGE
 #define UNIT_DEF_IMAGE
 
+#include <memory>
+
 #include "System/creg/creg_cond.h"
-#include "Rendering/GL/myGL.h" // TODO: RHI gap - needed for glDeleteTextures
+#include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHITexture.h"
 
 struct UnitDefImage
 {
@@ -31,6 +17,7 @@ struct UnitDefImage
 	}
 
 	bool Free() {
+		rhiTexture.reset();
 		if (textureID != 0) {
 			glDeleteTextures(1, &textureID);
 			textureID = 0;
@@ -42,6 +29,7 @@ struct UnitDefImage
 	int imageSizeX;
 	int imageSizeY;
 	uint32_t textureID;
+	std::shared_ptr<RHI::IRHITexture> rhiTexture;  // RHI texture (owning on Metal)
 };
 
 #endif // UNIT_DEF_IMAGE

@@ -1276,7 +1276,9 @@ void CMiniMap::Draw()
 	}
 
 	// draw minimap itself
-	DrawForReal(true, false, false);
+	// On Metal (renderToTexture=false), use direct rendering (updateTex=true)
+	// since FBO caching is unavailable
+	DrawForReal(true, !renderToTexture, false);
 }
 
 void CMiniMap::DrawMinimizedButtonQuad() const

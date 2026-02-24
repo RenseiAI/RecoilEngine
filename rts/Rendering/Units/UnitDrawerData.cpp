@@ -19,6 +19,7 @@
 #include "Rendering/Textures/Bitmap.h"
 #include "Rendering/Env/IGroundDecalDrawer.h"
 #include "Rendering/Env/IWater.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "Sim/Units/UnitDef.h"
 #include "Sim/Units/UnitDefHandler.h"
 #include "Sim/Units/UnitHandler.h"
@@ -486,14 +487,18 @@ void CUnitDrawerData::SetUnitDefImage(const UnitDef* unitDef, const std::string&
 		}
 	}
 
-	unitImage->textureID = bitmap.CreateTexture(GL::TextureCreationParams{
-		.aniso = 0.0f,
-		.lodBias = 0.0f,
-		.texID = 0,
-		.reqNumLevels = 1,
-		.linearMipMapFilter = false,
-		.linearTextureFilter = true
-	});
+	if (RHI::IsMetalBackend()) {
+		unitImage->rhiTexture = bitmap.CreateTextureRHI(0.0f, 0.0f);
+	} else {
+		unitImage->textureID = bitmap.CreateTexture(GL::TextureCreationParams{
+			.aniso = 0.0f,
+			.lodBias = 0.0f,
+			.texID = 0,
+			.reqNumLevels = 1,
+			.linearMipMapFilter = false,
+			.linearTextureFilter = true
+		});
+	}
 
 	unitImage->imageSizeX = bitmap.xsize;
 	unitImage->imageSizeY = bitmap.ysize;
@@ -523,6 +528,15 @@ uint32_t CUnitDrawerData::GetUnitDefImage(const UnitDef* unitDef)
 		SetUnitDefImage(unitDef, unitDef->buildPicName);
 
 	return (unitDef->buildPic->textureID);
+}
+
+RHI::IRHITexture* CUnitDrawerData::GetUnitDefRHITexture(const UnitDef* unitDef)
+{
+	RECOIL_DETAILED_TRACY_ZONE;
+	if (unitDef->buildPic == nullptr)
+		SetUnitDefImage(unitDef, unitDef->buildPicName);
+
+	return unitDef->buildPic->rhiTexture.get();
 }
 
 void CUnitDrawerData::AddTempDrawUnit(const TempDrawUnit& tdu)

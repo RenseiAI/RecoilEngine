@@ -57,7 +57,10 @@ CMouseCursor::~CMouseCursor()
 	}
 
 	for (const auto& image: images) {
-		glDeleteTextures(1, &image.texture);
+		// Only delete GL textures if not using RHI-owned texture (Metal path)
+		if (!image.rhiTexture && image.texture != 0)
+			glDeleteTextures(1, &image.texture);
+		// RHI textures auto-cleaned by shared_ptr destructor
 	}
 }
 
@@ -296,29 +299,30 @@ bool CMouseCursor::LoadCursorImage(const std::string& name, ImageData& image)
 	const int nx = std::bit_ceil <uint32_t> (b.xsize);
 	const int ny = std::bit_ceil <uint32_t> (b.ysize);
 
-	if (b.xsize != nx || b.ysize != ny) {
-		CBitmap bn;
+	const bool needsPad = (b.xsize != nx || b.ysize != ny);
+	CBitmap bn;
+	if (needsPad) {
 		bn.Alloc(nx, ny);
 		bn.CopySubImage(b, 0, ny - b.ysize);
-
-		image.texture = bn.CreateTexture();
-		image.xOrigSize = b.xsize;
-		image.yOrigSize = b.ysize;
-		image.xAlignedSize = bn.xsize;
-		image.yAlignedSize = bn.ysize;
-	} else {
-		image.texture = b.CreateTexture();
-		image.xOrigSize = b.xsize;
-		image.yOrigSize = b.ysize;
-		image.xAlignedSize = b.xsize;
-		image.yAlignedSize = b.ysize;
 	}
+	const CBitmap& srcBmp = needsPad ? bn : b;
 
-	// Wrap the raw GL texture for RHI-path binding (non-owning)
-	if (auto* device = RHI::GetDevice())
-		image.rhiTexture = device->WrapExistingTexture(image.texture,
-			RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
-			image.xAlignedSize, image.yAlignedSize);
+	image.xOrigSize = b.xsize;
+	image.yOrigSize = b.ysize;
+	image.xAlignedSize = srcBmp.xsize;
+	image.yAlignedSize = srcBmp.ysize;
+
+	if (RHI::IsMetalBackend()) {
+		// Metal: create RHI-owned texture directly (no GL)
+		image.rhiTexture = srcBmp.CreateTextureRHI();
+	} else {
+		// OpenGL: create GL texture, then wrap for RHI-path binding
+		image.texture = srcBmp.CreateTexture();
+		if (auto* device = RHI::GetDevice())
+			image.rhiTexture = device->WrapExistingTexture(image.texture,
+				RHI::TextureType::Texture2D, RHI::TextureFormat::RGBA8,
+				image.xAlignedSize, image.yAlignedSize);
+	}
 
 	return true;
 }

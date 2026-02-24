@@ -120,6 +120,7 @@ public:
 	void SetUnitDefImage(const UnitDef* unitDef, const std::string& texName);
 	void SetUnitDefImage(const UnitDef* unitDef, unsigned int texID, int xsize, int ysize);
 	uint32_t GetUnitDefImage(const UnitDef* unitDef);
+	RHI::IRHITexture* GetUnitDefRHITexture(const UnitDef* unitDef);
 public:
 	void Update() override;
 	bool IsAlpha(const CUnit* co) const override { return co->IsCloaked(); }

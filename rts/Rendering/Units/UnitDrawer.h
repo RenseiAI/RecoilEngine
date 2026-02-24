@@ -30,6 +30,7 @@ public:
 	static void UpdateGhostedBuildings() { modelDrawerData->UpdateGhostedBuildings(); }
 
 	static uint32_t GetUnitDefImage(const UnitDef* ud) { return modelDrawerData->GetUnitDefImage(ud); }
+	static RHI::IRHITexture* GetUnitDefRHITexture(const UnitDef* ud) { return modelDrawerData->GetUnitDefRHITexture(ud); }
 	static void SetUnitDefImage(const UnitDef* unitDef, const std::string& texName) { return modelDrawerData->SetUnitDefImage(unitDef, texName); }
 	static void SetUnitDefImage(const UnitDef* unitDef, uint32_t texID, int xsize, int ysize) { return modelDrawerData->SetUnitDefImage(unitDef, texID, xsize, ysize); }
 
