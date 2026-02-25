@@ -157,7 +157,8 @@ void IWater::DrawReflections(const double* clipPlaneEqs, bool drawGround, bool d
 
 		ctx->SetClipDistanceEnabled(2, true);
 		// Ground clip plane: equation in world-space, glClipPlane transforms by current MV
-		glClipPlane(GL_CLIP_PLANE2, &clipPlaneEqs[0]);
+		if (!RHI::IsMetalBackend())
+			glClipPlane(GL_CLIP_PLANE2, &clipPlaneEqs[0]);
 
 		if (drawGround)
 			readMap->GetGroundDrawer()->Draw(DrawPass::WaterReflection);
@@ -198,7 +199,8 @@ void IWater::DrawRefractions(const double* clipPlaneEqs, bool drawGround, bool d
 
 		ctx->SetClipDistanceEnabled(2, true);
 		// Ground clip plane: equation in world-space, glClipPlane transforms by current MV
-		glClipPlane(GL_CLIP_PLANE2, &clipPlaneEqs[0]);
+		if (!RHI::IsMetalBackend())
+			glClipPlane(GL_CLIP_PLANE2, &clipPlaneEqs[0]);
 
 		// opaque
 		if (drawSky) {

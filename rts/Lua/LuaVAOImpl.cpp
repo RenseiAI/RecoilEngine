@@ -3,19 +3,14 @@
 /**
  * Lua VAO Implementation
  *
- * RHI Migration Status:
- * - Draw calls use direct GL (glDrawArrays*, glDrawElements*, etc.)
- * - Vertex attribute setup via glVertexAttribPointer/glVertexAttribDivisor
- * - Primitive restart via glEnable/glPrimitiveRestartIndex
- * - MultiDrawIndirect via glMultiDrawElementsIndirect
- *
- * For RHI migration:
- * - glDrawArrays -> IRHIContext::Draw()
- * - glDrawElements -> IRHIContext::DrawIndexed()
- * - glDrawArraysInstanced -> IRHIContext::DrawInstanced()
- * - glDrawElementsInstanced -> IRHIContext::DrawIndexedInstanced()
- * - glMultiDrawElementsIndirect -> IRHIContext::DrawIndexedIndirect()
- * - Vertex layout moves to pipeline descriptor (RHI::VertexLayout)
+ * RHI Migration Status (Phase 18.1 - COMPLETE):
+ * - Metal path: all draw calls routed through IRHIContext
+ * - CondInitVAO on Metal builds cached VertexLayout from LuaVBOImpl attrib defs
+ * - Supported() returns true on Metal backend
+ * - DrawArrays   -> ctx->Draw() / ctx->DrawInstanced()
+ * - DrawElements -> ctx->DrawIndexed() / ctx->DrawIndexedInstanced()
+ * - Submit       -> ctx->DrawIndexedIndirect() via indirectBuffer
+ * - GL path unchanged (glDrawArrays*, glDrawElements*, glMultiDrawElementsIndirect)
  */
 
 #include "LuaVAOImpl.h"
@@ -30,10 +25,13 @@
 #include "lib/sol2/sol.hpp"
 
 #include "System/SafeUtil.h"
+#include "System/Log/ILog.h"
 #include "Rendering/GL/VBO.h"
 #include "Rendering/GL/VAO.h"
 #include "Rendering/Models/3DModel.hpp"
 #include "LuaVBOImpl.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 
 #include "LuaUtils.h"
 
@@ -70,6 +68,10 @@ void LuaVAOImpl::Delete()
 	indxLuaVBO = nullptr;
 
 	vao = nullptr;
+	indirectBuffer.reset();
+	cachedVertAttribs.clear();
+	cachedInstAttribs.clear();
+	rhiLayoutDirty = true;
 }
 
 LuaVAOImpl::~LuaVAOImpl()
@@ -79,6 +81,8 @@ LuaVAOImpl::~LuaVAOImpl()
 
 bool LuaVAOImpl::Supported()
 {
+	if (RHI::IsMetalBackend())
+		return true;
 	static bool supported = VBO::IsSupported(GL_ARRAY_BUFFER) && VAO::IsSupported() && GLAD_GL_ARB_instanced_arrays && GLAD_GL_ARB_draw_elements_base_vertex && GLAD_GL_ARB_multi_draw_indirect;
 	return supported;
 }
@@ -94,7 +98,7 @@ void LuaVAOImpl::AttachBufferImpl(const std::shared_ptr<LuaVBOImpl>& luaVBO, std
 		LuaUtils::SolLuaError("[LuaVAOImpl::%s] LuaVBO should have been created with [%u] target, got [%u] target instead", __func__, reqTarget, luaVBO->defTarget);
 	}
 
-	if (!luaVBO->vbo) {
+	if (!luaVBO->vbo && !luaVBO->GetRHIBuffer()) {
 		LuaUtils::SolLuaError("[LuaVAOImpl::%s] LuaVBO is invalid. Did you sucessfully call vbo:Define()?", __func__);
 	}
 
@@ -244,6 +248,56 @@ void LuaVAOImpl::CheckDrawPrimitiveType(GLenum mode) const
 
 void LuaVAOImpl::CondInitVAO()
 {
+	if (RHI::IsMetalBackend()) {
+		// On Metal: build cached vertex layouts from buffer attribute definitions.
+		// Rebuild whenever a buffer ID has changed or rhiLayoutDirty is set.
+		bool needsRebuild = rhiLayoutDirty;
+		if (vertLuaVBO && vertLuaVBO->GetId() != oldVertVBOId) needsRebuild = true;
+		if (indxLuaVBO && indxLuaVBO->GetId() != oldIndxVBOId) needsRebuild = true;
+		if (instLuaVBO && instLuaVBO->GetId() != oldInstVBOId) needsRebuild = true;
+
+		if (!needsRebuild) return;
+
+		cachedVertAttribs.clear();
+		cachedInstAttribs.clear();
+
+		if (vertLuaVBO) {
+			oldVertVBOId = vertLuaVBO->GetId();
+			cachedVertStride = vertLuaVBO->elemSizeInBytes;
+			for (const auto& va : vertLuaVBO->bufferAttribDefsVec) {
+				const auto& attr = va.second;
+				RHI::VertexAttribute rhiAttr;
+				rhiAttr.location = static_cast<uint32_t>(va.first);
+				rhiAttr.offset   = static_cast<uint32_t>(attr.pointer);
+				rhiAttr.format   = VAO::FormatToRHI(attr.type, attr.size, attr.normalized);
+				rhiAttr.divisor  = 0;
+				cachedVertAttribs.push_back(rhiAttr);
+			}
+		}
+
+		if (instLuaVBO) {
+			oldInstVBOId = instLuaVBO->GetId();
+			cachedInstStride = instLuaVBO->elemSizeInBytes;
+			for (const auto& va : instLuaVBO->bufferAttribDefsVec) {
+				const auto& attr = va.second;
+				RHI::VertexAttribute rhiAttr;
+				rhiAttr.location = static_cast<uint32_t>(va.first);
+				rhiAttr.offset   = static_cast<uint32_t>(attr.pointer);
+				rhiAttr.format   = VAO::FormatToRHI(attr.type, attr.size, attr.normalized);
+				rhiAttr.divisor  = 1;
+				cachedInstAttribs.push_back(rhiAttr);
+			}
+		}
+
+		if (indxLuaVBO) {
+			oldIndxVBOId = indxLuaVBO->GetId();
+		}
+
+		rhiLayoutDirty = false;
+		return;
+	}
+
+	// --- GL path ---
 	if (vao &&
 		(vertLuaVBO && vertLuaVBO->GetId() == oldVertVBOId) &&
 		(indxLuaVBO && indxLuaVBO->GetId() == oldIndxVBOId) &&
@@ -408,6 +462,37 @@ void LuaVAOImpl::DrawArrays(GLenum mode, sol::optional<int> vertCountOpt, sol::o
 
 	const auto result = DrawCheck(mode, inputs, false);
 
+	if (RHI::IsMetalBackend()) {
+		auto* ctx = RHI::GetDevice()->GetContext();
+		const auto rhiPrim = LuaGLConstMappings::GLPrimitiveToRHI(mode);
+
+		ctx->ClearVertexLayout();
+		if (!cachedVertAttribs.empty()) {
+			RHI::VertexLayout vertLayout;
+			vertLayout.attributes    = cachedVertAttribs.data();
+			vertLayout.attributeCount = static_cast<uint32_t>(cachedVertAttribs.size());
+			vertLayout.stride        = cachedVertStride;
+			ctx->SetVertexLayout(vertLayout);
+			if (vertLuaVBO && vertLuaVBO->GetRHIBuffer())
+				ctx->BindVertexBuffer(vertLuaVBO->GetRHIBuffer(), 0);
+		}
+		if (!cachedInstAttribs.empty()) {
+			RHI::VertexLayout instLayout;
+			instLayout.attributes    = cachedInstAttribs.data();
+			instLayout.attributeCount = static_cast<uint32_t>(cachedInstAttribs.size());
+			instLayout.stride        = cachedInstStride;
+			ctx->SetVertexLayout(instLayout);
+			if (instLuaVBO && instLuaVBO->GetRHIBuffer())
+				ctx->BindVertexBuffer(instLuaVBO->GetRHIBuffer(), 1);
+		}
+
+		if (result.instCount == 0)
+			ctx->Draw(rhiPrim, static_cast<uint32_t>(result.drawCount), static_cast<uint32_t>(result.baseIndex));
+		else
+			ctx->DrawInstanced(rhiPrim, static_cast<uint32_t>(result.drawCount), static_cast<uint32_t>(result.instCount), static_cast<uint32_t>(result.baseIndex), static_cast<uint32_t>(result.baseInstance));
+		return;
+	}
+
 	vao->Bind();
 
 	if (result.instCount == 0)
@@ -449,6 +534,48 @@ void LuaVAOImpl::DrawElements(GLenum mode, sol::optional<int> indCountOpt, sol::
 	const auto indElemOffsetInBytes = result.baseIndex * indxLuaVBO->elemSizeInBytes;
 
 	const auto indexType = indxLuaVBO->bufferAttribDefsVec[0].second.type;
+
+	if (RHI::IsMetalBackend()) {
+		auto* ctx = RHI::GetDevice()->GetContext();
+		const auto rhiPrim    = LuaGLConstMappings::GLPrimitiveToRHI(mode);
+		const auto rhiIdxType = LuaGLConstMappings::GLIndexTypeToRHI(indexType);
+
+		ctx->ClearVertexLayout();
+		if (!cachedVertAttribs.empty()) {
+			RHI::VertexLayout vertLayout;
+			vertLayout.attributes    = cachedVertAttribs.data();
+			vertLayout.attributeCount = static_cast<uint32_t>(cachedVertAttribs.size());
+			vertLayout.stride        = cachedVertStride;
+			ctx->SetVertexLayout(vertLayout);
+			if (vertLuaVBO && vertLuaVBO->GetRHIBuffer())
+				ctx->BindVertexBuffer(vertLuaVBO->GetRHIBuffer(), 0);
+		}
+		if (!cachedInstAttribs.empty()) {
+			RHI::VertexLayout instLayout;
+			instLayout.attributes    = cachedInstAttribs.data();
+			instLayout.attributeCount = static_cast<uint32_t>(cachedInstAttribs.size());
+			instLayout.stride        = cachedInstStride;
+			ctx->SetVertexLayout(instLayout);
+			if (instLuaVBO && instLuaVBO->GetRHIBuffer())
+				ctx->BindVertexBuffer(instLuaVBO->GetRHIBuffer(), 1);
+		}
+
+		if (indxLuaVBO && indxLuaVBO->GetRHIBuffer())
+			ctx->BindIndexBuffer(indxLuaVBO->GetRHIBuffer(), rhiIdxType);
+
+		// Metal always enables primitive restart for strip types with the standard
+		// 0xFFFF / 0xFFFFFFFF sentinel. Warn if a non-standard index is in use.
+		if (indxLuaVBO->primitiveRestartIndex != 0xFFFFu &&
+			indxLuaVBO->primitiveRestartIndex != 0xFFFFFFFFu) {
+			LOG_L(L_WARNING, "[LuaVAOImpl::DrawElements] Non-standard primitiveRestartIndex %u on Metal", indxLuaVBO->primitiveRestartIndex);
+		}
+
+		if (result.instCount == 0)
+			ctx->DrawIndexed(rhiPrim, static_cast<uint32_t>(result.drawCount), static_cast<uint32_t>(result.baseIndex), result.baseVertex);
+		else
+			ctx->DrawIndexedInstanced(rhiPrim, static_cast<uint32_t>(result.drawCount), static_cast<uint32_t>(result.instCount), static_cast<uint32_t>(result.baseIndex), result.baseVertex, static_cast<uint32_t>(result.baseInstance));
+		return;
+	}
 
 	glEnable(GL_PRIMITIVE_RESTART);
 	glPrimitiveRestartIndex(indxLuaVBO->primitiveRestartIndex);
@@ -555,6 +682,46 @@ void LuaVAOImpl::RemoveFromSubmission(int idx)
  */
 void LuaVAOImpl::Submit()
 {
+	if (RHI::IsMetalBackend()) {
+		auto* device = RHI::GetDevice();
+		auto* ctx    = device->GetContext();
+
+		// Upload indirect draw commands into a storage buffer
+		const size_t cmdsSize = submitCmds.size() * sizeof(SDrawElementsIndirectCommand);
+		if (!indirectBuffer || indirectBuffer->GetSize() < cmdsSize) {
+			indirectBuffer = device->CreateBuffer(RHI::BufferType::Storage, RHI::BufferUsage::Dynamic, cmdsSize);
+		}
+		indirectBuffer->Upload(submitCmds.data(), 0, cmdsSize);
+
+		// Set up vertex layout
+		ctx->ClearVertexLayout();
+		if (!cachedVertAttribs.empty()) {
+			RHI::VertexLayout vertLayout;
+			vertLayout.attributes    = cachedVertAttribs.data();
+			vertLayout.attributeCount = static_cast<uint32_t>(cachedVertAttribs.size());
+			vertLayout.stride        = cachedVertStride;
+			ctx->SetVertexLayout(vertLayout);
+			if (vertLuaVBO && vertLuaVBO->GetRHIBuffer())
+				ctx->BindVertexBuffer(vertLuaVBO->GetRHIBuffer(), 0);
+		}
+		if (!cachedInstAttribs.empty()) {
+			RHI::VertexLayout instLayout;
+			instLayout.attributes    = cachedInstAttribs.data();
+			instLayout.attributeCount = static_cast<uint32_t>(cachedInstAttribs.size());
+			instLayout.stride        = cachedInstStride;
+			ctx->SetVertexLayout(instLayout);
+			if (instLuaVBO && instLuaVBO->GetRHIBuffer())
+				ctx->BindVertexBuffer(instLuaVBO->GetRHIBuffer(), 1);
+		}
+		if (indxLuaVBO && indxLuaVBO->GetRHIBuffer())
+			ctx->BindIndexBuffer(indxLuaVBO->GetRHIBuffer(), RHI::IndexType::UInt32);
+
+		ctx->DrawIndexedIndirect(RHI::PrimitiveType::Triangles, indirectBuffer.get(), 0,
+			static_cast<uint32_t>(submitCmds.size()), sizeof(SDrawElementsIndirectCommand),
+			RHI::IndexType::UInt32);
+		return;
+	}
+
 	glEnable(GL_PRIMITIVE_RESTART);
 	glPrimitiveRestartIndex(indxLuaVBO->primitiveRestartIndex);
 

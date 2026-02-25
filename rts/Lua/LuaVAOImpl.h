@@ -9,26 +9,28 @@
  * Vertex Array Object for Lua scripts - binds vertex/instance/index buffers
  * and issues draw calls.
  *
- * RHI Migration Notes:
- * - VAO is an OpenGL concept; Metal uses vertex descriptors in pipelines
- * - Draw calls (glDrawArrays*, glDrawElements*) -> IRHIContext::Draw*()
- * - Primitive restart -> may need emulation on Metal
- * - glVertexAttribPointer/Divisor -> vertex layout in pipeline descriptor
- * - The primitive type (GL_TRIANGLES) maps via LuaGLConstMappings
+ * RHI Migration Status (Phase 18.1):
+ * - Metal path: DrawArrays, DrawElements, Submit all routed through IRHIContext
+ * - CondInitVAO on Metal builds cached VertexLayout from LuaVBOImpl attrib defs
+ * - Supported() returns true on Metal (no GLAD flag checks needed)
+ * - GL path unchanged
  *
- * Key draw functions to migrate:
- * - DrawArrays: mode, count, first, instances -> RHIContext::Draw/DrawInstanced
- * - DrawElements: mode, count, offset, baseVertex -> RHIContext::DrawIndexed*
- * - Submit (MultiDrawIndirect): glMultiDrawElementsIndirect
+ * Key draw functions:
+ * - DrawArrays:   -> ctx->Draw() / ctx->DrawInstanced()
+ * - DrawElements: -> ctx->DrawIndexed() / ctx->DrawIndexedInstanced()
+ * - Submit:       -> ctx->DrawIndexedIndirect() via indirectBuffer
  */
 
 #include <map>
 #include <string>
 #include <memory>
+#include <vector>
 
 #include "lib/sol2/forward.hpp"
 #include "Rendering/GL/myGL.h"
 #include "Rendering/Models/3DModelVAO.hpp"
+#include "Rendering/RHI/RHITypes.h"
+#include "Rendering/RHI/RHIBuffer.h"
 
 class VAO;
 class VBO;
@@ -116,6 +118,14 @@ private:
 
 	uint32_t baseInstance;
 	std::vector<SDrawElementsIndirectCommand> submitCmds;
+
+	// Metal/RHI draw state (built in CondInitVAO on Metal path)
+	std::vector<RHI::VertexAttribute> cachedVertAttribs;
+	std::vector<RHI::VertexAttribute> cachedInstAttribs;
+	uint32_t cachedVertStride = 0;
+	uint32_t cachedInstStride = 0;
+	bool rhiLayoutDirty = true;
+	std::unique_ptr<RHI::IRHIBuffer> indirectBuffer; // for Submit() on Metal
 };
 
 #endif //LUA_VAO_IMPL_H

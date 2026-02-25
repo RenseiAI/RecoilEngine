@@ -9,14 +9,15 @@
  * Wraps the VBO class for Lua-created vertex/index/uniform/storage buffers.
  * Uses the existing VBO class which handles GL buffer operations.
  *
- * RHI Migration Notes:
- * - VBO class wraps GL buffer objects -> should migrate to IRHIBuffer
- * - Buffer types map via LuaGLConstMappings (GL_ARRAY_BUFFER, etc.)
- * - BindBufferRange used for UBO/SSBO binding
- * - Most GL calls are inside the VBO class, not here
+ * RHI Migration Status (Phase 18.0):
+ * - GL path: VBO class wraps GL buffer objects
+ * - Metal path: parallel IRHIBuffer (rhiBuffer) used instead of VBO
+ * - AllocGLBuffer, Upload, Download, Clear, BindBufferRange, CopyTo, GetID all
+ *   have dual GL/Metal paths guarded by rhiBuffer != nullptr
  */
 
 #include <map>
+#include <memory>
 #include <vector>
 #include <string>
 #include <algorithm>
@@ -26,6 +27,7 @@
 
 #include "Rendering/GL/myGL.h"
 #include "Rendering/Models/3DModelVAO.hpp"
+#include "Rendering/RHI/RHIBuffer.h"
 
 class VBO;
 class LuaVAOImpl;
@@ -69,6 +71,7 @@ public:
 	bool CopyTo(const std::shared_ptr<LuaVBOImpl>& destVBO, int copySizeInBytes);
 
 	uint32_t GetID() const;
+	RHI::IRHIBuffer* GetRHIBuffer() const { return rhiBuffer.get(); }
 public:
 	static bool Supported(GLenum target);
 private:
@@ -85,7 +88,10 @@ private:
 	bool FillAttribsNumberImpl(const int numVec4Attribs);
 	bool DefineElementArray(const sol::optional<sol::object> attribDefArgOpt);
 private:
-	uint32_t GetId() const { return vbo->GetIdRaw(); }
+	uint32_t GetId() const {
+		if (rhiBuffer) return rhiBuffer->GetNativeHandle();
+		return vbo->GetIdRaw();
+	}
 
 	void UpdateModelsVBOElementCount();
 	size_t ModelsVBOImpl();
@@ -154,6 +160,7 @@ private:
 	uint32_t bufferSizeInBytes;
 
 	VBO* vbo = nullptr;
+	std::unique_ptr<RHI::IRHIBuffer> rhiBuffer; // Metal buffer (parallel to vbo)
 	bool vboOwner;
 
 	void* bufferData;

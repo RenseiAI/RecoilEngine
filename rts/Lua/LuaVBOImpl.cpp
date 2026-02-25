@@ -95,11 +95,17 @@ namespace {
 			LuaUtils::SolLuaError("[LuaVBOImpl::%s] Buffer definition is invalid. Did you succesfully call :Define()?", func);
 		}
 	}
+	inline void BufferExistenceCheck(const VBO* vbo, const RHI::IRHIBuffer* rhiBuf, const char* func)
+	{
+		if (!vbo && !rhiBuf) {
+			LuaUtils::SolLuaError("[LuaVBOImpl::%s] Buffer definition is invalid. Did you succesfully call :Define()?", func);
+		}
+	}
 }
 
 inline void LuaVBOImpl::InstanceBufferCheck(int attrID, const char* func)
 {
-	VBOExistenceCheck(vbo, func);
+	BufferExistenceCheck(vbo, rhiBuffer.get(), func);
 	/*
 	if (defTarget != GL_ARRAY_BUFFER) {
 		LuaUtils::SolLuaError("[LuaVBOImpl::%s] Invalid instance VBO. Target type (%u) is not GL_ARRAY_BUFFER(%u)", func, defTarget, GL_ARRAY_BUFFER);
@@ -133,6 +139,8 @@ void LuaVBOImpl::Delete()
 	//safe to call multiple times
 	if (vboOwner)
 		spring::SafeDelete(vbo);
+
+	rhiBuffer.reset();
 
 	if (bufferData) {
 		spring::FreeAlignedMemory(bufferData);
@@ -552,7 +560,7 @@ bool LuaVBOImpl::DefineElementArray(const sol::optional<sol::object> attribDefAr
  */
 void LuaVBOImpl::Define(const int elementsCount, const sol::optional<sol::object> attribDefArgOpt)
 {
-	if (vbo) {
+	if (vbo || rhiBuffer) {
 		LuaUtils::SolLuaError("[LuaVBOImpl::%s] Attempt to call %s() multiple times. VBO definition is immutable.", __func__, __func__);
 	}
 
@@ -609,7 +617,7 @@ std::tuple<uint32_t, uint32_t, uint32_t> LuaVBOImpl::GetBufferSize()
 	return std::make_tuple(
 		elementsCount,
 		bufferSizeInBytes,
-		static_cast<uint32_t>(vbo != nullptr ? vbo->GetSize() : 0u)
+		static_cast<uint32_t>(rhiBuffer ? rhiBuffer->GetSize() : (vbo != nullptr ? vbo->GetSize() : 0u))
 	);
 }
 
@@ -638,7 +646,7 @@ std::tuple<uint32_t, uint32_t, uint32_t> LuaVBOImpl::GetBufferSize()
  */
 size_t LuaVBOImpl::Upload(const sol::stack_table& luaTblData, sol::optional<int> attribIdxOpt, sol::optional<int> elemOffsetOpt, sol::optional<int> luaStartIndexOpt, sol::optional<int> luaFinishIndexOpt)
 {
-	VBOExistenceCheck(vbo, __func__);
+	BufferExistenceCheck(vbo, rhiBuffer.get(), __func__);
 
 	const uint32_t elemOffset = static_cast<uint32_t>(std::max(elemOffsetOpt.value_or(0), 0));
 	if (elemOffset >= elementsCount) {
@@ -694,7 +702,7 @@ sol::as_table_t<std::vector<lua_Number>> LuaVBOImpl::Download(sol::optional<int>
 {
 	std::vector<lua_Number> dataVec;
 
-	VBOExistenceCheck(vbo, __func__);
+	BufferExistenceCheck(vbo, rhiBuffer.get(), __func__);
 
 	const uint32_t elemOffset = static_cast<uint32_t>(std::max(elemOffsetOpt.value_or(0), 0));
 	const uint32_t elemCount = static_cast<uint32_t>(std::clamp(elemCountOpt.value_or(elementsCount), 1, static_cast<int>(elementsCount)));
@@ -715,8 +723,12 @@ sol::as_table_t<std::vector<lua_Number>> LuaVBOImpl::Download(sol::optional<int>
 
 	const int mappedBufferSizeInBytes = bufferSizeInBytes - bufferOffsetInBytes;
 	if (forceGPURead) {
-		vbo->Bind();
-		mappedBuf = vbo->MapBuffer(bufferOffsetInBytes, mappedBufferSizeInBytes, GL_MAP_READ_BIT);
+		if (rhiBuffer) {
+			mappedBuf = reinterpret_cast<GLubyte*>(rhiBuffer->Map(bufferOffsetInBytes, mappedBufferSizeInBytes, true));
+		} else {
+			vbo->Bind();
+			mappedBuf = vbo->MapBuffer(bufferOffsetInBytes, mappedBufferSizeInBytes, GL_MAP_READ_BIT);
+		}
 	}
 	else {
 		mappedBuf = reinterpret_cast<GLubyte*>(bufferData) + bufferOffsetInBytes;
@@ -743,8 +755,8 @@ sol::as_table_t<std::vector<lua_Number>> LuaVBOImpl::Download(sol::optional<int>
 			#define TRANSFORM_AND_READ(T) { \
 				if (!TransformAndRead<T>(bytesRead, mappedBuf, mappedBufferSizeInBytes, basicTypeSize, dataVec, copyData)) { \
 					if (forceGPURead) { \
-						vbo->UnmapBuffer(); \
-						vbo->Unbind(); \
+						if (rhiBuffer) { rhiBuffer->Unmap(); } \
+						else { vbo->UnmapBuffer(); vbo->Unbind(); } \
 					} \
 					return sol::as_table(dataVec); \
 				} \
@@ -783,16 +795,24 @@ sol::as_table_t<std::vector<lua_Number>> LuaVBOImpl::Download(sol::optional<int>
 	}
 
 	if (forceGPURead) {
-		vbo->UnmapBuffer();
-		vbo->Unbind();
+		if (rhiBuffer) {
+			rhiBuffer->Unmap();
+		} else {
+			vbo->UnmapBuffer();
+			vbo->Unbind();
+		}
 	}
 	return sol::as_table(dataVec);
 }
 
 void LuaVBOImpl::Clear()
 {
-	if (RHI::IsMetalBackend()) return;
-	VBOExistenceCheck(vbo, __func__);
+	BufferExistenceCheck(vbo, rhiBuffer.get(), __func__);
+
+	if (rhiBuffer) {
+		rhiBuffer->Invalidate();
+		return;
+	}
 
 	GLubyte val = 0;
 	vbo->Bind();
@@ -1113,16 +1133,20 @@ size_t LuaVBOImpl::UploadImpl(const std::vector<TIn>& dataVec, uint32_t elemOffs
 	auto buffDataWithOffset = static_cast<uint8_t*>(bufferData) + bufferOffsetInBytes;
 
 	const auto uploadToGPU = [this, buffDataWithOffset, bufferOffsetInBytes, mappedBufferSizeInBytes](int bytesWritten) -> int {
-		vbo->Bind();
+		if (rhiBuffer) {
+			rhiBuffer->Upload(buffDataWithOffset, bufferOffsetInBytes, bytesWritten);
+		} else {
+			vbo->Bind();
 #if 1
-		vbo->SetBufferSubData(bufferOffsetInBytes, bytesWritten, buffDataWithOffset);
+			vbo->SetBufferSubData(bufferOffsetInBytes, bytesWritten, buffDataWithOffset);
 #else
-		// very CPU heavy for some reason (NV & Windows)
-		auto gpuMappedBuff = vbo->MapBuffer(bufferOffsetInBytes, mappedBufferSizeInBytes, GL_MAP_WRITE_BIT);
-		memcpy(gpuMappedBuff, buffDataWithOffset, bytesWritten);
-		vbo->UnmapBuffer();
+			// very CPU heavy for some reason (NV & Windows)
+			auto gpuMappedBuff = vbo->MapBuffer(bufferOffsetInBytes, mappedBufferSizeInBytes, GL_MAP_WRITE_BIT);
+			memcpy(gpuMappedBuff, buffDataWithOffset, bytesWritten);
+			vbo->UnmapBuffer();
 #endif
-		vbo->Unbind();
+			vbo->Unbind();
+		}
 
 		//LOG("buffDataWithOffset = %p, bufferOffsetInBytes = %u, mappedBufferSizeInBytes = %d, bytesWritten = %d", (void*)buffDataWithOffset, bufferOffsetInBytes, mappedBufferSizeInBytes, bytesWritten);
 		return bytesWritten;
@@ -1385,7 +1409,7 @@ size_t LuaVBOImpl::MatrixDataFromProjectileIDs(const sol::stack_table& ids, int 
 
 int LuaVBOImpl::BindBufferRangeImpl(GLuint bindingIndex,  const sol::optional<int> elemOffsetOpt, const sol::optional<int> elemCountOpt, const sol::optional<GLenum> targetOpt, bool bind)
 {
-	VBOExistenceCheck(vbo, __func__);
+	BufferExistenceCheck(vbo, rhiBuffer.get(), __func__);
 
 	const uint32_t elemOffset = static_cast<uint32_t>(std::max(elemOffsetOpt.value_or(0), 0));
 	const uint32_t elemCount = static_cast<uint32_t>(std::clamp(elemCountOpt.value_or(elementsCount), 1, static_cast<int>(elementsCount)));
@@ -1395,10 +1419,6 @@ int LuaVBOImpl::BindBufferRangeImpl(GLuint bindingIndex,  const sol::optional<in
 	}
 
 	const uint32_t bufferOffsetInBytes = elemOffset * elemSizeInBytes;
-
-	// can't use bufferSizeInBytes here, cause vbo->BindBufferRange expects binding with UBO/SSBO alignment
-	// need to use real GPU buffer size, because it's sized with alignment in mind
-	const int boundBufferSizeInBytes = /*bufferSizeInBytes*/ vbo->GetSize() - bufferOffsetInBytes;
 
 	GLenum target = targetOpt.value_or(defTarget);
 	if (target != GL_UNIFORM_BUFFER && target != GL_SHADER_STORAGE_BUFFER) {
@@ -1418,6 +1438,17 @@ int LuaVBOImpl::BindBufferRangeImpl(GLuint bindingIndex,  const sol::optional<in
 	default:
 		LuaUtils::SolLuaError("[LuaVBOImpl::%s] (Un)binding target can only be equal to [%u] or [%u]", __func__, GL_UNIFORM_BUFFER, GL_SHADER_STORAGE_BUFFER);
 	}
+
+	if (rhiBuffer) {
+		if (bind)
+			rhiBuffer->BindRange(bindingIndex, bufferOffsetInBytes, rhiBuffer->GetSize() - bufferOffsetInBytes);
+		// Metal unbind is a no-op (resource tables are rebuilt each encoder)
+		return bind ? static_cast<int>(bindingIndex) : -1;
+	}
+
+	// can't use bufferSizeInBytes here, cause vbo->BindBufferRange expects binding with UBO/SSBO alignment
+	// need to use real GPU buffer size, because it's sized with alignment in mind
+	const int boundBufferSizeInBytes = /*bufferSizeInBytes*/ vbo->GetSize() - bufferOffsetInBytes;
 
 	bool result = false;
 	if (bind) {
@@ -1476,16 +1507,18 @@ int LuaVBOImpl::UnbindBufferRange(const GLuint index, const sol::optional<int> e
  */
 void LuaVBOImpl::DumpDefinition()
 {
-	VBOExistenceCheck(vbo, __func__);
+	BufferExistenceCheck(vbo, rhiBuffer.get(), __func__);
 
+	const uint32_t bufferId = rhiBuffer ? rhiBuffer->GetNativeHandle() : vbo->GetId();
 	std::ostringstream ss;
-	ss << fmt::format("Definition information on LuaVBOs. OpenGL Buffer ID={}:\n", vbo->GetId());
+	ss << fmt::format("Definition information on LuaVBOs. Buffer ID={}:\n", bufferId);
 	for (const auto& kv : bufferAttribDefs) { //guaranteed increasing order of key
 		const int attrID = kv.first;
 		const auto& baDef = kv.second;
 		ss << fmt::format("\tid={} name={} type={} size={} normalized={} pointer={} typeSizeInBytes={} strideSizeInBytes={}\n", attrID, baDef.name, baDef.type, baDef.size, baDef.normalized, baDef.pointer, baDef.typeSizeInBytes, baDef.strideSizeInBytes);
 	};
-	ss << fmt::format("Count of elements={}\nSize of one element={}\nTotal buffer size={}", elementsCount, elemSizeInBytes, vbo->GetSize());
+	const size_t totalSize = rhiBuffer ? rhiBuffer->GetSize() : vbo->GetSize();
+	ss << fmt::format("Count of elements={}\nSize of one element={}\nTotal buffer size={}", elementsCount, elemSizeInBytes, totalSize);
 
 	LOG("%s", ss.str().c_str());
 }
@@ -1502,8 +1535,18 @@ void LuaVBOImpl::DumpDefinition()
  */
 bool LuaVBOImpl::CopyTo(const std::shared_ptr<LuaVBOImpl>& destVBO, int copySizeInBytes)
 {
-	VBOExistenceCheck(vbo         , __func__);
-	VBOExistenceCheck(destVBO->vbo, __func__);
+	BufferExistenceCheck(vbo, rhiBuffer.get(), __func__);
+	BufferExistenceCheck(destVBO->vbo, destVBO->rhiBuffer.get(), __func__);
+
+	if (rhiBuffer && destVBO->rhiBuffer) {
+		void* srcData = rhiBuffer->Map(0, copySizeInBytes, true);
+		void* dstData = destVBO->rhiBuffer->Map(0, copySizeInBytes, false);
+		if (srcData && dstData)
+			memcpy(dstData, srcData, copySizeInBytes);
+		destVBO->rhiBuffer->Unmap();
+		rhiBuffer->Unmap();
+		return srcData != nullptr && dstData != nullptr;
+	}
 
 	const auto wasBound = vbo->bound;
 	if (!wasBound)
@@ -1525,7 +1568,9 @@ bool LuaVBOImpl::CopyTo(const std::shared_ptr<LuaVBOImpl>& destVBO, int copySize
  */
 uint32_t LuaVBOImpl::GetID() const
 {
-	VBOExistenceCheck(vbo, __func__);
+	BufferExistenceCheck(vbo, rhiBuffer.get(), __func__);
+	if (rhiBuffer)
+		return rhiBuffer->GetNativeHandle();
 	return vbo->GetId();
 }
 
@@ -1540,6 +1585,18 @@ void LuaVBOImpl::AllocGLBuffer(size_t byteSize)
 	}
 
 	bufferSizeInBytes = static_cast<uint32_t>(byteSize); //be strict here and don't account for possible increase of size on GPU due to alignment requirements
+
+	if (RHI::IsMetalBackend()) {
+		auto* device = RHI::GetDevice();
+		const auto rhiType = LuaGLConstMappings::GLBufferTargetToRHI(defTarget);
+		const auto rhiUsage = freqUpdated ? RHI::BufferUsage::Stream : RHI::BufferUsage::Static;
+		rhiBuffer = device->CreateBuffer(rhiType, rhiUsage, byteSize);
+
+		//allocate shadow buffer
+		bufferData = spring::AllocateAlignedMemory(bufferSizeInBytes, 32);
+		vboOwner = true;
+		return;
+	}
 
 	vbo = new VBO(defTarget, false);
 	vbo->Bind();
@@ -1563,6 +1620,8 @@ void LuaVBOImpl::CopyAttrMapToVec()
 
 bool LuaVBOImpl::Supported(GLenum target)
 {
+	if (RHI::IsMetalBackend())
+		return true;
 	return VBO::IsSupported(target);
 }
 

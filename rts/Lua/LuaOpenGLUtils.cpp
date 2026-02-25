@@ -3,14 +3,13 @@
 /**
  * Lua OpenGL Utilities Implementation
  *
- * RHI Migration Status:
- * - GetTextureID/GetTextureTarget: Returns GL handles (unchanged)
- * - Bind/Unbind: Legacy FFP path with glEnable/glDisable
- * - BindToUnit/UnbindFromUnit: RHI-compatible path (shader-only)
+ * RHI Migration Status: Phase 18.2 — Metal guard on Bind/Unbind/BindToUnit/UnbindFromUnit
+ * - GetTextureID/GetTextureTarget: Returns GL handles (unchanged, not called on Metal)
+ * - Bind/Unbind: Metal-guarded; LUATEX_LUATEXTURE uses RHI path on Metal
+ * - BindToUnit/UnbindFromUnit: Metal-guarded; LUATEX_LUATEXTURE uses RHI path on Metal
  *
- * The RHI-compatible methods avoid FFP texture enable state since modern
- * shaders don't need glEnable(GL_TEXTURE_2D) - they just sample from bound
- * texture units directly.
+ * Other texture types are not yet resolvable to RHI on Metal — those paths are
+ * no-ops until a full RHI texture resolution system is built.
  */
 
 #include <cctype>
@@ -48,6 +47,8 @@
 #include "System/StringUtil.h"
 #include "System/Log/ILog.h"
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
 
 
 
@@ -793,6 +794,21 @@ GLuint LuaMatTexture::GetTextureTarget() const
 
 void LuaMatTexture::Bind() const
 {
+	if (RHI::IsMetalBackend()) {
+		// Best-effort: bind Lua-created textures via RHI on Metal
+		if (type == LUATEX_LUATEXTURE && state != nullptr) {
+			const LuaTextures& luaTextures = CLuaHandle::GetActiveTextures(reinterpret_cast<lua_State*>(state));
+			RHI::IRHITexture* rhiTex = luaTextures.GetRHITexture(*reinterpret_cast<const size_t*>(&data));
+			if (rhiTex) {
+				auto* ctx = RHI::GetDevice()->GetContext();
+				ctx->BindTexture(rhiTex, 0);
+			}
+		}
+		// Other texture types not yet resolvable to RHI on Metal — no-op
+		// shadowHandler.SetupShadowTexSamplerRaw() contains raw GL calls, skip on Metal
+		return;
+	}
+
 	const GLuint texID = GetTextureID();
 	const GLuint texType = GetTextureTarget();
 
@@ -802,12 +818,14 @@ void LuaMatTexture::Bind() const
 
 	if (type == LUATEX_SHADOWMAP)
 		shadowHandler.SetupShadowTexSamplerRaw();
-
 }
 
 
 void LuaMatTexture::Unbind() const
 {
+	if (RHI::IsMetalBackend())
+		return;
+
 	if (type == LUATEX_NONE)
 		return;
 
@@ -818,6 +836,21 @@ void LuaMatTexture::Unbind() const
 
 void LuaMatTexture::BindToUnit(uint32_t unit) const
 {
+	if (RHI::IsMetalBackend()) {
+		// Best-effort: bind Lua-created textures via RHI on Metal
+		if (type == LUATEX_LUATEXTURE && state != nullptr) {
+			const LuaTextures& luaTextures = CLuaHandle::GetActiveTextures(reinterpret_cast<lua_State*>(state));
+			RHI::IRHITexture* rhiTex = luaTextures.GetRHITexture(*reinterpret_cast<const size_t*>(&data));
+			if (rhiTex) {
+				auto* ctx = RHI::GetDevice()->GetContext();
+				ctx->BindTexture(rhiTex, unit);
+			}
+		}
+		// Other texture types not yet resolvable to RHI on Metal — no-op
+		// shadowHandler.SetupShadowTexSamplerRaw() contains raw GL calls, skip on Metal
+		return;
+	}
+
 	// RHI-compatible texture binding: no FFP enable state, just bind to unit
 	// This is the preferred path for shader-based rendering
 	const GLuint texID = GetTextureID();
@@ -836,6 +869,9 @@ void LuaMatTexture::BindToUnit(uint32_t unit) const
 
 void LuaMatTexture::UnbindFromUnit(uint32_t unit) const
 {
+	if (RHI::IsMetalBackend())
+		return;
+
 	if (type == LUATEX_NONE)
 		return;
 
