@@ -1831,7 +1831,7 @@ int LuaOpenGL::UnitCommon(lua_State* L, bool applyTransform, bool callDrawUnit)
 	const bool noLuaCall = luaL_optboolean(L, 4, !callDrawUnit);
 	const bool fullModel = luaL_optboolean(L, 5, true);
 
-	glPushAttrib(GL_ENABLE_BIT);
+	if (!RHI::IsMetalBackend()) { glPushAttrib(GL_ENABLE_BIT); }
 
 	typedef void(CUnitDrawer::*RawDrawMemFunc)(const CUnit*, unsigned int, unsigned int, bool, bool) const;
 	typedef void(CUnitDrawer::*MatDrawMemFunc)(const CUnit*, bool) const;
@@ -1857,13 +1857,13 @@ int LuaOpenGL::UnitCommon(lua_State* L, bool applyTransform, bool callDrawUnit)
 		(unit->GetLuaMaterialData())->PopLODCount();
 	}
 
-	glPopAttrib();
+	if (!RHI::IsMetalBackend()) { glPopAttrib(); }
 	return 0;
 }
 
 /***
  * Draw the unit, applying transform.
- * 
+ *
  * @function gl.Unit
  * @param unitID integer
  * @param doRawDraw boolean? (Default: `false`)
@@ -2001,7 +2001,7 @@ int LuaOpenGL::FeatureCommon(lua_State* L, bool applyTransform, bool callDrawFea
 	const bool useLuaMat = GLObjectDrawWithLuaMat(L, feature, LUAOBJ_FEATURE);
 	const bool noLuaCall = luaL_optboolean(L, 4, !callDrawFeature);
 
-	glPushAttrib(GL_ENABLE_BIT);
+	if (!RHI::IsMetalBackend()) { glPushAttrib(GL_ENABLE_BIT); }
 
 	typedef void(CFeatureDrawer::*RawDrawMemFunc)(const CFeature*, unsigned int, unsigned int, bool, bool) const;
 	typedef void(CFeatureDrawer::*MatDrawMemFunc)(const CFeature*, bool) const;
@@ -2027,13 +2027,13 @@ int LuaOpenGL::FeatureCommon(lua_State* L, bool applyTransform, bool callDrawFea
 		(feature->GetLuaMaterialData())->PopLODCount();
 	}
 
-	glPopAttrib();
+	if (!RHI::IsMetalBackend()) { glPopAttrib(); }
 	return 0;
 }
 
 /***
  * Draw the feature, applying transform.
- * 
+ *
  * @function gl.Feature
  * @param featureID integer
  * @param doRawDraw boolean? (Default: `false`)
@@ -5184,6 +5184,11 @@ int LuaOpenGL::AddAtlasTexture(lua_State* L)
 	CTextureAtlas* atlas = atlasTexes.GetAtlasById(idStr);
 	if (atlas == nullptr)
 		luaL_error(L, "gl.%s() Invalid atlas id specified %s", __func__, idStr.c_str());
+
+	if (RHI::IsMetalBackend()) {
+		LOG_L(L_WARNING, "gl.%s() not supported on Metal backend", __func__);
+		return 0;
+	}
 
 	LuaMatTexture luaTex;
 	const std::string luaTexStr = luaL_checksstring(L, 2);

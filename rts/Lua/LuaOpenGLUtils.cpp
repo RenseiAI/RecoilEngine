@@ -3,13 +3,15 @@
 /**
  * Lua OpenGL Utilities Implementation
  *
- * RHI Migration Status: Phase 18.2 — Metal guard on Bind/Unbind/BindToUnit/UnbindFromUnit
+ * RHI Migration Status: Phase 19.1 — Expanded engine texture resolution on Metal
  * - GetTextureID/GetTextureTarget: Returns GL handles (unchanged, not called on Metal)
- * - Bind/Unbind: Metal-guarded; LUATEX_LUATEXTURE uses RHI path on Metal
- * - BindToUnit/UnbindFromUnit: Metal-guarded; LUATEX_LUATEXTURE uses RHI path on Metal
+ * - Bind/Unbind: Metal-guarded; resolved via ResolveEngineTexture() helper on Metal
+ * - BindToUnit/UnbindFromUnit: Metal-guarded; resolved via ResolveEngineTexture() helper on Metal
  *
- * Other texture types are not yet resolvable to RHI on Metal — those paths are
- * no-ops until a full RHI texture resolution system is built.
+ * ResolveEngineTexture() resolves each LUATEX_* type to an IRHITexture* where the
+ * underlying engine subsystem already owns an RHI texture object.  Types that only
+ * have a raw GL ID (cubemaps, G-buffers, S3O/3DO atlases) remain no-ops on Metal
+ * because GLAD is not loaded on the Metal backend — raw GL IDs cannot be wrapped.
  */
 
 #include <cctype>
@@ -792,20 +794,150 @@ GLuint LuaMatTexture::GetTextureTarget() const
 }
 
 
+/**
+ * Resolve a LuaMatTexture to an IRHITexture* on the Metal backend.
+ *
+ * Only handles types where the underlying engine subsystem already exposes an
+ * RHI texture object.  Types that are only available as raw GL IDs (cubemaps,
+ * G-buffers, S3O/3DO atlas textures) return nullptr because GLAD is not loaded
+ * on the Metal backend and GL IDs cannot be wrapped into Metal textures at
+ * bind-time.
+ *
+ * Callers must check for nullptr before binding.
+ */
+static RHI::IRHITexture* ResolveEngineTexture(const LuaMatTexture& tex)
+{
+	switch (tex.type) {
+		// Lua-created textures: stored in LuaTextures parallel RHI vector
+		case LuaMatTexture::LUATEX_LUATEXTURE: {
+			if (tex.state == nullptr)
+				return nullptr;
+			const LuaTextures& luaTextures = CLuaHandle::GetActiveTextures(reinterpret_cast<lua_State*>(tex.state));
+			return luaTextures.GetRHITexture(*reinterpret_cast<const size_t*>(&tex.data));
+		}
+
+		// Lua atlas textures: CTextureAtlas owns an IRHITexture
+		case LuaMatTexture::LUATEX_LUATEXTUREATLAS: {
+			if (tex.state == nullptr)
+				return nullptr;
+			const LuaAtlasTextures& luaAtlasTextures = CLuaHandle::GetActiveAtlasTextures(reinterpret_cast<lua_State*>(tex.state));
+			const CTextureAtlas* atlas = luaAtlasTextures.GetAtlasByIndex(*reinterpret_cast<const size_t*>(&tex.data));
+			if (atlas == nullptr)
+				return nullptr;
+			return atlas->GetRHITexture();
+		}
+
+		// Named textures: CNamedTextures::TexInfo carries shared_ptr<IRHITexture>
+		case LuaMatTexture::LUATEX_NAMED: {
+			const CNamedTextures::TexInfo* info = CNamedTextures::GetInfo(*reinterpret_cast<const size_t*>(&tex.data));
+			if (info == nullptr)
+				return nullptr;
+			return info->rhiTexture.get();
+		}
+
+		// Unit build picture: UnitDefImage carries shared_ptr<IRHITexture>
+		case LuaMatTexture::LUATEX_UNITBUILDPIC: {
+			if (unitDefHandler == nullptr)
+				return nullptr;
+			const UnitDef* ud = reinterpret_cast<const UnitDef*>(tex.data);
+			return CUnitDrawer::GetUnitDefRHITexture(ud);
+		}
+
+		// Shadow textures: CShadowHandler owns IRHITexture objects
+		case LuaMatTexture::LUATEX_SHADOWMAP: {
+			return shadowHandler.GetShadowTexture();
+		}
+		case LuaMatTexture::LUATEX_SHADOWCOLOR: {
+			return shadowHandler.GetColorTexture();
+		}
+
+		// Height map: MapTexture wraps an IRHITexture
+		case LuaMatTexture::LUATEX_HEIGHTMAP: {
+			if (readMap == nullptr)
+				return nullptr;
+			return readMap->GetHeightMapTextureObj().GetRHITexture();
+		}
+
+		// SMF / SSMF map textures: CReadMap::GetRHITexture() dispatches to CSMFReadMap
+		// The type offsets mirror the GL path: type - LUATEX_SMF_GRASS maps to MAP_BASE_*
+		case LuaMatTexture::LUATEX_SMF_GRASS:
+		case LuaMatTexture::LUATEX_SMF_DETAIL:
+		case LuaMatTexture::LUATEX_SMF_MINIMAP:
+		case LuaMatTexture::LUATEX_SMF_SHADING:
+		case LuaMatTexture::LUATEX_SMF_NORMALS:
+		case LuaMatTexture::LUATEX_SSMF_NORMALS:
+		case LuaMatTexture::LUATEX_SSMF_SPECULAR:
+		case LuaMatTexture::LUATEX_SSMF_SDISTRIB:
+		case LuaMatTexture::LUATEX_SSMF_SDETAIL:
+		case LuaMatTexture::LUATEX_SSMF_SKYREFL:
+		case LuaMatTexture::LUATEX_SSMF_EMISSION:
+		case LuaMatTexture::LUATEX_SSMF_PARALLAX: {
+			if (readMap == nullptr)
+				return nullptr;
+			return readMap->GetRHITexture(tex.type - LuaMatTexture::LUATEX_SMF_GRASS);
+		}
+
+		case LuaMatTexture::LUATEX_SSMF_SNORMALS: {
+			if (readMap == nullptr)
+				return nullptr;
+			return readMap->GetRHITexture(
+				(LuaMatTexture::LUATEX_SSMF_SNORMALS - LuaMatTexture::LUATEX_SMF_GRASS),
+				*reinterpret_cast<const int*>(&tex.data)
+			);
+		}
+
+		// Font textures: CFontTexture owns an IRHITexture as the glyph atlas
+		case LuaMatTexture::LUATEX_FONT: {
+			return font ? font->GetAtlasTexture() : nullptr;
+		}
+		case LuaMatTexture::LUATEX_FONTSMALL: {
+			return smallFont ? smallFont->GetAtlasTexture() : nullptr;
+		}
+
+		// Projectile/FX atlases: CTextureAtlas owns an IRHITexture
+		case LuaMatTexture::LUATEX_EXPLOSIONS_ATLAS: {
+			if (projectileDrawer == nullptr || projectileDrawer->textureAtlas == nullptr)
+				return nullptr;
+			return projectileDrawer->textureAtlas->GetRHITexture();
+		}
+		case LuaMatTexture::LUATEX_GROUNDFX_ATLAS: {
+			if (projectileDrawer == nullptr || projectileDrawer->groundFXAtlas == nullptr)
+				return nullptr;
+			return projectileDrawer->groundFXAtlas->GetRHITexture();
+		}
+
+		// Icon atlases: CIconHandler owns IRHITexture objects per atlas
+		case LuaMatTexture::LUATEX_ICONS_ATLAS0: {
+			return icon::iconHandler.GetAtlasRHITexture(0);
+		}
+		case LuaMatTexture::LUATEX_ICONS_ATLAS1: {
+			return icon::iconHandler.GetAtlasRHITexture(1);
+		}
+
+		// Types with only raw GL IDs — not resolvable on Metal:
+		//   LUATEX_UNITTEXTURE1/2 — CS3OTextureHandler GL atlas IDs
+		//   LUATEX_3DOTEXTURE     — C3DOTextureHandler GL atlas IDs
+		//   LUATEX_MAP_REFLECTION / SKY_REFLECTION / SPECULAR — GL cubemap IDs
+		//   LUATEX_MAP_GBUFFER_*  / MODEL_GBUFFER_* — GL FBO attachment IDs
+		//   LUATEX_INFOTEX_*      — CNullInfoTextureHandler on Metal (returns 0)
+		//   LUATEX_DECALS_ATLAS   — IGroundDecalDrawer has no GetRHITexture() in base interface
+		default:
+			return nullptr;
+	}
+}
+
+
 void LuaMatTexture::Bind() const
 {
 	if (RHI::IsMetalBackend()) {
-		// Best-effort: bind Lua-created textures via RHI on Metal
-		if (type == LUATEX_LUATEXTURE && state != nullptr) {
-			const LuaTextures& luaTextures = CLuaHandle::GetActiveTextures(reinterpret_cast<lua_State*>(state));
-			RHI::IRHITexture* rhiTex = luaTextures.GetRHITexture(*reinterpret_cast<const size_t*>(&data));
-			if (rhiTex) {
-				auto* ctx = RHI::GetDevice()->GetContext();
-				ctx->BindTexture(rhiTex, 0);
-			}
+		RHI::IRHITexture* rhiTex = ResolveEngineTexture(*this);
+		if (rhiTex != nullptr) {
+			auto* ctx = RHI::GetDevice()->GetContext();
+			ctx->BindTexture(rhiTex, 0);
 		}
-		// Other texture types not yet resolvable to RHI on Metal — no-op
-		// shadowHandler.SetupShadowTexSamplerRaw() contains raw GL calls, skip on Metal
+		// shadowHandler.SetupShadowTexSamplerRaw() contains raw GL calls; skip on Metal.
+		// The shadow sampler state (compare mode) is handled by the Metal pipeline
+		// descriptor and is not needed here.
 		return;
 	}
 
@@ -837,17 +969,12 @@ void LuaMatTexture::Unbind() const
 void LuaMatTexture::BindToUnit(uint32_t unit) const
 {
 	if (RHI::IsMetalBackend()) {
-		// Best-effort: bind Lua-created textures via RHI on Metal
-		if (type == LUATEX_LUATEXTURE && state != nullptr) {
-			const LuaTextures& luaTextures = CLuaHandle::GetActiveTextures(reinterpret_cast<lua_State*>(state));
-			RHI::IRHITexture* rhiTex = luaTextures.GetRHITexture(*reinterpret_cast<const size_t*>(&data));
-			if (rhiTex) {
-				auto* ctx = RHI::GetDevice()->GetContext();
-				ctx->BindTexture(rhiTex, unit);
-			}
+		RHI::IRHITexture* rhiTex = ResolveEngineTexture(*this);
+		if (rhiTex != nullptr) {
+			auto* ctx = RHI::GetDevice()->GetContext();
+			ctx->BindTexture(rhiTex, unit);
 		}
-		// Other texture types not yet resolvable to RHI on Metal — no-op
-		// shadowHandler.SetupShadowTexSamplerRaw() contains raw GL calls, skip on Metal
+		// shadowHandler.SetupShadowTexSamplerRaw() contains raw GL calls; skip on Metal.
 		return;
 	}
 
