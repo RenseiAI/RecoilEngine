@@ -47,6 +47,7 @@ public:
 		GLsizei xsize;
 		GLsizei ysize;
 		GLsizei zsize;
+		uint32_t rhiId = 0; // non-zero if backed by RHI framebuffer (Metal path)
 	};
 
 	const LuaFBO* GetLuaFBO(lua_State* L, int index);

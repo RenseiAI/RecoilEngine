@@ -44,6 +44,7 @@
 #include "System/TypeToStr.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/Models/ModelsMemStorage.h"
 #include "Rendering/Models/ModelsMemStorageDefs.h"
 #include "Rendering/UniformConstants.h"
@@ -175,16 +176,16 @@ LuaShaders::Program* LuaShaders::GetProgram(lua_State* L, int index)
 }
 
 
-uint32_t LuaShaders::AddProgram(const Program& p)
+uint32_t LuaShaders::AddProgram(Program&& p)
 {
 	if (!unused.empty()) {
 		const uint32_t index = unused.back();
-		programs[index] = p;
+		programs[index] = std::move(p);
 		unused.pop_back();
 		return index;
 	}
 
-	programs.push_back(p);
+	programs.push_back(std::move(p));
 	return (programs.size() - 1);
 }
 
@@ -203,7 +204,7 @@ bool LuaShaders::RemoveProgram(uint32_t progIdx)
 
 bool LuaShaders::DeleteProgram(Program& p)
 {
-	if (p.id == 0)
+	if (p.id == 0 && !p.rhiShader)
 		return false;
 
 	if (!RHI::IsMetalBackend()) {
@@ -216,6 +217,8 @@ bool LuaShaders::DeleteProgram(Program& p)
 		glDeleteProgram(p.id);
 	}
 
+	p.rhiShader.reset();
+	p.locationToName.clear();
 	p.objects.clear();
 	p.id = 0;
 	return true;
@@ -560,6 +563,117 @@ namespace {
 			lua_pop(L, 1);
 		}
 	}
+	// --- Metal-specific uniform helpers ---
+
+	/// Dispatch a single uniform value to the RHI shader on Metal.
+	/// type is UNIFORM_TYPE_FLOAT, _INT, or _FLOAT_MATRIX.
+	static void ParseUniformTypeMetal(
+		lua_State* L,
+		RHI::IRHIShader* shader,
+		const char* name,
+		int type
+	) {
+		switch (type) {
+		case UNIFORM_TYPE_FLOAT: {
+			if (lua_israwnumber(L, -1)) {
+				shader->SetUniform1f(name, lua_tofloat(L, -1));
+				return;
+			}
+			if (lua_istable(L, -1)) {
+				const int count = LuaUtils::ParseFloatArray(L, -1, fltUniformArrayBuf, sizeof(fltUniformArrayBuf) / sizeof(float));
+				switch (count) {
+				case 1: shader->SetUniform1f(name, fltUniformArrayBuf[0]); break;
+				case 2: shader->SetUniform2f(name, fltUniformArrayBuf[0], fltUniformArrayBuf[1]); break;
+				case 3: shader->SetUniform3f(name, fltUniformArrayBuf[0], fltUniformArrayBuf[1], fltUniformArrayBuf[2]); break;
+				case 4: shader->SetUniform4f(name, fltUniformArrayBuf[0], fltUniformArrayBuf[1], fltUniformArrayBuf[2], fltUniformArrayBuf[3]); break;
+				default: shader->SetUniform4fv(name, fltUniformArrayBuf); break; // fallback: first 4
+				}
+				return;
+			}
+		} break;
+		case UNIFORM_TYPE_INT: {
+			if (lua_israwnumber(L, -1)) {
+				shader->SetUniform1i(name, lua_toint(L, -1));
+				return;
+			}
+			if (lua_istable(L, -1)) {
+				const int count = LuaUtils::ParseIntArray(L, -1, intUniformArrayBuf, sizeof(intUniformArrayBuf) / sizeof(int));
+				switch (count) {
+				case 1: shader->SetUniform1i(name, intUniformArrayBuf[0]); break;
+				case 2: shader->SetUniform2i(name, intUniformArrayBuf[0], intUniformArrayBuf[1]); break;
+				case 3: shader->SetUniform3i(name, intUniformArrayBuf[0], intUniformArrayBuf[1], intUniformArrayBuf[2]); break;
+				case 4: shader->SetUniform4i(name, intUniformArrayBuf[0], intUniformArrayBuf[1], intUniformArrayBuf[2], intUniformArrayBuf[3]); break;
+				default: shader->SetUniform4iv(name, intUniformArrayBuf); break;
+				}
+				return;
+			}
+		} break;
+		case UNIFORM_TYPE_FLOAT_MATRIX: {
+			if (lua_istable(L, -1)) {
+				float array[16] = { 0.0f };
+				const int count = LuaUtils::ParseFloatArray(L, -1, array, 16);
+				switch (count) {
+				case (2 * 2): shader->SetUniformMatrix2fv(name, false, array); break;
+				case (3 * 3): shader->SetUniformMatrix3fv(name, false, array); break;
+				case (4 * 4): shader->SetUniformMatrix4fv(name, false, array); break;
+				}
+				return;
+			}
+		} break;
+		}
+	}
+
+	/// Apply uniform setup tables from the CreateShader table on Metal.
+	/// This mirrors ParseUniformSetupTables but routes values through IRHIShader.
+	static bool ParseUniformSetupTablesMetal(
+		lua_State* L,
+		int index,
+		const LuaShaders::Program& p,
+		RHI::IRHIShader* shader
+	) {
+		constexpr const char* fieldNames[] = { "uniform", "uniformInt", "uniformFloat", "uniformMatrix" };
+		constexpr int typeValues[] = { UNIFORM_TYPE_MIXED, UNIFORM_TYPE_INT, UNIFORM_TYPE_FLOAT, UNIFORM_TYPE_FLOAT_MATRIX };
+
+		for (int f = 0; f < 4; f++) {
+			lua_getfield(L, index, fieldNames[f]);
+			if (lua_istable(L, -1)) {
+				const int tableIdx = lua_gettop(L);
+				for (lua_pushnil(L); lua_next(L, tableIdx) != 0; lua_pop(L, 1)) {
+					if (!lua_israwstring(L, -2))
+						continue;
+					const char* uniformName = lua_tostring(L, -2);
+					const auto iter = p.activeUniforms.find(uniformName);
+					if (iter == p.activeUniforms.end())
+						continue;
+
+					// Auto-correct uniform type from reflection metadata
+					int correctedType = typeValues[f];
+					if (typeValues[f] == UNIFORM_TYPE_MIXED) {
+						switch (iter->second.type) {
+						case GL_SAMPLER_1D: case GL_SAMPLER_2D: case GL_SAMPLER_3D:
+						case GL_SAMPLER_1D_SHADOW: case GL_SAMPLER_2D_SHADOW:
+						case GL_SAMPLER_CUBE: case GL_SAMPLER_2D_MULTISAMPLE:
+						case GL_INT: case GL_INT_VEC2: case GL_INT_VEC3: case GL_INT_VEC4:
+						case GL_UNSIGNED_INT: case GL_UNSIGNED_INT_VEC2:
+						case GL_UNSIGNED_INT_VEC3: case GL_UNSIGNED_INT_VEC4:
+							correctedType = UNIFORM_TYPE_INT; break;
+						case GL_FLOAT: case GL_FLOAT_VEC2: case GL_FLOAT_VEC3: case GL_FLOAT_VEC4:
+							correctedType = UNIFORM_TYPE_FLOAT; break;
+						case GL_FLOAT_MAT2: case GL_FLOAT_MAT3: case GL_FLOAT_MAT4:
+							correctedType = UNIFORM_TYPE_FLOAT_MATRIX; break;
+						default:
+							correctedType = UNIFORM_TYPE_INT; break;
+						}
+					}
+
+					ParseUniformTypeMetal(L, shader, uniformName, correctedType);
+				}
+			}
+			lua_pop(L, 1);
+		}
+		return true;
+	}
+
 } //anonymous NS
 
 GLint LuaShaders::GetUniformLocation(LuaShaders::Program* p, const char* name)
@@ -567,19 +681,39 @@ GLint LuaShaders::GetUniformLocation(LuaShaders::Program* p, const char* name)
 	if (!p)
 		return -1;
 
-	if (RHI::IsMetalBackend())
-		return -1;
-
 	const auto iter = p->activeUniformLocations.find(name);
-	if (iter == p->activeUniformLocations.cend()) {
-		ActiveUniformLocation ul;
-		ul.location = glGetUniformLocation(p->id, name);
-		p->activeUniformLocations[name] = ul;
+	if (iter != p->activeUniformLocations.cend())
+		return iter->second.location;
 
-		return ul.location;
+	if (RHI::IsMetalBackend()) {
+		// On Metal, locations are pre-populated during CreateShader from reflection.
+		// If not found in the cache, the uniform is not active in the shader.
+		return -1;
 	}
 
-	return iter->second.location;
+	ActiveUniformLocation ul;
+	ul.location = glGetUniformLocation(p->id, name);
+	p->activeUniformLocations[name] = ul;
+	return ul.location;
+}
+
+/// Resolve a uniform name for the Metal backend.
+/// Lua callers may pass either a string name or a synthetic integer location.
+/// Returns the uniform name string, or nullptr if not resolvable.
+static const char* ResolveUniformNameForMetal(lua_State* L, const LuaShaders::Program* prog)
+{
+	if (lua_type(L, 1) == LUA_TSTRING)
+		return lua_tostring(L, 1);
+
+	if (!prog)
+		return nullptr;
+
+	const int loc = luaL_checkint(L, 1);
+	const auto it = prog->locationToName.find(loc);
+	if (it != prog->locationToName.end())
+		return it->second.c_str();
+
+	return nullptr;
 }
 
 /***
@@ -662,7 +796,90 @@ GLint LuaShaders::GetUniformLocation(LuaShaders::Program* p, const char* name)
  */
 int LuaShaders::CreateShader(lua_State* L)
 {
-	if (RHI::IsMetalBackend()) return 0;
+	if (RHI::IsMetalBackend()) {
+		const int args = lua_gettop(L);
+		if ((args != 1) || !lua_istable(L, 1))
+			luaL_error(L, "Incorrect arguments to gl.CreateShader()");
+
+		std::vector<std::string> shdrDefs;
+		std::vector<std::string> vertSrcs;
+		std::vector<std::string> geomSrcs;
+		std::vector<std::string> fragSrcs;
+
+		ParseShaderTable(L, 1, "defines", shdrDefs);
+		ParseShaderTable(L, 1, "definitions", shdrDefs);
+
+		if (!ParseShaderTable(L, 1, "vertex", vertSrcs))   return 0;
+		if (!ParseShaderTable(L, 1, "geometry", geomSrcs)) return 0;
+		if (!ParseShaderTable(L, 1, "fragment", fragSrcs)) return 0;
+
+		if (vertSrcs.empty() && fragSrcs.empty())
+			return 0;
+
+		if (!geomSrcs.empty())
+			LOG_L(L_WARNING, "[LuaShaders] Geometry shaders are not supported on Metal, ignoring");
+
+		// Build combined source and defines strings
+		std::string defStr;
+		for (const auto& d : shdrDefs) defStr += d + "\n";
+		std::string vertSrc;
+		for (const auto& s : vertSrcs) vertSrc += s;
+		std::string fragSrc;
+		for (const auto& s : fragSrcs) fragSrc += s;
+
+		LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
+
+		auto* device = RHI::GetDevice();
+		if (!device) return 0;
+
+		auto rhiShader = device->CreateShader("lua_shader");
+		if (!rhiShader) return 0;
+
+		if (!vertSrc.empty())
+			rhiShader->AttachStageFromSource(RHI::ShaderStage::Vertex, defStr + vertSrc, "");
+		if (!fragSrc.empty())
+			rhiShader->AttachStageFromSource(RHI::ShaderStage::Fragment, defStr + fragSrc, "");
+
+		rhiShader->Link();
+
+		if (!rhiShader->IsValid()) {
+			shaders.errorLog = "Metal shader compilation failed";
+			return 0;
+		}
+
+		Program p(0); // id=0 on Metal path
+		p.rhiShader = std::move(rhiShader);
+
+		// Populate activeUniforms and activeUniformLocations from reflection.
+		// GetActiveUniformDescs() queries the Metal shader's cached reflection data.
+		{
+			const auto uniformDescs = p.rhiShader->GetActiveUniformDescs();
+			int syntheticLoc = 0;
+			for (const auto& desc : uniformDescs) {
+				ActiveUniform au;
+				au.type = static_cast<GLenum>(desc.glType);
+				au.size = desc.arraySize;
+				p.activeUniforms[desc.name] = au;
+
+				ActiveUniformLocation aul;
+				aul.location = syntheticLoc;
+				p.activeUniformLocations[desc.name] = aul;
+				p.locationToName[syntheticLoc] = desc.name;
+				syntheticLoc++;
+			}
+		}
+
+		// Apply initial uniform setup tables (calls uniform setters on the bound shader)
+		p.rhiShader->Bind();
+		ParseUniformSetupTablesMetal(L, 1, p, p.rhiShader.get());
+		p.rhiShader->Unbind();
+
+		// Returns the program index (not a GL program ID)
+		lua_pushnumber(L, shaders.AddProgram(std::move(p)));
+		lua_pushnumber(L, 0); // no GL program ID on Metal
+		return 2;
+	}
+
 	const int args = lua_gettop(L);
 
 	if ((args != 1) || !lua_istable(L, 1))
@@ -815,7 +1032,7 @@ int LuaShaders::CreateShader(lua_State* L)
 	}
 
 	// note: index, not raw ID
-	lua_pushnumber(L, shaders.AddProgram(p));
+	lua_pushnumber(L, shaders.AddProgram(std::move(p)));
 	// also push the program ID
 	lua_pushnumber(L, prog);
 	return 2;
@@ -847,12 +1064,16 @@ int LuaShaders::DeleteShader(lua_State* L)
  */
 int LuaShaders::UseShader(lua_State* L)
 {
-	if (RHI::IsMetalBackend()) return 0;
 	CheckDrawingEnabled(L, __func__);
 
 	const int progIdx = luaL_checkint(L, 1);
 	if (progIdx == 0) {
-		glUseProgram(0);
+		if (RHI::IsMetalBackend()) {
+			if (activeProgram && activeProgram->rhiShader)
+				activeProgram->rhiShader->Unbind();
+		} else {
+			glUseProgram(0);
+		}
 		activeProgram = nullptr;
 		lua_pushboolean(L, true);
 		return 1;
@@ -866,7 +1087,11 @@ int LuaShaders::UseShader(lua_State* L)
 		lua_pushboolean(L, false);
 	} else {
 		activeProgram = prog;
-		glUseProgram(prog->id);
+		if (RHI::IsMetalBackend()) {
+			if (prog->rhiShader) prog->rhiShader->Bind();
+		} else {
+			glUseProgram(prog->id);
+		}
 		lua_pushboolean(L, true);
 	}
 	return 1;
@@ -886,7 +1111,6 @@ int LuaShaders::UseShader(lua_State* L)
  */
 int LuaShaders::ActiveShader(lua_State* L)
 {
-	if (RHI::IsMetalBackend()) return 0;
 	const int progIdx = luaL_checkint(L, 1);
 	luaL_checktype(L, 2, LUA_TFUNCTION);
 
@@ -895,9 +1119,39 @@ int LuaShaders::ActiveShader(lua_State* L)
 	if (progIdx != 0) {
 		LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
 
-		if ((prog = shaders.GetProgram(progIdx)) == nullptr) {
+		if ((prog = shaders.GetProgram(progIdx)) == nullptr)
 			return 0;
+	}
+
+	if (RHI::IsMetalBackend()) {
+		// Save previous shader state
+		Program* savedActiveProgram = activeProgram;
+		RHI::IRHIShader* prevShader = (activeProgram && activeProgram->rhiShader)
+			? activeProgram->rhiShader.get() : nullptr;
+
+		// Bind new shader
+		if (prog && prog->rhiShader)
+			prog->rhiShader->Bind();
+
+		activeProgram = prog;
+		activeShaderDepth++;
+		const int error = lua_pcall(L, lua_gettop(L) - 2, 0, 0);
+		activeShaderDepth--;
+		activeProgram = savedActiveProgram;
+
+		// Restore previous shader
+		if (prevShader) {
+			prevShader->Bind();
+		} else if (prog && prog->rhiShader) {
+			prog->rhiShader->Unbind();
 		}
+
+		if (error != 0) {
+			LOG_L(L_ERROR, "gl.ActiveShader: error(%i) = %s", error, lua_tostring(L, -1));
+			lua_error(L);
+		}
+
+		return 0;
 	}
 
 	GLint currentProgram;
@@ -1013,7 +1267,6 @@ int LuaShaders::GetActiveUniforms(lua_State* L)
  */
 int LuaShaders::GetUniformLocation(lua_State* L)
 {
-	if (RHI::IsMetalBackend()) return 0;
 	LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
 	Program* prog = shaders.GetProgram(L, 1);
 
@@ -1096,9 +1349,24 @@ int LuaShaders::SetFeatureBufferUniforms(lua_State* L) { return SetObjectBufferU
  */
 int LuaShaders::Uniform(lua_State* L)
 {
-	if (RHI::IsMetalBackend()) return 0;
 	if (activeShaderDepth <= 0)
 		CheckDrawingEnabled(L, __func__);
+
+	if (RHI::IsMetalBackend()) {
+		if (!activeProgram || !activeProgram->rhiShader) return 0;
+		const char* name = ResolveUniformNameForMetal(L, activeProgram);
+		if (!name) return 0;
+		auto* shader = activeProgram->rhiShader.get();
+		const int numValues = lua_gettop(L) - 1;
+		switch (numValues) {
+			case 1: shader->SetUniform1f(name, luaL_checkfloat(L, 2)); break;
+			case 2: shader->SetUniform2f(name, luaL_checkfloat(L, 2), luaL_checkfloat(L, 3)); break;
+			case 3: shader->SetUniform3f(name, luaL_checkfloat(L, 2), luaL_checkfloat(L, 3), luaL_checkfloat(L, 4)); break;
+			case 4: shader->SetUniform4f(name, luaL_checkfloat(L, 2), luaL_checkfloat(L, 3), luaL_checkfloat(L, 4), luaL_checkfloat(L, 5)); break;
+			default: luaL_error(L, "Incorrect arguments to gl.Uniform()"); break;
+		}
+		return 0;
+	}
 
 	const GLuint location = (lua_type(L, 1) == LUA_TSTRING) ? GetUniformLocation(activeProgram, luaL_checkstring(L, 1)) : luaL_checkint(L, 1);
 	const int numValues = lua_gettop(L) - 1;
@@ -1138,9 +1406,24 @@ int LuaShaders::Uniform(lua_State* L)
  */
 int LuaShaders::UniformInt(lua_State* L)
 {
-	if (RHI::IsMetalBackend()) return 0;
 	if (activeShaderDepth <= 0)
 		CheckDrawingEnabled(L, __func__);
+
+	if (RHI::IsMetalBackend()) {
+		if (!activeProgram || !activeProgram->rhiShader) return 0;
+		const char* name = ResolveUniformNameForMetal(L, activeProgram);
+		if (!name) return 0;
+		auto* shader = activeProgram->rhiShader.get();
+		const int numValues = lua_gettop(L) - 1;
+		switch (numValues) {
+			case 1: shader->SetUniform1i(name, luaL_checkint(L, 2)); break;
+			case 2: shader->SetUniform2i(name, luaL_checkint(L, 2), luaL_checkint(L, 3)); break;
+			case 3: shader->SetUniform3i(name, luaL_checkint(L, 2), luaL_checkint(L, 3), luaL_checkint(L, 4)); break;
+			case 4: shader->SetUniform4i(name, luaL_checkint(L, 2), luaL_checkint(L, 3), luaL_checkint(L, 4), luaL_checkint(L, 5)); break;
+			default: luaL_error(L, "Incorrect arguments to gl.UniformInt()"); break;
+		}
+		return 0;
+	}
 
 	const GLuint location = (lua_type(L, 1) == LUA_TSTRING) ? GetUniformLocation(activeProgram, luaL_checkstring(L, 1)) : luaL_checkint(L, 1);
 	const int numValues = lua_gettop(L) - 1;
@@ -1209,12 +1492,40 @@ static bool GLUniformArray(lua_State* L, UniformFunc uf, ParseArrayFunc pf)
  */
 int LuaShaders::UniformArray(lua_State* L)
 {
-	if (RHI::IsMetalBackend()) return 0;
 	if (activeShaderDepth <= 0)
 		CheckDrawingEnabled(L, __func__);
 
 	if (!lua_istable(L, 3))
 		return 0;
+
+	if (RHI::IsMetalBackend()) {
+		if (!activeProgram || !activeProgram->rhiShader) return 0;
+		const char* name = ResolveUniformNameForMetal(L, activeProgram);
+		if (!name) return 0;
+		auto* shader = activeProgram->rhiShader.get();
+		// Array uniforms: set the first element for now, full array support
+		// requires SetUniform*v variants with count parameter in IRHIShader.
+		// The MTLShader uniform buffer stores data contiguously, so setting
+		// the base name writes to the right offset.
+		switch (luaL_checkint(L, 2)) {
+			case UNIFORM_TYPE_INT: {
+				const int cnt = LuaUtils::ParseIntArray(L, 3, intUniformArrayBuf, sizeof(intUniformArrayBuf) / sizeof(int));
+				if (cnt == 1) shader->SetUniform1i(name, intUniformArrayBuf[0]);
+				else if (cnt == 2) shader->SetUniform2i(name, intUniformArrayBuf[0], intUniformArrayBuf[1]);
+				else if (cnt == 3) shader->SetUniform3i(name, intUniformArrayBuf[0], intUniformArrayBuf[1], intUniformArrayBuf[2]);
+				else if (cnt >= 4) shader->SetUniform4i(name, intUniformArrayBuf[0], intUniformArrayBuf[1], intUniformArrayBuf[2], intUniformArrayBuf[3]);
+			} break;
+			case UNIFORM_TYPE_FLOAT: {
+				const int cnt = LuaUtils::ParseFloatArray(L, 3, fltUniformArrayBuf, sizeof(fltUniformArrayBuf) / sizeof(float));
+				if (cnt == 1) shader->SetUniform1f(name, fltUniformArrayBuf[0]);
+				else if (cnt == 2) shader->SetUniform2f(name, fltUniformArrayBuf[0], fltUniformArrayBuf[1]);
+				else if (cnt == 3) shader->SetUniform3f(name, fltUniformArrayBuf[0], fltUniformArrayBuf[1], fltUniformArrayBuf[2]);
+				else if (cnt >= 4) shader->SetUniform4f(name, fltUniformArrayBuf[0], fltUniformArrayBuf[1], fltUniformArrayBuf[2], fltUniformArrayBuf[3]);
+			} break;
+			default: break;
+		}
+		return 0;
+	}
 
 	switch (luaL_checkint(L, 2)) {
 		case UNIFORM_TYPE_INT: {
@@ -1273,9 +1584,52 @@ int LuaShaders::UniformArray(lua_State* L)
  */
 int LuaShaders::UniformMatrix(lua_State* L)
 {
-	if (RHI::IsMetalBackend()) return 0;
 	if (activeShaderDepth <= 0)
 		CheckDrawingEnabled(L, __func__);
+
+	if (RHI::IsMetalBackend()) {
+		if (!activeProgram || !activeProgram->rhiShader) return 0;
+		const char* name = ResolveUniformNameForMetal(L, activeProgram);
+		if (!name) return 0;
+		auto* shader = activeProgram->rhiShader.get();
+		const int numValues = lua_gettop(L) - 1;
+
+		switch (numValues) {
+		case 1: {
+			if (!lua_isstring(L, 2))
+				luaL_error(L, "Incorrect arguments to gl.UniformMatrix()");
+			const CMatrix44f* mat = LuaOpenGLUtils::GetNamedMatrix(lua_tostring(L, 2));
+			if (mat) {
+				shader->SetUniformMatrix4fv(name, false, *mat);
+			} else {
+				luaL_error(L, "Incorrect arguments to gl.UniformMatrix()");
+			}
+			break;
+		}
+		case (2 * 2): {
+			float array[2 * 2];
+			for (int i = 0; i < (2 * 2); i++) array[i] = luaL_checkfloat(L, i + 2);
+			shader->SetUniformMatrix2fv(name, false, array);
+			break;
+		}
+		case (3 * 3): {
+			float array[3 * 3];
+			for (int i = 0; i < (3 * 3); i++) array[i] = luaL_checkfloat(L, i + 2);
+			shader->SetUniformMatrix3fv(name, false, array);
+			break;
+		}
+		case (4 * 4): {
+			float array[4 * 4];
+			for (int i = 0; i < (4 * 4); i++) array[i] = luaL_checkfloat(L, i + 2);
+			shader->SetUniformMatrix4fv(name, false, array);
+			break;
+		}
+		default:
+			luaL_error(L, "Incorrect arguments to gl.UniformMatrix()");
+			break;
+		}
+		return 0;
+	}
 
 	const GLuint location = (lua_type(L, 1) == LUA_TSTRING) ? GetUniformLocation(activeProgram, luaL_checkstring(L, 1)) : luaL_checkint(L, 1);
 	const int numValues = lua_gettop(L) - 1;

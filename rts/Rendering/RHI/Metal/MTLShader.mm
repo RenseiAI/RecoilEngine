@@ -401,6 +401,69 @@ void MTLShader::SetUniformMatrix4fv(const char* name, bool transpose, const floa
 	}
 }
 
+static uint32_t ShaderDataTypeToGLType(ShaderDataType type) {
+	// GL constants for Lua API compatibility
+	// These values are the same regardless of whether GLAD is loaded
+	switch (type) {
+		case ShaderDataType::Float:           return 0x1406; // GL_FLOAT
+		case ShaderDataType::Vec2:            return 0x8B50; // GL_FLOAT_VEC2
+		case ShaderDataType::Vec3:            return 0x8B51; // GL_FLOAT_VEC3
+		case ShaderDataType::Vec4:            return 0x8B52; // GL_FLOAT_VEC4
+		case ShaderDataType::Int:             return 0x1404; // GL_INT
+		case ShaderDataType::IVec2:           return 0x8B53; // GL_INT_VEC2
+		case ShaderDataType::IVec3:           return 0x8B54; // GL_INT_VEC3
+		case ShaderDataType::IVec4:           return 0x8B55; // GL_INT_VEC4
+		case ShaderDataType::Mat3:            return 0x8B5B; // GL_FLOAT_MAT3
+		case ShaderDataType::Mat4:            return 0x8B5C; // GL_FLOAT_MAT4
+		case ShaderDataType::Sampler2D:       return 0x8B5E; // GL_SAMPLER_2D
+		case ShaderDataType::SamplerCube:     return 0x8B60; // GL_SAMPLER_CUBE
+		case ShaderDataType::Sampler2DShadow: return 0x8B62; // GL_SAMPLER_2D_SHADOW
+		default:                              return 0x1406; // GL_FLOAT
+	}
+}
+
+std::vector<IRHIShader::ShaderUniformDesc> MTLShader::GetActiveUniformDescs() const {
+	std::vector<ShaderUniformDesc> result;
+
+	// Use the cached reflection data from the shader compiler.
+	// This provides type information which is not stored in uniformMap.
+	if (!shaderCompiler)
+		return result;
+
+	auto processReflection = [&](const ShaderReflection* refl) {
+		if (!refl)
+			return;
+		for (const auto& u : refl->uniforms) {
+			// Avoid duplicates (vertex stage has priority, already in result)
+			bool found = false;
+			for (const auto& existing : result) {
+				if (existing.name == u.name) { found = true; break; }
+			}
+			if (found)
+				continue;
+
+			ShaderUniformDesc desc;
+			desc.name      = u.name;
+			desc.glType    = ShaderDataTypeToGLType(u.type);
+			desc.arraySize = u.arraySize;
+			result.push_back(std::move(desc));
+		}
+	};
+
+	if (!vertexSource.empty()) {
+		const auto* vsRefl = shaderCompiler->GetCachedReflection(
+			vertexDefines + "\n" + vertexSource, CompilerShaderStage::Vertex);
+		processReflection(vsRefl);
+	}
+	if (!fragmentSource.empty()) {
+		const auto* fsRefl = shaderCompiler->GetCachedReflection(
+			fragmentDefines + "\n" + fragmentSource, CompilerShaderStage::Fragment);
+		processReflection(fsRefl);
+	}
+
+	return result;
+}
+
 void MTLShader::BindUniforms(id<MTLRenderCommandEncoder> encoder) {
 	if (uniformData.empty() || !encoder) {
 		return;

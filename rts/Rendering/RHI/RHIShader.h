@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 #include "RHITypes.h"
 
 namespace RHI {
@@ -74,6 +75,19 @@ public:
 	virtual bool IsBound() const = 0;
 	virtual const std::string& GetName() const = 0;
 	virtual uint32_t GetNativeHandle() const = 0;
+
+	/// Descriptor for a single active uniform, for Lua reflection (GetActiveUniforms).
+	/// glType uses GL_* constants for Lua API compatibility.
+	struct ShaderUniformDesc {
+		std::string name;
+		uint32_t    glType    = 0; // GL_FLOAT, GL_INT, GL_FLOAT_VEC2, etc.
+		int         arraySize = 1;
+	};
+
+	/// Return descriptors for all active uniforms in this shader.
+	/// Default returns empty vector; the Metal backend returns reflection data.
+	/// The GL backend does not use this (GL path uses glGetActiveUniform directly).
+	virtual std::vector<ShaderUniformDesc> GetActiveUniformDescs() const { return {}; }
 };
 
 } // namespace RHI

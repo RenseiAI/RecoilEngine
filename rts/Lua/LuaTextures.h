@@ -13,22 +13,32 @@
  * - The Texture struct stores GL enum values for target, format, etc.
  * - Use LuaGLConstMappings to convert to RHI types when needed
  * - The embedded FBO (tex.fbo) is legacy - prefer explicit LuaFBOs
+ * - On Metal, parallel RHI vectors (rhiTexVec, rhiFBOVec) store RHI
+ *   resources indexed identically to textureVec.
+ *
+ * RHI Migration Status: Phase 17.2 — Metal texture creation/bind/free
+ * fully routed through RHI. GL path unchanged.
  */
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHITexture.h"
+#include "Rendering/RHI/RHIFramebuffer.h"
 
 
 class LuaTextures {
 public:
 	static constexpr char prefix = '!';
 
-	~LuaTextures() { FreeAll(); }
+	~LuaTextures();
 	LuaTextures() {
 		textureVec.reserve(128);
 		textureMap.reserve(128);
+		rhiTexVec.reserve(128);
+		rhiFBOVec.reserve(128);
 		lastCode = 0;
 	}
 
@@ -36,6 +46,8 @@ public:
 		textureVec.clear();
 		textureMap.clear();
 		freeIndices.clear();
+		rhiTexVec.clear();
+		rhiFBOVec.clear();
 	}
 
 	struct Texture {
@@ -84,6 +96,11 @@ public:
 
 	const Texture* GetInfo(const std::string& name) const { return (GetInfo(GetIdx(name))); }
 	      Texture* GetInfo(const std::string& name)       { return (GetInfo(GetIdx(name))); }
+
+	// RHI accessors — return nullptr on GL path or if index is out of range
+	RHI::IRHITexture* GetRHITexture(size_t idx) const;
+	RHI::IRHITexture* GetRHITexture(const std::string& name) const;
+
 private:
 	int lastCode;
 
@@ -92,6 +109,11 @@ private:
 
 	std::vector<Texture> textureVec;
 	std::vector<size_t> freeIndices;
+
+	// RHI parallel storage — indexed identically to textureVec.
+	// GL path stores nullptr entries to keep indices in sync.
+	std::vector<std::unique_ptr<RHI::IRHITexture>>     rhiTexVec;
+	std::vector<std::unique_ptr<RHI::IRHIFramebuffer>> rhiFBOVec;
 };
 
 

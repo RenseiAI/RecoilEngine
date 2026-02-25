@@ -88,6 +88,7 @@ public:
 	bool IsBound() const override { return bound; }
 	const std::string& GetName() const override { return shaderName; }
 	uint32_t GetNativeHandle() const override { return 0; }
+	std::vector<ShaderUniformDesc> GetActiveUniformDescs() const override;
 
 #ifdef __OBJC__
 	// --- Metal-specific accessors ---

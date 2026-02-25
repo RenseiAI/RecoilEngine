@@ -3,15 +3,17 @@
 /**
  * Lua FBO Implementation
  *
- * RHI Migration Status:
- * - Uses GL EXT framebuffer functions (glGenFramebuffersEXT, etc.)
- * - ActiveFBO uses legacy FFP matrix push/pop - needs migration
- * - BlitFBO maps to IRHIContext::BlitFramebuffer
- * - Migrated: Removed glPushAttrib/glPopAttrib (GL_VIEWPORT_BIT), replaced with explicit viewport save/restore
- *
- * Migration Strategy:
- * 1. Keep GL calls for OpenGL backend (they work via RHI GL backend)
- * 2. For Metal backend, RHI framebuffer wraps native FBO concepts
+ * RHI Migration Status: Phase 17.1 — Metal backend fully routed through RHI.
+ * - CreateFBO: Metal path uses IRHIDevice::CreateFramebuffer() + side-map storage
+ * - DeleteFBO / Free: Metal path erases from rhiFBOMap, cleans up rhiId
+ * - IsValidFBO: Metal path checks rhiFBOMap + IRHIFramebuffer::IsComplete()
+ * - ActiveFBO: Metal path binds/unbinds IRHIFramebuffer with viewport set
+ * - RawBindFBO: Metal path routes to IRHIFramebuffer::Bind() / BindDefaultFramebuffer()
+ * - BlitFBO: Metal path routes to IRHIContext::BlitFramebuffer()
+ * - AttachObject: Metal path routes texture attachments to IRHIFramebuffer::Attach*()
+ * - meta_newindex: Metal path calls ApplyAttachment (RHI) + stores in ref table
+ * - ClearAttachmentFBO: Metal path approximates with IRHIContext::Clear()
+ * - GL backend unchanged; all GL EXT calls guarded by !IsMetalBackend()
  */
 
 #include "LuaFBOs.h"
@@ -35,7 +37,38 @@
 #include "Rendering/GL/FBO.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIFramebuffer.h"
+#include "Rendering/RHI/RHITexture.h"
+
+#include <unordered_map>
+
+namespace {
+	// RHI framebuffer storage for the Metal path.
+	// Keyed by the rhiId stored in each LuaFBO. The map owns the framebuffer objects.
+	static std::unordered_map<uint32_t, std::unique_ptr<RHI::IRHIFramebuffer>> rhiFBOMap;
+	static uint32_t nextRhiFBOId = 1;
+
+	static RHI::IRHIFramebuffer* GetRHIFBO(uint32_t rhiId) {
+		if (rhiId == 0) return nullptr;
+		auto it = rhiFBOMap.find(rhiId);
+		return (it != rhiFBOMap.end()) ? it->second.get() : nullptr;
+	}
+
+	// Convert a GL attachment enum to a color index (0-15), or -1 for depth, -2 for depth-stencil.
+	static int GLAttachmentToColorIndex(GLenum attachID) {
+		if (attachID >= GL_COLOR_ATTACHMENT0 && attachID <= GL_COLOR_ATTACHMENT15)
+			return static_cast<int>(attachID - GL_COLOR_ATTACHMENT0);
+		if (attachID == GL_DEPTH_ATTACHMENT)
+			return -1;
+		if (attachID == GL_STENCIL_ATTACHMENT)
+			return -2;
+		if (attachID == GL_DEPTH_STENCIL_ATTACHMENT)
+			return -2;
+		return -3; // unknown
+	}
+} // anonymous namespace
 
 
 /******************************************************************************
@@ -46,7 +79,13 @@
 LuaFBOs::~LuaFBOs()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	if (RHI::IsMetalBackend()) return;
+	if (RHI::IsMetalBackend()) {
+		for (const auto* fbo : fbos) {
+			if (fbo->rhiId != 0)
+				rhiFBOMap.erase(fbo->rhiId);
+		}
+		return;
+	}
 	for (const auto* fbo: fbos) {
 		glDeleteFramebuffersEXT(1, &fbo->id);
 	}
@@ -67,10 +106,10 @@ bool LuaFBOs::PushEntries(lua_State* L)
 	REGISTER_LUA_CFUNC(ActiveFBO);
 	REGISTER_LUA_CFUNC(RawBindFBO);
 
-	if (GLAD_GL_VERSION_3_0)
+	if (GLAD_GL_VERSION_3_0 || RHI::IsMetalBackend())
 		REGISTER_LUA_CFUNC(ClearAttachmentFBO);
 
-	if (GLAD_GL_EXT_framebuffer_blit)
+	if (GLAD_GL_EXT_framebuffer_blit || RHI::IsMetalBackend())
 		REGISTER_LUA_CFUNC(BlitFBO);
 
 	return true;
@@ -189,24 +228,31 @@ void LuaFBOs::LuaFBO::Init(lua_State* L)
 	id     = 0;
 	target = GL_FRAMEBUFFER_EXT;
 	luaRef = LUA_NOREF;
-	xsize = 0;
-	ysize = 0;
-	zsize = 0;
+	xsize  = 0;
+	ysize  = 0;
+	zsize  = 0;
+	rhiId  = 0;
 }
 
 
 void LuaFBOs::LuaFBO::Free(lua_State* L)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	if (RHI::IsMetalBackend()) return;
 	if (luaRef == LUA_NOREF)
 		return;
 
 	luaL_unref(L, LUA_REGISTRYINDEX, luaRef);
 	luaRef = LUA_NOREF;
 
-	glDeleteFramebuffersEXT(1, &id);
-	id = 0;
+	if (RHI::IsMetalBackend()) {
+		if (rhiId != 0) {
+			rhiFBOMap.erase(rhiId);
+			rhiId = 0;
+		}
+	} else {
+		glDeleteFramebuffersEXT(1, &id);
+		id = 0;
+	}
 
 	{
 		// get rid of the userdatum
@@ -254,7 +300,26 @@ int LuaFBOs::meta_index(lua_State* L)
 int LuaFBOs::meta_newindex(lua_State* L)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	if (RHI::IsMetalBackend()) return 0;
+	if (RHI::IsMetalBackend()) {
+		auto* fbo = static_cast<LuaFBO*>(luaL_checkudata(L, 1, "FBO"));
+		if (fbo->luaRef == LUA_NOREF)
+			return 0;
+
+		if (lua_israwstring(L, 2)) {
+			const std::string& key = lua_tostring(L, 2);
+			const GLenum type = ParseAttachment(key);
+			if (type != 0)
+				ApplyAttachment(L, 3, fbo, type);
+			// drawbuffers / readbuffer / target: no-op on Metal
+		}
+
+		// store the key/value in the ref table for later meta_index reads
+		lua_rawgeti(L, LUA_REGISTRYINDEX, fbo->luaRef);
+		lua_pushvalue(L, 2);
+		lua_pushvalue(L, 3);
+		lua_rawset(L, -3);
+		return 0;
+	}
 	auto* fbo = static_cast<LuaFBO*>(luaL_checkudata(L, 1, "FBO"));
 
 	if (fbo->luaRef == LUA_NOREF)
@@ -316,7 +381,48 @@ bool LuaFBOs::AttachObject(
 	GLenum attachLevel
 ) {
 	RECOIL_DETAILED_TRACY_ZONE;
-	if (RHI::IsMetalBackend()) return false;
+	if (RHI::IsMetalBackend()) {
+		auto* rhiFBO = GetRHIFBO(fbo->rhiId);
+		if (!rhiFBO) return false;
+
+		const int colorIdx = GLAttachmentToColorIndex(attachID);
+
+		if (lua_isnil(L, index)) {
+			// Detach the attachment
+			if (colorIdx >= 0)
+				rhiFBO->Detach(static_cast<uint32_t>(colorIdx));
+			else if (colorIdx == -1 || colorIdx == -2)
+				rhiFBO->Detach(16); // depth/stencil attachment slot
+			return true;
+		}
+
+		if (lua_israwstring(L, index)) {
+			const char* texName = lua_tostring(L, index);
+			const LuaTextures& textures = CLuaHandle::GetActiveTextures(L);
+			RHI::IRHITexture* rhiTex = textures.GetRHITexture(texName);
+			const LuaTextures::Texture* tex = textures.GetInfo(texName);
+
+			if (!rhiTex) return false;
+
+			if (colorIdx >= 0)
+				rhiFBO->AttachColor(rhiTex, static_cast<uint32_t>(colorIdx), attachLevel);
+			else if (colorIdx == -1)
+				rhiFBO->AttachDepth(rhiTex, attachLevel);
+			else if (colorIdx == -2)
+				rhiFBO->AttachDepthStencil(rhiTex, attachLevel);
+
+			if (tex) {
+				fbo->xsize = tex->xsize;
+				fbo->ysize = tex->ysize;
+				fbo->zsize = tex->zsize;
+			}
+			return true;
+		}
+
+		// RBO attachments not supported on Metal
+		LOG_L(L_WARNING, "[LuaFBOs::%s] RBO attachments not supported on Metal backend", funcName);
+		return false;
+	}
 	if (lua_isnil(L, index)) {
 		// nil object
 		glFramebufferTexture2DEXT(fbo->target, attachID, GL_TEXTURE_2D, 0, 0);
@@ -494,7 +600,96 @@ bool LuaFBOs::ApplyDrawBuffers(lua_State* L, int index)
  */
 int LuaFBOs::CreateFBO(lua_State* L)
 {
-	if (RHI::IsMetalBackend()) return 0;
+	if (RHI::IsMetalBackend()) {
+		LuaFBO fbo;
+		fbo.Init(L);
+
+		const int table = 1;
+
+		// maintain a lua table to hold references
+		lua_newtable(L);
+		fbo.luaRef = luaL_ref(L, LUA_REGISTRYINDEX);
+		if (fbo.luaRef == LUA_NOREF)
+			return 0;
+
+		auto* device = RHI::GetDevice();
+		auto rhiFBO = device->CreateFramebuffer();
+		if (!rhiFBO) {
+			luaL_unref(L, LUA_REGISTRYINDEX, fbo.luaRef);
+			return 0;
+		}
+
+		fbo.rhiId = nextRhiFBOId++;
+		fbo.id = fbo.rhiId; // use rhiId as non-zero validity sentinel
+
+		auto* fboPtr = static_cast<LuaFBO*>(lua_newuserdata(L, sizeof(LuaFBO)));
+		*fboPtr = fbo;
+
+		luaL_getmetatable(L, "FBO");
+		lua_setmetatable(L, -2);
+
+		// parse the initialization table and apply attachments
+		if (lua_istable(L, table)) {
+			for (lua_pushnil(L); lua_next(L, table) != 0; lua_pop(L, 1)) {
+				if (lua_israwstring(L, -2)) {
+					const std::string& key = lua_tostring(L, -2);
+					const GLenum type = ParseAttachment(key);
+					if (type != 0) {
+						int colorIdx = GLAttachmentToColorIndex(type);
+						const LuaTextures& textures = CLuaHandle::GetActiveTextures(L);
+
+						auto attachRHITex = [&](const char* texName, GLint level) {
+							RHI::IRHITexture* rhiTex = textures.GetRHITexture(texName);
+							const LuaTextures::Texture* texInfo = textures.GetInfo(texName);
+							if (rhiTex) {
+								if (colorIdx >= 0)
+									rhiFBO->AttachColor(rhiTex, static_cast<uint32_t>(colorIdx), static_cast<uint32_t>(level));
+								else if (colorIdx == -1)
+									rhiFBO->AttachDepth(rhiTex, static_cast<uint32_t>(level));
+								else if (colorIdx == -2)
+									rhiFBO->AttachDepthStencil(rhiTex, static_cast<uint32_t>(level));
+
+								if (texInfo) {
+									fboPtr->xsize = texInfo->xsize;
+									fboPtr->ysize = texInfo->ysize;
+									fboPtr->zsize = texInfo->zsize;
+								}
+							}
+						};
+
+						if (lua_israwstring(L, -1)) {
+							attachRHITex(lua_tostring(L, -1), 0);
+						} else if (lua_istable(L, -1)) {
+							lua_rawgeti(L, -1, 1);
+							const char* texName = lua_israwstring(L, -1) ? lua_tostring(L, -1) : nullptr;
+							lua_pop(L, 1);
+
+							GLint level = 0;
+							lua_rawgeti(L, -1, 3);
+							if (lua_isnumber(L, -1)) level = lua_toint(L, -1);
+							lua_pop(L, 1);
+
+							if (texName)
+								attachRHITex(texName, level);
+						}
+					}
+					// drawbuffers / readbuffer / target: skip on Metal (handled automatically)
+				}
+			}
+		}
+
+		rhiFBOMap[fbo.rhiId] = std::move(rhiFBO);
+
+		if (fboPtr->luaRef != LUA_NOREF) {
+			LuaFBOs& activeFBOs = CLuaHandle::GetActiveFBOs(L);
+			auto& fbos = activeFBOs.fbos;
+			fbos.push_back(fboPtr);
+			fboPtr->index = fbos.size() - 1;
+		}
+
+		return 1;
+	}
+
 	LuaFBO fbo;
 	fbo.Init(L);
 
@@ -590,7 +785,22 @@ int LuaFBOs::DeleteFBO(lua_State* L)
  */
 int LuaFBOs::IsValidFBO(lua_State* L)
 {
-	if (RHI::IsMetalBackend()) return 0;
+	if (RHI::IsMetalBackend()) {
+		if (lua_isnil(L, 1) || !lua_isuserdata(L, 1)) {
+			lua_pushboolean(L, false);
+			return 1;
+		}
+		const auto* fbo = static_cast<LuaFBO*>(luaL_checkudata(L, 1, "FBO"));
+		if (fbo->rhiId == 0 || fbo->luaRef == LUA_NOREF) {
+			lua_pushboolean(L, false);
+			return 1;
+		}
+		auto* rhiFBO = GetRHIFBO(fbo->rhiId);
+		const bool complete = (rhiFBO != nullptr && rhiFBO->IsComplete());
+		lua_pushboolean(L, complete);
+		lua_pushnumber(L, complete ? GL_FRAMEBUFFER_COMPLETE_EXT : 0);
+		return 2;
+	}
 	if (lua_isnil(L, 1) || !lua_isuserdata(L, 1)) {
 		lua_pushboolean(L, false);
 		return 1;
@@ -639,7 +849,40 @@ int LuaFBOs::IsValidFBO(lua_State* L)
 int LuaFBOs::ActiveFBO(lua_State* L)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	if (RHI::IsMetalBackend()) return 0;
+	if (RHI::IsMetalBackend()) {
+		CheckDrawingEnabled(L, __func__);
+
+		const auto* fbo = static_cast<LuaFBO*>(luaL_checkudata(L, 1, "FBO"));
+		if (fbo->rhiId == 0)
+			return 0;
+
+		auto* rhiFBO = GetRHIFBO(fbo->rhiId);
+		if (!rhiFBO)
+			return 0;
+
+		int funcIndex = 2;
+		if (lua_israwnumber(L, funcIndex)) funcIndex++; // skip optional target
+		if (lua_isboolean(L, funcIndex))  funcIndex++; // skip optional identities flag
+
+		if (!lua_isfunction(L, funcIndex))
+			luaL_error(L, "Incorrect arguments to gl.ActiveFBO()");
+
+		auto* ctx = RHI::GetDevice()->GetContext();
+
+		rhiFBO->Bind();
+		ctx->SetViewport({0.0f, 0.0f, static_cast<float>(fbo->xsize), static_cast<float>(fbo->ysize)});
+
+		const int error = lua_pcall(L, (lua_gettop(L) - funcIndex), 0, 0);
+
+		rhiFBO->Unbind();
+		ctx->BindDefaultFramebuffer();
+
+		if (error != 0) {
+			LOG_L(L_ERROR, "gl.ActiveFBO: error(%i) = %s", error, lua_tostring(L, -1));
+			lua_error(L);
+		}
+		return 0;
+	}
 	CheckDrawingEnabled(L, __func__);
 	
 	const auto* fbo = static_cast<LuaFBO*>(luaL_checkudata(L, 1, "FBO"));
@@ -725,7 +968,20 @@ int LuaFBOs::ActiveFBO(lua_State* L)
 int LuaFBOs::RawBindFBO(lua_State* L)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	if (RHI::IsMetalBackend()) return 0;
+	if (RHI::IsMetalBackend()) {
+		if (lua_isnil(L, 1)) {
+			RHI::GetDevice()->GetContext()->BindDefaultFramebuffer();
+			return 0;
+		}
+		const auto* fbo = static_cast<LuaFBO*>(luaL_checkudata(L, 1, "FBO"));
+		if (fbo->rhiId == 0)
+			return 0;
+		auto* rhiFBO = GetRHIFBO(fbo->rhiId);
+		if (rhiFBO)
+			rhiFBO->Bind();
+		lua_pushnumber(L, 0); // no previous FBO ID concept on Metal
+		return 1;
+	}
 	//CheckDrawingEnabled(L, __func__);
 
 	if (lua_isnil(L, 1)) {
@@ -783,7 +1039,60 @@ int LuaFBOs::RawBindFBO(lua_State* L)
 int LuaFBOs::BlitFBO(lua_State* L)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	if (RHI::IsMetalBackend()) return 0;
+	if (RHI::IsMetalBackend()) {
+		auto* ctx = RHI::GetDevice()->GetContext();
+
+		if (lua_israwnumber(L, 1)) {
+			// Numeric form: blit between currently bound framebuffers
+			const int x0Src = (int)luaL_checknumber(L, 1);
+			const int y0Src = (int)luaL_checknumber(L, 2);
+			const int x1Src = (int)luaL_checknumber(L, 3);
+			const int y1Src = (int)luaL_checknumber(L, 4);
+			const int x0Dst = (int)luaL_checknumber(L, 5);
+			const int y0Dst = (int)luaL_checknumber(L, 6);
+			const int x1Dst = (int)luaL_checknumber(L, 7);
+			const int y1Dst = (int)luaL_checknumber(L, 8);
+			const GLbitfield mask   = (GLbitfield)luaL_optint(L, 9,  GL_COLOR_BUFFER_BIT);
+			const GLenum     filter = (GLenum)    luaL_optint(L, 10, GL_NEAREST);
+
+			ctx->BlitFramebuffer(nullptr, nullptr,
+				x0Src, y0Src, x1Src, y1Src,
+				x0Dst, y0Dst, x1Dst, y1Dst,
+				(mask & GL_COLOR_BUFFER_BIT) != 0,
+				(mask & GL_DEPTH_BUFFER_BIT) != 0,
+				(filter == GL_LINEAR));
+			return 0;
+		}
+
+		// FBO form: blit between specified FBOs
+		const auto* fboSrc = lua_isnil(L, 1) ? nullptr : static_cast<LuaFBO*>(luaL_checkudata(L, 1, "FBO"));
+		const auto* fboDst = lua_isnil(L, 6) ? nullptr : static_cast<LuaFBO*>(luaL_checkudata(L, 6, "FBO"));
+
+		if (fboSrc && fboSrc->rhiId == 0) return 0;
+		if (fboDst && fboDst->rhiId == 0) return 0;
+
+		RHI::IRHIFramebuffer* rhiSrc = fboSrc ? GetRHIFBO(fboSrc->rhiId) : nullptr;
+		RHI::IRHIFramebuffer* rhiDst = fboDst ? GetRHIFBO(fboDst->rhiId) : nullptr;
+
+		const int x0Src = (int)luaL_checknumber(L, 2);
+		const int y0Src = (int)luaL_checknumber(L, 3);
+		const int x1Src = (int)luaL_checknumber(L, 4);
+		const int y1Src = (int)luaL_checknumber(L, 5);
+		const int x0Dst = (int)luaL_checknumber(L, 7);
+		const int y0Dst = (int)luaL_checknumber(L, 8);
+		const int x1Dst = (int)luaL_checknumber(L, 9);
+		const int y1Dst = (int)luaL_checknumber(L, 10);
+		const GLbitfield mask   = (GLbitfield)luaL_optint(L, 11, GL_COLOR_BUFFER_BIT);
+		const GLenum     filter = (GLenum)    luaL_optint(L, 12, GL_NEAREST);
+
+		ctx->BlitFramebuffer(rhiSrc, rhiDst,
+			x0Src, y0Src, x1Src, y1Src,
+			x0Dst, y0Dst, x1Dst, y1Dst,
+			(mask & GL_COLOR_BUFFER_BIT) != 0,
+			(mask & GL_DEPTH_BUFFER_BIT) != 0,
+			(filter == GL_LINEAR));
+		return 0;
+	}
 	if (lua_israwnumber(L, 1)) {
 		const GLint x0Src = (GLint)luaL_checknumber(L, 1);
 		const GLint y0Src = (GLint)luaL_checknumber(L, 2);
@@ -865,7 +1174,30 @@ namespace Impl {
 
 int LuaFBOs::ClearAttachmentFBO(lua_State* L)
 {
-	if (RHI::IsMetalBackend()) return 0;
+	if (RHI::IsMetalBackend()) {
+		// On Metal, per-attachment clear is done via render pass load actions at render pass begin.
+		// We approximate it here by clearing the currently bound framebuffer with the given color.
+		// A proper per-attachment implementation would require tracking and reopening the render pass.
+		auto* ctx = RHI::GetDevice()->GetContext();
+
+		int nextArg = 1;
+		nextArg++; // skip target argument
+
+		// skip the attachment string/number argument
+		if (lua_isstring(L, nextArg) || lua_isnumber(L, nextArg))
+			nextArg++;
+
+		const float r = static_cast<float>(luaL_optnumber(L, nextArg + 0, 0.0));
+		const float g = static_cast<float>(luaL_optnumber(L, nextArg + 1, 0.0));
+		const float b = static_cast<float>(luaL_optnumber(L, nextArg + 2, 0.0));
+		const float a = static_cast<float>(luaL_optnumber(L, nextArg + 3, 0.0));
+
+		ctx->ClearColor(r, g, b, a);
+		ctx->Clear(true, false, false);
+
+		lua_pushboolean(L, true);
+		return 1;
+	}
 	const auto ReportErrorAndReturn = [L](const char* errMsg = "", const char* func = __func__) {
 		LOG_L(L_ERROR, "[gl.%s] Error: %s", func, errMsg);
 		lua_pushboolean(L, false);

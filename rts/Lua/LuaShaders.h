@@ -31,11 +31,13 @@
  * - ActiveUniforms reflect into shader for both backends
  */
 
+#include <memory>
 #include <string>
 #include <vector>
 #include <unordered_map>
 
 #include "Rendering/GL/myGL.h"
+#include "Rendering/RHI/RHIShader.h"
 
 
 struct lua_State;
@@ -75,17 +77,26 @@ class LuaShaders {
 		};
 		struct Program {
 			Program(GLuint _id) : id(_id) {}
+			Program(Program&&) = default;
+			Program& operator=(Program&&) = default;
+			Program(const Program&) = delete;
+			Program& operator=(const Program&) = delete;
 
 			GLuint id;
 			std::vector<Object> objects;
 			std::unordered_map<std::string, ActiveUniform> activeUniforms;
 			std::unordered_map<std::string, ActiveUniformLocation> activeUniformLocations;
+
+			// Metal backend: RHI shader object (null on GL path)
+			std::unique_ptr<RHI::IRHIShader> rhiShader;
+			// Metal backend: maps synthetic location integer -> uniform name
+			std::unordered_map<int, std::string> locationToName;
 		};
 	private:
 		std::vector<Program> programs;
 		std::vector<uint32_t> unused; // references slots in programs
 	private:
-		uint32_t AddProgram(const Program& p);
+		uint32_t AddProgram(Program&& p);
 		bool RemoveProgram(uint32_t progIdx);
 		GLuint GetProgramName(lua_State* L, int index) const;
 		const Program* GetProgram(lua_State* L, int index) const;

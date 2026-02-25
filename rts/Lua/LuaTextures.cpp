@@ -5,14 +5,11 @@
  *
  * Handles creation, binding, and destruction of Lua-created textures.
  *
- * RHI Migration Status:
- * - Texture creation uses direct GL calls (glGenTextures, glTexImage*)
- * - FBO management uses GL EXT framebuffer calls
- * - Parameter setting uses glTexParameteri/f
- *
- * For RHI migration, the texture creation should eventually use
- * IRHIDevice::CreateTexture(), but the GL path remains for OpenGL backend.
- * The Metal backend will need equivalent texture creation via RHI.
+ * RHI Migration Status: Phase 17.2 — COMPLETE
+ * - Metal path: texture creation/bind/free/params routed through RHI
+ * - GL path: unchanged (direct GL calls)
+ * - Parallel vectors (rhiTexVec, rhiFBOVec) keep RHI resources in sync
+ *   with textureVec on both paths (nullptr on GL path).
  *
  * Note: The embedded FBO support (tex.fbo) is deprecated in favor of
  * explicit LuaFBOs, but remains for backward compatibility.
@@ -25,6 +22,9 @@
 #include "Rendering/GL/FBO.h"
 #include "Rendering/GL/TexBind.h"
 #include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHITexture.h"
+#include "Rendering/RHI/RHIFramebuffer.h"
 #include "System/SpringMath.h"
 #include "System/StringUtil.h"
 #include "System/Log/ILog.h"
@@ -54,12 +54,104 @@ namespace Impl {
 	}
 }
 
+namespace {
+
+// Apply RHI sampler parameters to a texture. Called on Metal path during
+// Create() and ChangeParams(); ApplyParams() is a no-op on Metal.
+static void ApplyRHIParams(RHI::IRHITexture* tex, const LuaTextures::Texture& params) {
+	tex->SetMinFilter(LuaGLConstMappings::GLFilterToRHI(params.min_filter));
+	tex->SetMagFilter(LuaGLConstMappings::GLFilterToRHI(params.mag_filter));
+	tex->SetWrapS(LuaGLConstMappings::GLWrapToRHI(params.wrap_s));
+	tex->SetWrapT(LuaGLConstMappings::GLWrapToRHI(params.wrap_t));
+	tex->SetWrapR(LuaGLConstMappings::GLWrapToRHI(params.wrap_r));
+	if (params.aniso > 0.0f)
+		tex->SetAnisotropy(params.aniso);
+	if (params.cmpFunc != GL_NONE)
+		tex->SetCompareMode(true, LuaGLConstMappings::GLCompareFuncToRHI(params.cmpFunc));
+	else
+		tex->SetCompareMode(false);
+	if (params.lodBias != 0.0f)
+		tex->SetLodBias(params.lodBias);
+}
+
+} // anonymous namespace
+
 /******************************************************************************/
 /******************************************************************************/
 
+// Destructor defined here (not inline in header) so that unique_ptr<IRHITexture>
+// and unique_ptr<IRHIFramebuffer> can be destroyed with complete types available.
+LuaTextures::~LuaTextures() { FreeAll(); }
+
+
 std::string LuaTextures::Create(const Texture& tex)
 {
-	if (RHI::IsMetalBackend()) return "";
+	if (RHI::IsMetalBackend()) {
+		auto* device = RHI::GetDevice();
+		if (!device) return "";
+
+		if (!Impl::IsValidLuaTextureTarget(tex.target)) {
+			LOG_L(L_ERROR, "[LuaTextures::%s] texture-target %d is not supported", __func__, tex.target);
+			return "";
+		}
+
+		RHI::TextureType rhiType = LuaGLConstMappings::GLTextureTargetToRHI(tex.target);
+		RHI::TextureFormat rhiFmt = LuaGLConstMappings::GLInternalFormatToRHI(tex.format);
+		uint32_t depth = (tex.target == GL_TEXTURE_3D || tex.target == GL_TEXTURE_2D_ARRAY)
+			? static_cast<uint32_t>(std::max(tex.zsize, (GLsizei)1)) : 1;
+		uint32_t samples = static_cast<uint32_t>(std::max(tex.samples, (GLsizei)1));
+
+		auto rhiTex = device->CreateTexture(rhiType, rhiFmt,
+			static_cast<uint32_t>(tex.xsize),
+			static_cast<uint32_t>(tex.ysize),
+			depth, 1, samples);
+		if (!rhiTex) {
+			LOG_L(L_ERROR, "[LuaTextures::%s] Failed to create RHI texture", __func__);
+			return "";
+		}
+
+		ApplyRHIParams(rhiTex.get(), tex);
+
+		std::string str = fmt::format("{}{}", prefix, ++lastCode);
+
+		Texture newTex = tex;
+		newTex.id = 0;  // no GL texture handle on Metal
+
+		std::unique_ptr<RHI::IRHIFramebuffer> rhiFBO;
+		if (tex.fbo != 0) {
+			rhiFBO = device->CreateFramebuffer();
+			if (rhiFBO) {
+				rhiFBO->AttachColor(rhiTex.get(), 0);
+				if (tex.fboDepth != 0) {
+					GLenum depthFormat = static_cast<GLenum>(
+						CGlobalRendering::DepthBitsToFormat(globalRendering->supportDepthBufferBitDepth));
+					rhiFBO->AttachRenderbuffer(
+						FBO::FormatToRHI(depthFormat),
+						static_cast<uint32_t>(tex.xsize),
+						static_cast<uint32_t>(tex.ysize),
+						1 /*depth attachment index*/);
+				}
+			}
+		}
+
+		if (freeIndices.empty()) {
+			textureMap.emplace(str, textureVec.size());
+			textureVec.emplace_back(newTex);
+			rhiTexVec.emplace_back(std::move(rhiTex));
+			rhiFBOVec.emplace_back(std::move(rhiFBO));
+			return str;
+		}
+
+		// recycle a freed slot
+		const size_t idx = freeIndices.back();
+		textureMap[str] = idx;
+		textureVec[idx] = newTex;
+		rhiTexVec[idx]  = std::move(rhiTex);
+		rhiFBOVec[idx]  = std::move(rhiFBO);
+		freeIndices.pop_back();
+		return str;
+	}
+
 	GLenum query = 0;
 	if (Impl::IsValidLuaTextureTarget(tex.target)) {
 		query = GL::GetBindingQueryFromTarget(tex.target);
@@ -174,12 +266,17 @@ std::string LuaTextures::Create(const Texture& tex)
 	if (freeIndices.empty()) {
 		textureMap.emplace(str, textureVec.size());
 		textureVec.emplace_back(newTex);
+		rhiTexVec.emplace_back(nullptr);  // GL path: no RHI texture
+		rhiFBOVec.emplace_back(nullptr);  // GL path: no RHI FBO
 		return str;
 	}
 
-	// recycle
-	textureMap[str] = freeIndices.back();
-	textureVec[freeIndices.back()] = newTex;
+	// recycle a freed slot
+	const size_t idx = freeIndices.back();
+	textureMap[str] = idx;
+	textureVec[idx] = newTex;
+	if (idx < rhiTexVec.size()) rhiTexVec[idx].reset();
+	if (idx < rhiFBOVec.size()) rhiFBOVec[idx].reset();
 	freeIndices.pop_back();
 	return str;
 }
@@ -187,7 +284,18 @@ std::string LuaTextures::Create(const Texture& tex)
 
 bool LuaTextures::Bind(const std::string& name) const
 {
-	if (RHI::IsMetalBackend()) return false;
+	if (RHI::IsMetalBackend()) {
+		const auto it = textureMap.find(name);
+		if (it != textureMap.end()) {
+			const size_t idx = it->second;
+			if (idx < rhiTexVec.size() && rhiTexVec[idx]) {
+				rhiTexVec[idx]->Bind(0);
+				return true;
+			}
+		}
+		return false;
+	}
+
 	const auto it = textureMap.find(name);
 
 	if (it != textureMap.end()) {
@@ -202,7 +310,19 @@ bool LuaTextures::Bind(const std::string& name) const
 
 bool LuaTextures::Free(const std::string& name)
 {
-	if (RHI::IsMetalBackend()) return false;
+	if (RHI::IsMetalBackend()) {
+		const auto it = textureMap.find(name);
+		if (it != textureMap.end()) {
+			const size_t idx = it->second;
+			if (idx < rhiTexVec.size()) rhiTexVec[idx].reset();
+			if (idx < rhiFBOVec.size()) rhiFBOVec[idx].reset();
+			freeIndices.push_back(idx);
+			textureMap.erase(it);
+			return true;
+		}
+		return false;
+	}
+
 	const auto it = textureMap.find(name);
 
 	if (it != textureMap.end()) {
@@ -225,7 +345,14 @@ bool LuaTextures::Free(const std::string& name)
 
 bool LuaTextures::FreeFBO(const std::string& name)
 {
-	if (RHI::IsMetalBackend()) return false;
+	if (RHI::IsMetalBackend()) {
+		const auto it = textureMap.find(name);
+		if (it == textureMap.end()) return false;
+		const size_t idx = it->second;
+		if (idx < rhiFBOVec.size()) rhiFBOVec[idx].reset();
+		return true;
+	}
+
 	if (!FBO::IsSupported())
 		return false;
 
@@ -247,7 +374,15 @@ bool LuaTextures::FreeFBO(const std::string& name)
 
 void LuaTextures::FreeAll()
 {
-	if (RHI::IsMetalBackend()) return;
+	if (RHI::IsMetalBackend()) {
+		rhiTexVec.clear();
+		rhiFBOVec.clear();
+		textureMap.clear();
+		textureVec.clear();
+		freeIndices.clear();
+		return;
+	}
+
 	for (const auto& item: textureMap) {
 		const Texture& tex = textureVec[item.second];
 		glDeleteTextures(1, &tex.id);
@@ -266,7 +401,11 @@ void LuaTextures::FreeAll()
 
 void LuaTextures::ApplyParams(const Texture& tex) const
 {
-	if (RHI::IsMetalBackend()) return;
+	if (RHI::IsMetalBackend()) {
+		// On Metal, params are applied inline during Create() via ApplyRHIParams().
+		// ChangeParams() handles post-creation parameter updates directly.
+		return;
+	}
 	glTexParameteri(tex.target, GL_TEXTURE_WRAP_S, tex.wrap_s);
 	glTexParameteri(tex.target, GL_TEXTURE_WRAP_T, tex.wrap_t);
 	glTexParameteri(tex.target, GL_TEXTURE_WRAP_R, tex.wrap_r);
@@ -288,10 +427,35 @@ void LuaTextures::ApplyParams(const Texture& tex) const
 		glTexParameterf(tex.target, GL_TEXTURE_MAX_ANISOTROPY_EXT, std::clamp(tex.aniso, 1.0f, globalRendering->maxTexAnisoLvl));
 }
 
-void LuaTextures::ChangeParams(const Texture& tex)  const
+void LuaTextures::ChangeParams(const Texture& tex) const
 {
+	if (RHI::IsMetalBackend()) {
+		// Find the RHI texture whose textureVec entry is the same object as tex.
+		// tex is a reference into textureVec, so pointer comparison is valid.
+		for (size_t i = 0; i < textureVec.size(); ++i) {
+			if (&textureVec[i] == &tex) {
+				if (i < rhiTexVec.size() && rhiTexVec[i])
+					ApplyRHIParams(rhiTexVec[i].get(), tex);
+				return;
+			}
+		}
+		return;
+	}
 	auto texBind = GL::TexBind(tex.target, tex.id);
 	ApplyParams(tex);
+}
+
+
+RHI::IRHITexture* LuaTextures::GetRHITexture(size_t idx) const
+{
+	if (idx < rhiTexVec.size())
+		return rhiTexVec[idx].get();
+	return nullptr;
+}
+
+RHI::IRHITexture* LuaTextures::GetRHITexture(const std::string& name) const
+{
+	return GetRHITexture(GetIdx(name));
 }
 
 
@@ -304,4 +468,3 @@ size_t LuaTextures::GetIdx(const std::string& name) const
 
 	return (size_t(-1));
 }
-
