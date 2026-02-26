@@ -440,22 +440,22 @@ bool LuaOpenGL::PushEntries(lua_State* L)
 	REGISTER_LUA_CFUNC(ColorMask);
 	REGISTER_LUA_CFUNC(DepthMask);
 	REGISTER_LUA_CFUNC(DepthTest);
-	if (GLAD_GL_ARB_depth_clamp)
+	if (GLAD_GL_ARB_depth_clamp || RHI::IsMetalBackend())
 		REGISTER_LUA_CFUNC(DepthClamp);
 
 	REGISTER_LUA_CFUNC(Culling);
 	REGISTER_LUA_CFUNC(LogicOp);
 	REGISTER_LUA_CFUNC(Fog);
 	REGISTER_LUA_CFUNC(AlphaTest);
-	if (GLAD_GL_ARB_multisample)
+	if (GLAD_GL_ARB_multisample || RHI::IsMetalBackend())
 		REGISTER_LUA_CFUNC(AlphaToCoverage);
 	REGISTER_LUA_CFUNC(LineStipple);
 	REGISTER_LUA_CFUNC(Blending);
 	REGISTER_LUA_CFUNC(BlendEquation);
 	REGISTER_LUA_CFUNC(BlendFunc);
-	if (GLAD_GL_EXT_blend_equation_separate)
+	if (GLAD_GL_EXT_blend_equation_separate || RHI::IsMetalBackend())
 		REGISTER_LUA_CFUNC(BlendEquationSeparate);
-	if (GLAD_GL_EXT_blend_func_separate)
+	if (GLAD_GL_EXT_blend_func_separate || RHI::IsMetalBackend())
 		REGISTER_LUA_CFUNC(BlendFuncSeparate);
 
 	REGISTER_LUA_CFUNC(Material);
@@ -468,7 +468,7 @@ bool LuaOpenGL::PushEntries(lua_State* L)
 	REGISTER_LUA_CFUNC(StencilMask);
 	REGISTER_LUA_CFUNC(StencilFunc);
 	REGISTER_LUA_CFUNC(StencilOp);
-	if (GLAD_GL_EXT_stencil_two_side) {
+	if (GLAD_GL_EXT_stencil_two_side || RHI::IsMetalBackend()) {
 		REGISTER_LUA_CFUNC(StencilMaskSeparate);
 		REGISTER_LUA_CFUNC(StencilFuncSeparate);
 		REGISTER_LUA_CFUNC(StencilOpSeparate);
