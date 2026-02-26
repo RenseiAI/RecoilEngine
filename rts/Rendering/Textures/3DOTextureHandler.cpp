@@ -145,11 +145,14 @@ void C3DOTextureHandler::Init()
 		atlas3do1->SetMinFilter((numLevels > 1) ? RHI::TextureFilter::LinearMipmapNearest : RHI::TextureFilter::Linear);
 		atlas3do1->SetWrapS(RHI::TextureWrap::ClampToEdge);
 		atlas3do1->SetWrapT(RHI::TextureWrap::ClampToEdge);
-		atlas3do1->Bind(0);
+		atlas3do1->Upload(0, 0, 0, curAtlasSize.x, curAtlasSize.y, bigtex1.data());
 		if (numLevels > 1) {
-			RecoilBuildMipmaps(GL_TEXTURE_2D, GL_RGBA8, curAtlasSize.x, curAtlasSize.y, GL_RGBA, GL_UNSIGNED_BYTE, bigtex1.data()); //FIXME disable texcompression
-		} else {
-			atlas3do1->Upload(0, 0, 0, curAtlasSize.x, curAtlasSize.y, bigtex1.data());
+			if (RHI::GetDefaultBackend() == RHI::Backend::OpenGL) {
+				atlas3do1->Bind(0);
+				RecoilBuildMipmaps(GL_TEXTURE_2D, GL_RGBA8, curAtlasSize.x, curAtlasSize.y, GL_RGBA, GL_UNSIGNED_BYTE, bigtex1.data()); //FIXME disable texcompression
+			} else {
+				atlas3do1->GenerateMipmaps();
+			}
 		}
 	}
 	{
@@ -161,11 +164,14 @@ void C3DOTextureHandler::Init()
 		atlas3do2->SetMinFilter((numLevels > 1) ? RHI::TextureFilter::NearestMipmapNearest : RHI::TextureFilter::Nearest);
 		atlas3do2->SetWrapS(RHI::TextureWrap::ClampToEdge);
 		atlas3do2->SetWrapT(RHI::TextureWrap::ClampToEdge);
-		atlas3do2->Bind(0);
-		if (numLevels > 0) {
-			RecoilBuildMipmaps(GL_TEXTURE_2D, GL_RGBA8, curAtlasSize.x, curAtlasSize.y, GL_RGBA, GL_UNSIGNED_BYTE, bigtex2.data()); //FIXME disable texcompression
-		} else {
-			atlas3do2->Upload(0, 0, 0, curAtlasSize.x, curAtlasSize.y, bigtex2.data());
+		atlas3do2->Upload(0, 0, 0, curAtlasSize.x, curAtlasSize.y, bigtex2.data());
+		if (numLevels > 1) {
+			if (RHI::GetDefaultBackend() == RHI::Backend::OpenGL) {
+				atlas3do2->Bind(0);
+				RecoilBuildMipmaps(GL_TEXTURE_2D, GL_RGBA8, curAtlasSize.x, curAtlasSize.y, GL_RGBA, GL_UNSIGNED_BYTE, bigtex2.data()); //FIXME disable texcompression
+			} else {
+				atlas3do2->GenerateMipmaps();
+			}
 		}
 	}
 

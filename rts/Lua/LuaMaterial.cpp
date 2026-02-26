@@ -151,10 +151,12 @@ void LuaMatShader::Execute(const LuaMatShader& prev, bool deferredPass) const
 	static_assert(int(LUASHADER_ASS) == int(MODELTYPE_ASS  ), "");
 	static_assert(int(LUASHADER_GL ) == int(MODELTYPE_CNT), "");
 
+	const bool isGL = (RHI::GetDefaultBackend() == RHI::Backend::OpenGL);
+
 	if (type != prev.type) {
 		switch (prev.type) {
 			case LUASHADER_GL: {
-				glUseProgram(0);
+				if (isGL) glUseProgram(0);
 			} break;
 			case LUASHADER_3DO:
 			case LUASHADER_S3O:
@@ -170,7 +172,7 @@ void LuaMatShader::Execute(const LuaMatShader& prev, bool deferredPass) const
 		switch (type) {
 			case LUASHADER_GL: {
 				// custom shader
-				glUseProgram(openglID);
+				if (isGL) glUseProgram(openglID);
 			} break;
 			case LUASHADER_3DO:
 			case LUASHADER_S3O:
@@ -185,7 +187,7 @@ void LuaMatShader::Execute(const LuaMatShader& prev, bool deferredPass) const
 	}
 	else if (type == LUASHADER_GL) {
 		if (openglID != prev.openglID) {
-			glUseProgram(openglID);
+			if (isGL) glUseProgram(openglID);
 		}
 	}
 }
@@ -364,29 +366,35 @@ void LuaMaterial::Finalize()
 void LuaMaterial::Execute(const LuaMaterial& prev, bool deferredPass) const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	if (prev.postList != 0)
-		glCallList(prev.postList);
-	if (preList != 0)
-		glCallList(preList);
+	const bool isGL = (RHI::GetDefaultBackend() == RHI::Backend::OpenGL);
+
+	if (isGL) {
+		if (prev.postList != 0)
+			glCallList(prev.postList);
+		if (preList != 0)
+			glCallList(preList);
+	}
 
 	shaders[deferredPass].Execute(prev.shaders[deferredPass], deferredPass);
 	uniforms[deferredPass].Execute();
 
 	for (int t = 0; t < std::max(texCount, prev.texCount); ++t) {
 		if (prev.textures[t] != textures[t]) {
-			glActiveTexture(GL_TEXTURE0 + t);
+			if (isGL) glActiveTexture(GL_TEXTURE0 + t);
 			prev.textures[t].Unbind();
 			textures[t].Bind();
 		}
 	}
-	glActiveTexture(GL_TEXTURE0);
+	if (isGL) glActiveTexture(GL_TEXTURE0);
 
 	if (useCamera != prev.useCamera) {
-		if (useCamera) {
-			glPopMatrix();
-		} else {
-			glPushMatrix();
-			glLoadIdentity();
+		if (isGL) {
+			if (useCamera) {
+				glPopMatrix();
+			} else {
+				glPushMatrix();
+				glLoadIdentity();
+			}
 		}
 	}
 

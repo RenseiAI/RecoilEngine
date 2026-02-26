@@ -82,6 +82,20 @@ static void WrapMapTexture(MapTexture& mt,
 		size.x, size.y));
 }
 
+// On Metal there are no GL texture IDs, so create the RHI texture directly
+// from the bitmap and store it in the MapTexture.  On OpenGL, use the legacy
+// path which creates a GL texture and stores the ID.
+static void SetMapTexFromBitmap(MapTexture& mt, CBitmap& bm,
+	float aniso = 0.0f, float lodBias = 0.0f)
+{
+	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL) {
+		mt.SetRawRHITexture(bm.CreateTextureRHI(aniso, lodBias));
+	} else {
+		mt.SetRawTexID(bm.CreateMipMapTexture(aniso, lodBias, 0));
+	}
+	mt.SetRawSize(int2(bm.xsize, bm.ysize));
+}
+
 CONFIG(bool, GroundNormalTextureHighPrecision).deprecated(true);
 CONFIG(float, SMFTexAniso).defaultValue(4.0f).minimumValue(0.0f);
 CONFIG(float, SSMFTexAniso).defaultValue(4.0f).minimumValue(0.0f);
@@ -229,8 +243,7 @@ void CSMFReadMap::LoadMinimap()
 	CBitmap minimapTexBM;
 
 	if (minimapTexBM.Load(mapInfo->smf.minimapTexName)) {
-		minimapTex.SetRawTexID(minimapTexBM.CreateTexture());
-		minimapTex.SetRawSize(int2(minimapTexBM.xsize, minimapTexBM.ysize));
+		SetMapTexFromBitmap(minimapTex, minimapTexBM);
 		return;
 	}
 
@@ -277,45 +290,36 @@ void CSMFReadMap::CreateSpecularTex()
 			specularTexBM.AllocDummy(SColor(255, 255, 255, 255));
 		}
 
-		specularTex.SetRawTexID(specularTexBM.CreateTexture());
-		specularTex.SetRawSize(int2(specularTexBM.xsize, specularTexBM.ysize));
+		SetMapTexFromBitmap(specularTex, specularTexBM);
 	}
 
 	{
 		CBitmap skyReflectModTexBM;
 
 		// no default 1x1 textures for these
-		if (skyReflectModTexBM.Load(mapInfo->smf.skyReflectModTexName)) {
-			skyReflectModTex.SetRawTexID(skyReflectModTexBM.CreateTexture());
-			skyReflectModTex.SetRawSize(int2(skyReflectModTexBM.xsize, skyReflectModTexBM.ysize));
-		}
+		if (skyReflectModTexBM.Load(mapInfo->smf.skyReflectModTexName))
+			SetMapTexFromBitmap(skyReflectModTex, skyReflectModTexBM);
 	}
 
 	{
 		CBitmap blendNormalsTexBM;
 
-		if (blendNormalsTexBM.Load(mapInfo->smf.blendNormalsTexName)) {
-			blendNormalsTex.SetRawTexID(blendNormalsTexBM.CreateTexture());
-			blendNormalsTex.SetRawSize(int2(blendNormalsTexBM.xsize, blendNormalsTexBM.ysize));
-		}
+		if (blendNormalsTexBM.Load(mapInfo->smf.blendNormalsTexName))
+			SetMapTexFromBitmap(blendNormalsTex, blendNormalsTexBM);
 	}
 
 	{
 		CBitmap lightEmissionTexBM;
 
-		if (lightEmissionTexBM.Load(mapInfo->smf.lightEmissionTexName)) {
-			lightEmissionTex.SetRawTexID(lightEmissionTexBM.CreateTexture());
-			lightEmissionTex.SetRawSize(int2(lightEmissionTexBM.xsize, lightEmissionTexBM.ysize));
-		}
+		if (lightEmissionTexBM.Load(mapInfo->smf.lightEmissionTexName))
+			SetMapTexFromBitmap(lightEmissionTex, lightEmissionTexBM);
 	}
 
 	{
 		CBitmap parallaxHeightTexBM;
 
-		if (parallaxHeightTexBM.Load(mapInfo->smf.parallaxHeightTexName)) {
-			parallaxHeightTex.SetRawTexID(parallaxHeightTexBM.CreateTexture());
-			parallaxHeightTex.SetRawSize(int2(parallaxHeightTexBM.xsize, parallaxHeightTexBM.ysize));
-		}
+		if (parallaxHeightTexBM.Load(mapInfo->smf.parallaxHeightTexName))
+			SetMapTexFromBitmap(parallaxHeightTex, parallaxHeightTexBM);
 	}
 }
 
@@ -336,8 +340,7 @@ void CSMFReadMap::CreateSplatDetailTextures()
 			splatDetailTexBM.AllocDummy(SColor(127, 127, 127, 127));
 		}
 
-		splatDetailTex.SetRawTexID(splatDetailTexBM.CreateMipMapTexture(texAnisotropyLevels[true], 0.0f, 0));
-		splatDetailTex.SetRawSize(int2(splatDetailTexBM.xsize, splatDetailTexBM.ysize));
+		SetMapTexFromBitmap(splatDetailTex, splatDetailTexBM, texAnisotropyLevels[true]);
 	}
 
 	{
@@ -348,8 +351,7 @@ void CSMFReadMap::CreateSplatDetailTextures()
 			splatDistrTexBM.AllocDummy(SColor(255, 0, 0, 0));
 		}
 
-		splatDistrTex.SetRawTexID(splatDistrTexBM.CreateMipMapTexture(texAnisotropyLevels[true], 0.0f, 0));
-		splatDistrTex.SetRawSize(int2(splatDistrTexBM.xsize, splatDistrTexBM.ysize));
+		SetMapTexFromBitmap(splatDistrTex, splatDistrTexBM, texAnisotropyLevels[true]);
 	}
 
 	// only load the splat detail normals if any of them are defined and present
@@ -370,8 +372,7 @@ void CSMFReadMap::CreateSplatDetailTextures()
 			splatDetailNormalTextureBM.GetRawMem()[3] = 127; // Alpha is diffuse as in old-style detail textures
 		}
 
-		splatNormalTextures[i].SetRawTexID(splatDetailNormalTextureBM.CreateMipMapTexture(texAnisotropyLevels[true], 0.0f, 0));
-		splatNormalTextures[i].SetRawSize(int2(splatDetailNormalTextureBM.xsize, splatDetailNormalTextureBM.ysize));
+		SetMapTexFromBitmap(splatNormalTextures[i], splatDetailNormalTextureBM, texAnisotropyLevels[true]);
 	}
 
 }
@@ -389,8 +390,7 @@ void CSMFReadMap::CreateGrassTex()
 		return;
 
 	// override minimap
-	grassShadingTex.SetRawTexID(grassShadingTexBM.CreateMipMapTexture());
-	grassShadingTex.SetRawSize(int2(grassShadingTexBM.xsize, grassShadingTexBM.ysize));
+	SetMapTexFromBitmap(grassShadingTex, grassShadingTexBM);
 }
 
 
@@ -404,8 +404,7 @@ void CSMFReadMap::CreateDetailTex()
 		detailTexBM.AllocDummy({127, 127, 127, 0});
 	}
 
-	detailTex.SetRawTexID(detailTexBM.CreateMipMapTexture(texAnisotropyLevels[false], 0.0f, 0));
-	detailTex.SetRawSize(int2(detailTexBM.xsize, detailTexBM.ysize));
+	SetMapTexFromBitmap(detailTex, detailTexBM, texAnisotropyLevels[false]);
 }
 
 
@@ -951,16 +950,21 @@ void CSMFReadMap::ReloadTextures()
 
 		CBitmap bm;
 		if (bm.Load(texName)) {
-			GL::TextureCreationParams tcp;
-			tcp.texID = *mt.GetIDPtr();
-			tcp.aniso = aniso;
-			tcp.lodBias = lodBias;
-			tcp.reqNumLevels = mipmaps ? 0 : 1;
+			if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL) {
+				mt.SetRawRHITexture(bm.CreateTextureRHI(aniso, lodBias));
+				mt.SetRawSize(int2(bm.xsize, bm.ysize));
+			} else {
+				GL::TextureCreationParams tcp;
+				tcp.texID = *mt.GetIDPtr();
+				tcp.aniso = aniso;
+				tcp.lodBias = lodBias;
+				tcp.reqNumLevels = mipmaps ? 0 : 1;
 
-			uint32_t newTexID = bm.CreateTexture(tcp);
+				uint32_t newTexID = bm.CreateTexture(tcp);
 
-			mt.SetRawTexID(newTexID);
-			mt.SetRawSize(int2(bm.xsize, bm.ysize));
+				mt.SetRawTexID(newTexID);
+				mt.SetRawSize(int2(bm.xsize, bm.ysize));
+			}
 		}
 	};
 
@@ -983,6 +987,10 @@ void CSMFReadMap::ReloadTextures()
 	}
 
 	// Re-wrap textures since GL IDs may have changed.
+	// On Metal, ReloadTextureFunc already created new RHI textures directly.
+	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL)
+		return;
+
 	// Clear existing wrappers first so WrapMapTexture sees null and re-wraps.
 	auto clearAndWrap = [](MapTexture& mt) {
 		mt.SetRawRHITexture(nullptr);

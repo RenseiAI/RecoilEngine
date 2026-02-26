@@ -1758,6 +1758,10 @@ uint32_t CBitmap::CreateTexture(const GL::TextureCreationParams& tcp) const
 	if (GetMemSize() == 0)
 		return 0;
 
+	// Metal has no GL texture IDs — callers should use CreateTextureRHI() instead
+	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL)
+		return 0;
+
 	uint32_t texID = tcp.texID;
 	const int32_t numLevels = tcp.reqNumLevels <= 0 ? GetReqNumLevels() : tcp.reqNumLevels;
 	const auto minFilter = tcp.GetMinFilter(numLevels);
@@ -1941,6 +1945,10 @@ std::unique_ptr<RHI::IRHITexture> CBitmap::CreateTextureRHI(float aniso, float l
 	if (GetMemSize() == 0)
 		return nullptr;
 
+	const uint8_t* rawMem = GetRawMem();
+	if (!rawMem)
+		return nullptr;
+
 	auto* device = RHI::GetDevice();
 	if (!device)
 		return nullptr;
@@ -1971,16 +1979,15 @@ std::unique_ptr<RHI::IRHITexture> CBitmap::CreateTextureRHI(float aniso, float l
 	if (channels == 3) {
 		const size_t pixelCount = static_cast<size_t>(xsize) * static_cast<size_t>(ysize);
 		std::vector<uint8_t> rgbaData(pixelCount * 4);
-		const uint8_t* src = GetRawMem();
 		for (size_t i = 0; i < pixelCount; ++i) {
-			rgbaData[i * 4 + 0] = src[i * 3 + 0];
-			rgbaData[i * 4 + 1] = src[i * 3 + 1];
-			rgbaData[i * 4 + 2] = src[i * 3 + 2];
+			rgbaData[i * 4 + 0] = rawMem[i * 3 + 0];
+			rgbaData[i * 4 + 1] = rawMem[i * 3 + 1];
+			rgbaData[i * 4 + 2] = rawMem[i * 3 + 2];
 			rgbaData[i * 4 + 3] = 255;
 		}
 		texture->Upload(0, 0, 0, xsize, ysize, rgbaData.data());
 	} else {
-		texture->Upload(0, 0, 0, xsize, ysize, GetRawMem());
+		texture->Upload(0, 0, 0, xsize, ysize, rawMem);
 	}
 
 	// Generate mipmaps

@@ -43,6 +43,8 @@ bool FBO::IsReady()
 GLint FBO::GetCurrentBoundFBO()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (!IsSupported())
+		return 0;
 	GLint curFBO;
 	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &curFBO);
 	return curFBO;
@@ -313,6 +315,8 @@ bool FBO::IsValid() const
 void FBO::Bind()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (!IsSupported())
+		return;
 	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, fboId);
 }
 
@@ -323,6 +327,8 @@ void FBO::Bind()
 void FBO::Unbind()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (!IsSupported())
+		return;
 	// Bind is instance whereas Unbind is static (!),
 	// this is cause Binding FBOs is a very expensive function
 	// and so you want to save redundant FBO bindings when ever possible. e.g:
@@ -375,11 +381,15 @@ bool FBO::Blit(int32_t fromID, int32_t toID, const std::array<int, 4>& srcRect, 
 
 void FBO::SetDrawBuffer(GLenum attachment) const
 {
+	if (!IsSupported())
+		return;
 	glDrawBuffer(attachment);
 }
 
 void FBO::SetDrawBuffers(int count, const GLenum* bufs) const
 {
+	if (!IsSupported())
+		return;
 	glDrawBuffers(count, bufs);
 }
 
@@ -391,6 +401,8 @@ void FBO::SetDrawBuffers(int count, const GLenum* bufs) const
 bool FBO::CheckStatus(const char* name)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (!IsSupported())
+		return (valid = false);
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);
 #endif
@@ -435,6 +447,8 @@ bool FBO::CheckStatus(const char* name)
 GLenum FBO::GetStatus()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (!IsSupported())
+		return GL_FRAMEBUFFER_UNSUPPORTED_EXT;
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);
 #endif
@@ -448,6 +462,8 @@ GLenum FBO::GetStatus()
 void FBO::AttachTexture(const GLuint texId, const GLenum texTarget, const GLenum attachment, const int mipLevel, const int zSlice )
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (!IsSupported())
+		return;
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);
 #endif
@@ -466,6 +482,8 @@ void FBO::AttachTexture(const GLuint texId, const GLenum texTarget, const GLenum
 void FBO::AttachTextureLayer(const GLuint texId, const GLenum attachment, const int mipLevel, const int layer)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (!IsSupported())
+		return;
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);
 #endif
@@ -480,6 +498,8 @@ void FBO::AttachTextureLayer(const GLuint texId, const GLenum attachment, const 
 void FBO::AttachRenderBuffer(const GLuint rboId, const GLenum attachment)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (!IsSupported())
+		return;
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);
 #endif
@@ -493,6 +513,8 @@ void FBO::AttachRenderBuffer(const GLuint rboId, const GLenum attachment)
 void FBO::Detach(const GLenum attachment)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (!IsSupported())
+		return;
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);
 #endif
@@ -539,6 +561,8 @@ void FBO::DetachAll()
 void FBO::CreateRenderBuffer(const GLenum attachment, const GLenum format, const GLsizei width, const GLsizei height)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (!IsSupported())
+		return;
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);
 #endif
@@ -557,6 +581,8 @@ void FBO::CreateRenderBuffer(const GLenum attachment, const GLenum format, const
 void FBO::CreateRenderBufferMultisample(const GLenum attachment, const GLenum format, const GLsizei width, const GLsizei height, GLsizei samples)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (!IsSupported())
+		return;
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);
 #endif

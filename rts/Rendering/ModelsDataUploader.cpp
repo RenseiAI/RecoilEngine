@@ -178,6 +178,10 @@ ModelUniformsUploader modelUniformsUploader;
 
 void TransformsUploader::Init()
 {
+	// SSBO stream buffers are GL-specific; skip on Metal
+	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL)
+		return;
+
 	const auto sbType = RHI::GetDevice()->SupportPersistentMapping()
 		? IStreamBufferConcept::Types::SB_PERSISTENTMAP
 		: IStreamBufferConcept::Types::SB_BUFFERSUBDATA;
@@ -193,12 +197,16 @@ void TransformsUploader::Init()
 
 void TransformsUploader::Kill()
 {
+	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL)
+		return;
 	Impl::KillCommon(ssbo, MATRIX_SSBO_BINDING_IDX);
 }
 
 void TransformsUploader::Update()
 {
 	if (!RHI::GetDevice()->HaveGL4())
+		return;
+	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL)
 		return;
 
 	SCOPED_TIMER("TransformsUploader::Update");
@@ -332,6 +340,10 @@ void ModelUniformsUploader::Init()
 	if (!RHI::GetDevice()->HaveGL4())
 		return;
 
+	// SSBO stream buffers are GL-specific; skip on Metal
+	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL)
+		return;
+
 	Impl::InitCommon<MyDataType>(
 		ssbo,
 		modelUniformsStorage,
@@ -343,11 +355,15 @@ void ModelUniformsUploader::Init()
 
 void ModelUniformsUploader::Kill()
 {
+	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL)
+		return;
 	Impl::KillCommon(ssbo, MATUNI_SSBO_BINDING_IDX);
 }
 
 void ModelUniformsUploader::Update()
 {
+	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL)
+		return;
 	SCOPED_TIMER("ModelUniformsUploader::Update");
 
 	Impl::UpdateCommon<MyDataType>(*this, ssbo, modelUniformsStorage, className, __func__);

@@ -33,6 +33,12 @@ CModernSky::CModernSky()
 {
 	valid = true;
 #ifndef HEADLESS
+	// shaderHandler uses raw GL calls (glCreateShader, etc.) — skip on Metal
+	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL) {
+		valid = false;
+		return;
+	}
+
 	for (size_t i = 0; i < 2; ++i) {
 		skyShaders[i] = shaderHandler->CreateProgramObject("[ModernSky]", "Sky-" + IntToString(i));
 		skyShaders[i]->AttachShaderObject(shaderHandler->CreateShaderObject("GLSL/ModernSkyVS.glsl", "", GL_VERTEX_SHADER));

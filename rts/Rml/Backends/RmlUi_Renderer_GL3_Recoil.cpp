@@ -1710,6 +1710,9 @@ void RenderInterface_GL3_Recoil::SubmitTransformUniform(Rml::Vector2f translatio
 
 RenderInterface_GL3_Recoil::operator bool() const
 {
+	if (!program_data)
+		return false;
+
 	bool result = true;
 	for (auto i = 1; i < (int) ProgramId::Count; i++) {
 		auto prog = program_data->programs[(ProgramId) i];

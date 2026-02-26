@@ -102,14 +102,17 @@ S3DModelVAO::S3DModelVAO()
 	vertData.reserve(VERT_SIZE0);
 	indxData.reserve(INDX_SIZE0);
 
-	vertVBO = VBO{ GL_ARRAY_BUFFER        , false };
-	indxVBO = VBO{ GL_ELEMENT_ARRAY_BUFFER, false };
-	instVBO = VBO{ GL_ARRAY_BUFFER        , false };
+	// VBOs use raw GL calls — skip on Metal
+	if (RHI::GetDefaultBackend() == RHI::Backend::OpenGL) {
+		vertVBO = VBO{ GL_ARRAY_BUFFER        , false };
+		indxVBO = VBO{ GL_ELEMENT_ARRAY_BUFFER, false };
+		instVBO = VBO{ GL_ARRAY_BUFFER        , false };
 
-	//no better place to init it
-	instVBO.Bind();
-	instVBO.New(S3DModelVAO::INSTANCE_BUFFER_NUM_ELEMS * sizeof(SInstanceData), GL_STREAM_DRAW);
-	instVBO.Unbind();
+		//no better place to init it
+		instVBO.Bind();
+		instVBO.New(S3DModelVAO::INSTANCE_BUFFER_NUM_ELEMS * sizeof(SInstanceData), GL_STREAM_DRAW);
+		instVBO.Unbind();
+	}
 
 	// RHI path: create instance buffer for Metal
 	if (auto* device = RHI::GetDevice()) {
@@ -216,14 +219,19 @@ void S3DModelVAO::UploadVBOs()
 	static constexpr size_t MEM_STEP = 8 * 1024 * 1024;
 	bool reinitVAO = (vao.GetIdRaw() == 0);
 
+	const bool isGL = (RHI::GetDefaultBackend() == RHI::Backend::OpenGL);
+
 	if (vertData.size() > vertUploadIndex) {
 		assert(!safeToDeleteVectors);
-		vertVBO.Bind();
 		const size_t reqSize = AlignUp(std::max(vertData.size(), S3DModelVAO::VERT_SIZE0) * sizeof(SVertexData), MEM_STEP);
-		reinitVAO |= (reqSize > vertVBO.GetSize());
-		vertVBO.Resize(reqSize, GL_STATIC_DRAW); //noop if size hasn't changed, will copy data if changed
-		vertVBO.SetBufferSubData(vertUploadIndex * sizeof(SVertexData), (vertData.size() - vertUploadIndex) * sizeof(SVertexData), vertData.data() + vertUploadIndex);
-		vertVBO.Unbind();
+
+		if (isGL) {
+			vertVBO.Bind();
+			reinitVAO |= (reqSize > vertVBO.GetSize());
+			vertVBO.Resize(reqSize, GL_STATIC_DRAW); //noop if size hasn't changed, will copy data if changed
+			vertVBO.SetBufferSubData(vertUploadIndex * sizeof(SVertexData), (vertData.size() - vertUploadIndex) * sizeof(SVertexData), vertData.data() + vertUploadIndex);
+			vertVBO.Unbind();
+		}
 
 		// RHI path: create/upload vertex buffer for Metal
 		if (auto* device = RHI::GetDevice()) {
@@ -242,12 +250,15 @@ void S3DModelVAO::UploadVBOs()
 
 	if (indxData.size() > indxUploadIndex) {
 		assert(!safeToDeleteVectors);
-		indxVBO.Bind();
 		const size_t reqSize = AlignUp(std::max(indxData.size(), S3DModelVAO::INDX_SIZE0) * sizeof(   uint32_t), MEM_STEP);
-		reinitVAO |= (reqSize > indxVBO.GetSize());
-		indxVBO.Resize(reqSize, GL_STATIC_DRAW); //noop if size hasn't changed, will copy data if changed
-		indxVBO.SetBufferSubData(indxUploadIndex * sizeof(   uint32_t), (indxData.size() - indxUploadIndex) * sizeof(   uint32_t), indxData.data() + indxUploadIndex);
-		indxVBO.Unbind();
+
+		if (isGL) {
+			indxVBO.Bind();
+			reinitVAO |= (reqSize > indxVBO.GetSize());
+			indxVBO.Resize(reqSize, GL_STATIC_DRAW); //noop if size hasn't changed, will copy data if changed
+			indxVBO.SetBufferSubData(indxUploadIndex * sizeof(   uint32_t), (indxData.size() - indxUploadIndex) * sizeof(   uint32_t), indxData.data() + indxUploadIndex);
+			indxVBO.Unbind();
+		}
 
 		// RHI path: create/upload index buffer for Metal
 		if (auto* device = RHI::GetDevice()) {
@@ -264,7 +275,7 @@ void S3DModelVAO::UploadVBOs()
 		indxUploadSize = indxUploadIndex;
 	}
 
-	if (reinitVAO)
+	if (reinitVAO && isGL)
 		CreateVAO();
 
 	if (safeToDeleteVectors && !vertData.empty()) {
@@ -293,8 +304,10 @@ void S3DModelVAO::Kill()
 void S3DModelVAO::Bind() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	assert(vao.GetIdRaw() > 0);
-	vao.Bind();
+	if (RHI::GetDefaultBackend() == RHI::Backend::OpenGL) {
+		assert(vao.GetIdRaw() > 0);
+		vao.Bind();
+	}
 
 	// RHI path: bind vertex/index buffers for Metal draw calls
 	if (auto* device = RHI::GetDevice()) {
@@ -307,8 +320,10 @@ void S3DModelVAO::Bind() const
 void S3DModelVAO::Unbind() const
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	assert(vao.GetIdRaw() > 0);
-	vao.Unbind();
+	if (RHI::GetDefaultBackend() == RHI::Backend::OpenGL) {
+		assert(vao.GetIdRaw() > 0);
+		vao.Unbind();
+	}
 }
 
 void S3DModelVAO::DrawElements(GLenum prim, uint32_t vboIndxStart, uint32_t vboIndxCount) const

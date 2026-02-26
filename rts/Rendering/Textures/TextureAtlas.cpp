@@ -248,7 +248,7 @@ bool CTextureAtlas::CreateTexture()
 	atlasTex->SetWrapT(RHI::TextureWrap::ClampToEdge);
 	atlasTex->GenerateMipmaps();
 
-	return (atlasTex && atlasTex->GetNativeHandle() > 0);
+	return (atlasTex != nullptr);
 }
 
 

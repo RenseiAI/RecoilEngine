@@ -358,15 +358,15 @@ void CSMFGroundDrawer::DrawBorder(const DrawPass::e drawPass)
 	ctx->SetCullFaceEnabled(true);
 	ctx->SetCullFace(RHI::CullMode::Back);
 
-	// Bind detail texture (unit 2) — always has RHI wrapper (WrapMapTexture at init, clearAndWrap on reload)
+	// Bind detail texture (unit 2)
 	auto* rhiDetail = smfMap->GetRHITexture(MAP_BASE_DETAIL_TEX);
-	assert(rhiDetail);
-	rhiDetail->Bind(2);
+	if (rhiDetail)
+		rhiDetail->Bind(2);
 
-	// Bind heightmap texture (unit 1) — always has RHI wrapper (CreateHeightMapTex)
+	// Bind heightmap texture (unit 1)
 	auto* rhiHeight = smfMap->GetHeightMapTextureObj().GetRawRHITexture();
-	assert(rhiHeight);
-	rhiHeight->Bind(1);
+	if (rhiHeight)
+		rhiHeight->Bind(1);
 
 	//for CSMFGroundTextures::BindSquareTexture()
 	if (!RHI::IsMetalBackend())

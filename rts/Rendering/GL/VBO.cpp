@@ -120,15 +120,20 @@ VBO& VBO::operator=(VBO&& other) noexcept
 }
 
 
-void VBO::Generate() const { glGenBuffers(1, &vboId); }
+void VBO::Generate() const {
+	if (!isSupported) return;
+	glGenBuffers(1, &vboId);
+}
 void VBO::Delete() {
-	// clear bound BBRs
-	for (const auto& kv : bbrItems) {
-		glBindBufferRange(kv.first.target, kv.first.index, 0u, kv.second.offset, kv.second.size);
+	if (isSupported) {
+		// clear bound BBRs
+		for (const auto& kv : bbrItems) {
+			glBindBufferRange(kv.first.target, kv.first.index, 0u, kv.second.offset, kv.second.size);
+		}
 	}
 	bbrItems.clear();
 
-	if (GLAD_GL_ARB_vertex_buffer_object)
+	if (isSupported && GLAD_GL_ARB_vertex_buffer_object)
 		glDeleteBuffers(1, &vboId);
 
 	vboId = 0;
@@ -501,12 +506,17 @@ void VBO::UnmapBuffer()
 	mapped = false;
 }
 
-void VBO::SetBufferSubData(GLintptr offset, GLsizeiptr size, const void* data)
+void VBO::SetBufferSubData(GLintptr offset, GLsizeiptr size, const void* data_)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	assert(!mapped);
 	assert((offset + size) <= bufSize);
-	glBufferSubData(curBoundTarget, offset, size, data);
+
+	if (isSupported) {
+		glBufferSubData(curBoundTarget, offset, size, data_);
+	} else if (data != nullptr) {
+		memcpy(data + offset, data_, size);
+	}
 }
 
 
@@ -522,6 +532,9 @@ void VBO::Invalidate() const
 		glInvalidateBufferData(GetId());
 		return;
 	}
+
+	if (!isSupported)
+		return;
 
 	// note: allocating memory doesn't actually block the memory it just makes room in _virtual_ memory space
 	glBufferData(curBoundTarget, GetAlignedSize(bufSize), nullptr, usage);
@@ -556,12 +569,16 @@ size_t VBO::GetOffsetAlignment(GLenum target) {
 	RECOIL_DETAILED_TRACY_ZONE;
 
 	const auto getOffsetAlignmentUBO = []() -> size_t {
+		if (!GLAD_GL_ARB_uniform_buffer_object)
+			return 256; // safe default
 		GLint buffAlignment = 0;
 		glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &buffAlignment);
 		return static_cast<size_t>(buffAlignment);
 	};
 
 	const auto getOffsetAlignmentSSBO = []() -> size_t {
+		if (!GLAD_GL_ARB_shader_storage_buffer_object)
+			return 256; // safe default
 		GLint buffAlignment = 0;
 		glGetIntegerv(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, &buffAlignment);
 		return static_cast<size_t>(buffAlignment);
