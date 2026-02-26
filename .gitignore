@@ -207,3 +207,7 @@ build-*
 credentials.json
 service-account*.json
 .claude/settings.local.json
+
+# AgentFactory runtime
+.agent-logs
+.worktrees
