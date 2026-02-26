@@ -4,6 +4,7 @@
 #import "MTLDevice.h"
 
 #import <Metal/Metal.h>
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 #include <cstring>
@@ -112,7 +113,9 @@ void MTLShader::Link() {
 	std::string fragmentMSL;
 
 	if (!vertexSource.empty()) {
-		vertexMSL = shaderCompiler->CompileGLSLToMSL(vertexSourceWithDefines, CompilerShaderStage::Vertex);
+		// Pass attribLocations so SPIRV-Cross can assign [[attribute(N)]] decorations
+		// to vertex inputs that lack explicit layout(location=N) in GLSL
+		vertexMSL = shaderCompiler->CompileGLSLToMSL(vertexSourceWithDefines, CompilerShaderStage::Vertex, attribLocations);
 		if (vertexMSL.empty()) {
 			LOG_L(L_ERROR, "[MTLShader] %s: Failed to compile vertex shader: %s",
 			      shaderName.c_str(), shaderCompiler->GetLastError().c_str());
@@ -196,46 +199,94 @@ void MTLShader::Link() {
 	if (!valid)
 		return;
 
-	// Pre-populate uniform map from SPIR-V reflection data so offsets match
-	// the std140 layout that SPIRV-Cross generates in the MSL struct.
+	// Pre-populate uniform map from SPIR-V reflection data.
+	//
+	// Metal assigns buffer indices INDEPENDENTLY per stage:
+	//   Vertex:   constant float4x4& modelMatrix [[buffer(0)]]
+	//   Fragment: constant float4&   alphaCtrl   [[buffer(0)]]
+	// Buffer(0) can mean different data in each stage!
+	//
+	// Strategy:
+	//   1. Allocate each uniform a unique slot in uniformData
+	//   2. Track per-stage buffer indices (vsBufferIndex / fsBufferIndex)
+	//   3. Build separate upload ranges for vertex and fragment stages
+	//   4. Upload vertex ranges with setVertexBytes, fragment with setFragmentBytes
 	uniformMap.clear();
 	uniformData.clear();
 	uniformBufferSize = 0;
 
-	size_t maxEnd = 0;
-	auto populateFromReflection = [&](const ShaderReflection* refl) {
+	const auto* vsRefl = !vertexSource.empty()
+		? shaderCompiler->GetCachedReflection(vertexDefines + "\n" + vertexSource, CompilerShaderStage::Vertex)
+		: nullptr;
+	const auto* fsRefl = !fragmentSource.empty()
+		? shaderCompiler->GetCachedReflection(fragmentDefines + "\n" + fragmentSource, CompilerShaderStage::Fragment)
+		: nullptr;
+
+	size_t nextOffset = 0;
+
+	// Helper: add uniforms from one stage's reflection
+	auto populateFromStage = [&](const ShaderReflection* refl, bool isVertex) {
 		if (!refl)
 			return;
 		for (const auto& u : refl->uniforms) {
-			// Skip if already present (vertex stage has priority)
-			if (uniformMap.count(u.name))
-				continue;
 			size_t dataSize = ShaderDataTypeSize(u.type) * static_cast<size_t>(u.arraySize);
-			size_t offset = static_cast<size_t>(u.offset);
-			uniformMap[u.name] = {offset, dataSize, (u.type == ShaderDataType::Mat3 || u.type == ShaderDataType::Mat4)};
+			bool isMat = (u.type == ShaderDataType::Mat3 || u.type == ShaderDataType::Mat4);
+
+			auto it = uniformMap.find(u.name);
+			if (it != uniformMap.end()) {
+				// Uniform already exists (from other stage) — add this stage's buffer index
+				if (isVertex)
+					it->second.vsBufferIndex = u.metalBufferIndex;
+				else
+					it->second.fsBufferIndex = u.metalBufferIndex;
+				continue;
+			}
+
+			// New uniform — allocate a slot in uniformData
+			size_t offset;
+			if (u.offset >= 0) {
+				// UBO member: use SPIR-V struct offset so members of the same
+				// stage's UBO are contiguous (needed for non-decomposed UBOs)
+				offset = static_cast<size_t>(u.offset);
+			} else {
+				// Standalone (gl_plain_uniforms): append after current end
+				offset = (nextOffset + 15) & ~size_t(15);
+			}
+
+			UniformInfo info;
+			info.offset = offset;
+			info.size = dataSize;
+			info.isMatrix = isMat;
+			info.vsBufferIndex = isVertex ? u.metalBufferIndex : -1;
+			info.fsBufferIndex = isVertex ? -1 : u.metalBufferIndex;
+
+			uniformMap[u.name] = info;
+
 			size_t end = offset + dataSize;
-			if (end > maxEnd)
-				maxEnd = end;
+			if (end > nextOffset)
+				nextOffset = end;
 		}
 	};
 
-	if (!vertexSource.empty()) {
-		const auto* vsRefl = shaderCompiler->GetCachedReflection(
-			vertexDefines + "\n" + vertexSource, CompilerShaderStage::Vertex);
-		populateFromReflection(vsRefl);
-	}
-	if (!fragmentSource.empty()) {
-		const auto* fsRefl = shaderCompiler->GetCachedReflection(
-			fragmentDefines + "\n" + fragmentSource, CompilerShaderStage::Fragment);
-		populateFromReflection(fsRefl);
-	}
+	// Process vertex first, then fragment
+	populateFromStage(vsRefl, true);
+	populateFromStage(fsRefl, false);
 
-	// Align total buffer size to 16 bytes
-	uniformBufferSize = (maxEnd + 15) & ~size_t(15);
+	// Total buffer
+	uniformBufferSize = (nextOffset + 15) & ~size_t(15);
+	if (uniformBufferSize < 16) uniformBufferSize = 16;
 	uniformData.resize(uniformBufferSize, 0);
 
 	LOG("[MTLShader] %s: Linked successfully (%zu uniforms, %zu bytes)",
 	    shaderName.c_str(), uniformMap.size(), uniformBufferSize);
+	for (const auto& [uName, uInfo] : uniformMap) {
+		LOG("[MTLShader] %s:   uniform '%s' vsBuf=%d fsBuf=%d offset=%zu size=%zu",
+		    shaderName.c_str(), uName.c_str(), uInfo.vsBufferIndex, uInfo.fsBufferIndex,
+		    uInfo.offset, uInfo.size);
+	}
+
+	// Pre-compute per-stage buffer upload ranges
+	RebuildBufferRanges();
 }
 
 bool MTLShader::Validate() {
@@ -282,7 +333,11 @@ size_t MTLShader::GetOrCreateUniformSlot(const char* name, size_t size) {
 
 	// Uniform not found in reflection — allocate sequentially at the end.
 	// This handles uniforms set at runtime that weren't in the GLSL source
-	// (e.g., engine-injected uniforms).
+	// (e.g., engine-injected uniforms like sampler bindings).
+	// These get metalBufferIndex = -1 and won't be uploaded to Metal
+	// (samplers are bound separately via BindTexture, not as buffer data).
+	LOG_L(L_WARNING, "[MTLShader] %s: uniform '%s' NOT in reflection (size=%zu) — dynamic slot (not uploaded to Metal)",
+	      shaderName.c_str(), name, size);
 	size_t alignedSize = (size + 15) & ~size_t(15);
 	size_t offset = uniformBufferSize;
 
@@ -291,7 +346,7 @@ size_t MTLShader::GetOrCreateUniformSlot(const char* name, size_t size) {
 		uniformData.resize(uniformBufferSize, 0);
 	}
 
-	uniformMap[name] = {offset, size, false};
+	uniformMap[name] = {offset, size, false, -1};
 	return offset;
 }
 
@@ -474,21 +529,65 @@ std::vector<IRHIShader::ShaderUniformDesc> MTLShader::GetActiveUniformDescs() co
 	return result;
 }
 
+void MTLShader::RebuildBufferRanges() {
+	vertexBufferRanges.clear();
+	fragmentBufferRanges.clear();
+
+	// Build per-stage buffer ranges. Metal assigns buffer indices independently
+	// per stage, so vertex buffer(0) and fragment buffer(0) may contain
+	// completely different data. We must upload them separately.
+	auto buildRanges = [&](std::vector<BufferUploadRange>& ranges, bool isVertex) {
+		std::unordered_map<int, std::pair<size_t, size_t>> rangeMap; // bufIdx → (minOffset, maxEnd)
+
+		for (const auto& [name, info] : uniformMap) {
+			int bufIdx = isVertex ? info.vsBufferIndex : info.fsBufferIndex;
+			if (bufIdx < 0)
+				continue;
+
+			size_t end = info.offset + info.size;
+			auto it = rangeMap.find(bufIdx);
+			if (it == rangeMap.end()) {
+				rangeMap[bufIdx] = {info.offset, end};
+			} else {
+				it->second.first = std::min(it->second.first, info.offset);
+				it->second.second = std::max(it->second.second, end);
+			}
+		}
+
+		for (const auto& [bufIdx, range] : rangeMap) {
+			size_t byteSize = (range.second - range.first + 15) & ~size_t(15);
+			if (byteSize == 0) byteSize = 16;
+			ranges.push_back({bufIdx, range.first, byteSize});
+		}
+	};
+
+	buildRanges(vertexBufferRanges, true);
+	buildRanges(fragmentBufferRanges, false);
+
+	LOG("[MTLShader] %s: VS=%zu FS=%zu buffer upload ranges",
+	    shaderName.c_str(), vertexBufferRanges.size(), fragmentBufferRanges.size());
+}
+
 void MTLShader::BindUniforms(id<MTLRenderCommandEncoder> encoder) {
-	if (uniformData.empty() || !encoder) {
+	if (uniformData.empty() || !encoder)
 		return;
+
+	// Upload vertex-stage uniform buffers
+	for (const auto& range : vertexBufferRanges) {
+		if (range.byteOffset + range.byteSize > uniformData.size())
+			continue;
+		[encoder setVertexBytes:uniformData.data() + range.byteOffset
+		                 length:range.byteSize
+		                atIndex:range.metalBufferIndex];
 	}
 
-	// Upload uniform data using setVertexBytes / setFragmentBytes
-	// This is efficient for data < 4KB
-	if (uniformBufferSize > 0) {
-		[encoder setVertexBytes:uniformData.data()
-		                 length:uniformBufferSize
-		                atIndex:0];  // Uniform buffer at index 0
-
-		[encoder setFragmentBytes:uniformData.data()
-		                   length:uniformBufferSize
-		                  atIndex:0];
+	// Upload fragment-stage uniform buffers
+	for (const auto& range : fragmentBufferRanges) {
+		if (range.byteOffset + range.byteSize > uniformData.size())
+			continue;
+		[encoder setFragmentBytes:uniformData.data() + range.byteOffset
+		                   length:range.byteSize
+		                  atIndex:range.metalBufferIndex];
 	}
 }
 

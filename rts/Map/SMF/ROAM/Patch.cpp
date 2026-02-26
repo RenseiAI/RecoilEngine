@@ -719,12 +719,24 @@ void Patch::Draw() const
 	auto* device = RHI::GetDevice();
 	if (device) {
 		auto* ctx = device->GetContext();
+
+		// Metal needs vertex layout at draw time (GL stores it in VAO).
+		// Clear first since SetVertexLayout is additive.
+		ctx->ClearVertexLayout();
+		static const RHI::VertexAttribute mainAttribs[] = {
+			{0, 0, RHI::VertexFormat::Float3, 0},
+		};
+		static const RHI::VertexLayout mainLayout = {mainAttribs, 1, sizeof(float3)};
+		ctx->SetVertexLayout(mainLayout);
+
 		if (rhiVertBuf) ctx->BindVertexBuffer(rhiVertBuf.get(), 0);
 		if (rhiIndxBuf) ctx->BindIndexBuffer(rhiIndxBuf.get(), RHI::IndexType::UInt32);
 		ctx->DrawIndexed(
 			RHI::PrimitiveType::Triangles,
 			static_cast<uint32_t>(indices.size()),
 			0, 0);
+
+		ctx->ClearVertexLayout();
 	} else {
 		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices.size()), GL_UNSIGNED_INT, nullptr);
 	}
@@ -744,11 +756,24 @@ void Patch::DrawBorder() const
 	auto* device = RHI::GetDevice();
 	if (device) {
 		auto* ctx = device->GetContext();
+
+		// Metal needs vertex layout at draw time (GL stores it in VAO).
+		// Clear first since SetVertexLayout is additive.
+		ctx->ClearVertexLayout();
+		static const RHI::VertexAttribute borderAttribs[] = {
+			{0, offsetof(VA_TYPE_C, pos), RHI::VertexFormat::Float3,     0},
+			{1, offsetof(VA_TYPE_C, c),   RHI::VertexFormat::UByte4Norm, 0},
+		};
+		static const RHI::VertexLayout borderLayout = {borderAttribs, 2, sizeof(VA_TYPE_C)};
+		ctx->SetVertexLayout(borderLayout);
+
 		if (rhiBorderBuf) ctx->BindVertexBuffer(rhiBorderBuf.get(), 0);
 		ctx->Draw(
 			RHI::PrimitiveType::Triangles,
 			static_cast<uint32_t>(borderVertices.size()),
 			0);
+
+		ctx->ClearVertexLayout();
 	} else {
 		glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(borderVertices.size()));
 	}

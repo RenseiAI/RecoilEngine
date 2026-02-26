@@ -58,17 +58,25 @@ public:
 		const std::string& entryPoint = "main");
 
 	/// Translate SPIR-V bytecode to Metal Shading Language source.
+	/// attribLocations: optional name->index map from BindAttribLocation.
+	/// Stage inputs without SPIR-V Location decorations are assigned locations:
+	///   1. From attribLocations if the input name matches
+	///   2. Auto-assigned sequentially for unmatched inputs
+	/// This is required because Metal's stage_in struct needs [[attribute(N)]].
 	std::string TranslateSPIRVToMSL(
 		const std::vector<uint32_t>& spirv,
-		const MSLCompilerOptions& options = MSLCompilerOptions{});
+		const MSLCompilerOptions& options = MSLCompilerOptions{},
+		const std::unordered_map<std::string, uint32_t>& attribLocations = {});
 
 	/// Extract reflection data from SPIR-V.
 	ShaderReflection ReflectSPIRV(const std::vector<uint32_t>& spirv);
 
 	/// Convenience: compile GLSL directly to MSL (cached by content hash).
+	/// attribLocations: forwarded to TranslateSPIRVToMSL for vertex shaders.
 	std::string CompileGLSLToMSL(
 		const std::string& source,
-		CompilerShaderStage stage);
+		CompilerShaderStage stage,
+		const std::unordered_map<std::string, uint32_t>& attribLocations = {});
 
 	/// Retrieve cached reflection data for a previously compiled shader.
 	/// Returns nullptr if not found in cache.

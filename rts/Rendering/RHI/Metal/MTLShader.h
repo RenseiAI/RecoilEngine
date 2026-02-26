@@ -106,13 +106,25 @@ public:
 
 private:
 	struct UniformInfo {
-		size_t offset;
-		size_t size;
+		size_t offset;       // position in uniformData
+		size_t size;         // byte size of this uniform's data
 		bool isMatrix;
+		int vsBufferIndex = -1;  // vertex stage [[buffer(N)]], -1 if not in VS
+		int fsBufferIndex = -1;  // fragment stage [[buffer(N)]], -1 if not in FS
+	};
+
+	// Pre-computed byte range per Metal buffer index per stage.
+	// Uniforms sharing the same buffer index within one stage are part of
+	// a single UBO and are uploaded in one setVertexBytes/setFragmentBytes call.
+	struct BufferUploadRange {
+		int metalBufferIndex;
+		size_t byteOffset;  // start in uniformData
+		size_t byteSize;    // upload length (aligned to 16)
 	};
 
 	void SetUniformData(const char* name, const void* data, size_t size);
 	size_t GetOrCreateUniformSlot(const char* name, size_t size);
+	void RebuildBufferRanges();
 
 #ifdef __OBJC__
 	id<MTLLibrary>  library          = nil;
@@ -140,6 +152,8 @@ private:
 	// Uniform buffer
 	std::vector<uint8_t> uniformData;
 	std::unordered_map<std::string, UniformInfo> uniformMap;
+	std::vector<BufferUploadRange> vertexBufferRanges;    // uploaded via setVertexBytes
+	std::vector<BufferUploadRange> fragmentBufferRanges;  // uploaded via setFragmentBytes
 	size_t uniformBufferSize = 0;
 
 	// Attribute bindings (requested before Link)

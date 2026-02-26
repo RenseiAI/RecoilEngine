@@ -309,9 +309,14 @@ void S3DModelVAO::Bind() const
 		vao.Bind();
 	}
 
-	// RHI path: bind vertex/index buffers for Metal draw calls
+	// RHI path: bind vertex/index buffers + vertex layout for Metal draw calls.
+	// Metal needs vertex layout at draw time (GL stores it in VAO).
+	// Clear first since SetVertexLayout is additive.
 	if (auto* device = RHI::GetDevice()) {
 		auto* ctx = device->GetContext();
+		DisableAttribs();     // clear any stale layout first
+		EnableAttribs(false); // base vertex attribs
+		EnableAttribs(true);  // instance attribs (additive)
 		if (rhiVertBuf) ctx->BindVertexBuffer(rhiVertBuf.get(), 0);
 		if (rhiIndxBuf) ctx->BindIndexBuffer(rhiIndxBuf.get(), RHI::IndexType::UInt32);
 	}
@@ -323,6 +328,11 @@ void S3DModelVAO::Unbind() const
 	if (RHI::GetDefaultBackend() == RHI::Backend::OpenGL) {
 		assert(vao.GetIdRaw() > 0);
 		vao.Unbind();
+	}
+
+	// RHI path: clear vertex layout after drawing
+	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL) {
+		DisableAttribs();
 	}
 }
 

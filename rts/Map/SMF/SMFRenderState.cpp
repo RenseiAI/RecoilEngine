@@ -241,31 +241,29 @@ void SMFRenderStateGLSL::Enable(const CSMFGroundDrawer* smfGroundDrawer, const D
 			colorTex->Bind(19);
 	}
 
-	// Map textures via RHI wrappers
-	smfMap->GetHeightMapTextureObj().GetRHITexture()->Bind(1);
-	smfMap->GetRHITexture(MAP_BASE_DETAIL_TEX)->Bind(2);
-	if (auto* infoTex = infoTextureHandler->GetCurrentInfoRHITexture())
-		infoTex->Bind(14);
+	// Map textures via RHI wrappers (null-check all: optional textures may not exist on Metal)
+	if (auto* t = smfMap->GetHeightMapTextureObj().GetRHITexture()) t->Bind(1);
+	if (auto* t = smfMap->GetRHITexture(MAP_BASE_DETAIL_TEX)) t->Bind(2);
+	if (auto* t = infoTextureHandler->GetCurrentInfoRHITexture()) t->Bind(14);
 
 	if (isAdv) {
-		smfMap->GetRHITexture(MAP_BASE_NORMALS_TEX)->Bind(5);
-		smfMap->GetRHITexture(MAP_SSMF_SPECULAR_TEX)->Bind(6);
-		smfMap->GetRHITexture(MAP_SSMF_SPLAT_DETAIL_TEX)->Bind(7);
-		smfMap->GetRHITexture(MAP_SSMF_SPLAT_DISTRIB_TEX)->Bind(8);
-		if (auto* skyTex = cubeMapHandler.GetSkyReflectionTexture())
-			skyTex->Bind(9);
-		smfMap->GetRHITexture(MAP_SSMF_SKY_REFLECTION_TEX)->Bind(10);
-		smfMap->GetRHITexture(MAP_SSMF_NORMALS_TEX)->Bind(11);
-		smfMap->GetRHITexture(MAP_SSMF_LIGHT_EMISSION_TEX)->Bind(12);
-		smfMap->GetRHITexture(MAP_SSMF_PARALLAX_HEIGHT_TEX)->Bind(13);
+		if (auto* t = smfMap->GetRHITexture(MAP_BASE_NORMALS_TEX))          t->Bind(5);
+		if (auto* t = smfMap->GetRHITexture(MAP_SSMF_SPECULAR_TEX))         t->Bind(6);
+		if (auto* t = smfMap->GetRHITexture(MAP_SSMF_SPLAT_DETAIL_TEX))     t->Bind(7);
+		if (auto* t = smfMap->GetRHITexture(MAP_SSMF_SPLAT_DISTRIB_TEX))    t->Bind(8);
+		if (auto* t = cubeMapHandler.GetSkyReflectionTexture())              t->Bind(9);
+		if (auto* t = smfMap->GetRHITexture(MAP_SSMF_SKY_REFLECTION_TEX))   t->Bind(10);
+		if (auto* t = smfMap->GetRHITexture(MAP_SSMF_NORMALS_TEX))          t->Bind(11);
+		if (auto* t = smfMap->GetRHITexture(MAP_SSMF_LIGHT_EMISSION_TEX))   t->Bind(12);
+		if (auto* t = smfMap->GetRHITexture(MAP_SSMF_PARALLAX_HEIGHT_TEX))  t->Bind(13);
 
 		for (int i = 0; i < CSMFReadMap::NUM_SPLAT_DETAIL_NORMALS; i++) {
-			if (auto* splatTex = smfMap->GetRHITexture(MAP_SSMF_SPLAT_NORMAL_TEX, i))
-				splatTex->Bind(15 + i);
+			if (auto* t = smfMap->GetRHITexture(MAP_SSMF_SPLAT_NORMAL_TEX, i))
+				t->Bind(15 + i);
 		}
 	}
 	else {
-		smfMap->GetRHITexture(MAP_BASE_SHADING_TEX)->Bind(3);
+		if (auto* t = smfMap->GetRHITexture(MAP_BASE_SHADING_TEX)) t->Bind(3);
 	}
 
 	if (isAdv)
@@ -330,31 +328,29 @@ void SMFRenderStateGLSL::Disable(const CSMFGroundDrawer* smfGroundDrawer, const 
 			colorTex->Unbind(19);
 	}
 
-	// Unbind map textures via RHI
-	smfMap->GetHeightMapTextureObj().GetRHITexture()->Unbind(1);
-	smfMap->GetRHITexture(MAP_BASE_DETAIL_TEX)->Unbind(2);
-	if (auto* infoTex = infoTextureHandler->GetCurrentInfoRHITexture())
-		infoTex->Unbind(14);
+	// Unbind map textures via RHI (null-check: optional textures may not exist on Metal)
+	if (auto* t = smfMap->GetHeightMapTextureObj().GetRHITexture()) t->Unbind(1);
+	if (auto* t = smfMap->GetRHITexture(MAP_BASE_DETAIL_TEX)) t->Unbind(2);
+	if (auto* t = infoTextureHandler->GetCurrentInfoRHITexture()) t->Unbind(14);
 
 	if (isAdv) {
-		smfMap->GetRHITexture(MAP_BASE_NORMALS_TEX)->Unbind(5);
-		smfMap->GetRHITexture(MAP_SSMF_SPECULAR_TEX)->Unbind(6);
-		smfMap->GetRHITexture(MAP_SSMF_SPLAT_DETAIL_TEX)->Unbind(7);
-		smfMap->GetRHITexture(MAP_SSMF_SPLAT_DISTRIB_TEX)->Unbind(8);
-		if (auto* skyTex = cubeMapHandler.GetSkyReflectionTexture())
-			skyTex->Unbind(9);
-		smfMap->GetRHITexture(MAP_SSMF_SKY_REFLECTION_TEX)->Unbind(10);
-		smfMap->GetRHITexture(MAP_SSMF_NORMALS_TEX)->Unbind(11);
-		smfMap->GetRHITexture(MAP_SSMF_LIGHT_EMISSION_TEX)->Unbind(12);
-		smfMap->GetRHITexture(MAP_SSMF_PARALLAX_HEIGHT_TEX)->Unbind(13);
+		if (auto* t = smfMap->GetRHITexture(MAP_BASE_NORMALS_TEX))          t->Unbind(5);
+		if (auto* t = smfMap->GetRHITexture(MAP_SSMF_SPECULAR_TEX))         t->Unbind(6);
+		if (auto* t = smfMap->GetRHITexture(MAP_SSMF_SPLAT_DETAIL_TEX))     t->Unbind(7);
+		if (auto* t = smfMap->GetRHITexture(MAP_SSMF_SPLAT_DISTRIB_TEX))    t->Unbind(8);
+		if (auto* t = cubeMapHandler.GetSkyReflectionTexture())              t->Unbind(9);
+		if (auto* t = smfMap->GetRHITexture(MAP_SSMF_SKY_REFLECTION_TEX))   t->Unbind(10);
+		if (auto* t = smfMap->GetRHITexture(MAP_SSMF_NORMALS_TEX))          t->Unbind(11);
+		if (auto* t = smfMap->GetRHITexture(MAP_SSMF_LIGHT_EMISSION_TEX))   t->Unbind(12);
+		if (auto* t = smfMap->GetRHITexture(MAP_SSMF_PARALLAX_HEIGHT_TEX))  t->Unbind(13);
 
 		for (int i = 0; i < CSMFReadMap::NUM_SPLAT_DETAIL_NORMALS; i++) {
-			if (auto* splatTex = smfMap->GetRHITexture(MAP_SSMF_SPLAT_NORMAL_TEX, i))
-				splatTex->Unbind(15 + i);
+			if (auto* t = smfMap->GetRHITexture(MAP_SSMF_SPLAT_NORMAL_TEX, i))
+				t->Unbind(15 + i);
 		}
 	}
 	else {
-		smfMap->GetRHITexture(MAP_BASE_SHADING_TEX)->Unbind(3);
+		if (auto* t = smfMap->GetRHITexture(MAP_BASE_SHADING_TEX)) t->Unbind(3);
 	}
 }
 

@@ -84,9 +84,9 @@ public:
 	void SetVertexLayout(const VertexLayout& layout) override;
 	void ClearVertexLayout() override;
 
-	// --- Global state (Metal handles via pipeline descriptors — no-ops) ---
-	void SetDepthTestEnabled(bool enabled) override {}
-	void SetDepthFunc(CompareFunc func) override {}
+	// --- Dynamic depth state (tracked and applied via depth-stencil override) ---
+	void SetDepthTestEnabled(bool enabled) override;
+	void SetDepthFunc(CompareFunc func) override;
 	void SetClipControl(bool zeroToOne) override {}
 	void SetSeamlessCubeMapsEnabled(bool enabled) override {}
 	void SetMultisampleEnabled(bool enabled) override {}
@@ -244,8 +244,12 @@ private:
 	// Dynamic blend/depth state (overrides pipeline desc at draw time)
 	BlendState        dynamicBlend;
 	bool              dynamicBlendDirty = false;
-	bool              dynamicDepthWrite = false;
+	bool              dynamicDepthTest = true;
+	bool              dynamicDepthTestDirty = false;
+	bool              dynamicDepthWrite = true;
 	bool              dynamicDepthWriteDirty = false;
+	CompareFunc       dynamicDepthFunc = CompareFunc::Less;
+	bool              dynamicDepthFuncDirty = false;
 
 	// Default depth texture for screen render pass
 #ifdef __OBJC__

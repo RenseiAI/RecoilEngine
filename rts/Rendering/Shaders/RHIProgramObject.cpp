@@ -4,6 +4,7 @@
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Rendering/GL/myGL.h"
 #include "System/Log/ILog.h"
 #include "System/StringUtil.h"
@@ -63,8 +64,18 @@ void RHIProgramObject::Enable()
 void RHIProgramObject::EnableRaw()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	if (rhiShader && rhiShader->IsValid())
+	if (rhiShader && rhiShader->IsValid()) {
 		rhiShader->Bind();
+
+		// Register the shader with the RHI context so Metal can use it
+		// for PSO creation at draw time. MTLShader::Bind() only sets an
+		// internal flag; ctx->BindShader() sets MTLContext::currentShader
+		// which ApplyPipelineState() requires.
+		auto* device = RHI::GetDevice();
+		if (device) {
+			device->GetContext()->BindShader(rhiShader.get());
+		}
+	}
 	IProgramObject::Enable();
 }
 
@@ -72,8 +83,15 @@ void RHIProgramObject::DisableRaw()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	IProgramObject::Disable();
-	if (rhiShader && rhiShader->IsBound())
+	if (rhiShader && rhiShader->IsBound()) {
 		rhiShader->Unbind();
+
+		// Clear the shader from the RHI context
+		auto* device = RHI::GetDevice();
+		if (device) {
+			device->GetContext()->BindShader(nullptr);
+		}
+	}
 }
 
 void RHIProgramObject::Link()

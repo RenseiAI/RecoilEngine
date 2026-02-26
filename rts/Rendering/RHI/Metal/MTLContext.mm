@@ -252,6 +252,9 @@ void MTLContext::BeginDefaultRenderPass(const RenderPassDesc& desc) {
 	// Apply current viewport if set
 	if (currentViewport.width > 0 && currentViewport.height > 0) {
 		SetViewport(currentViewport);
+	} else {
+		LOG_L(L_WARNING, "[MTLContext] BeginDefaultRenderPass: viewport NOT set (w=%.0f h=%.0f) — Metal will use undefined viewport!",
+		      currentViewport.width, currentViewport.height);
 	}
 }
 
@@ -331,9 +334,12 @@ bool MTLContext::ApplyPipelineState() {
 		return false;
 	}
 
-	LOG("[MTL-PSO] pipeline=%p (%s) shader='%s' vtxLayout=%d",
-	    (void*)pipeline, usedDefault ? "default" : "explicit",
-	    currentShader->GetName().c_str(), (int)hasVertexLayout);
+	static int psoCallCount = 0;
+	if (psoCallCount++ < 10 || psoCallCount % 5000 == 0) {
+		LOG("[MTL-PSO] pipeline=%p (%s) shader='%s' vtxLayout=%d",
+		    (void*)pipeline, usedDefault ? "default" : "explicit",
+		    currentShader->GetName().c_str(), (int)hasVertexLayout);
+	}
 
 	// Get or create the render pipeline state
 	MTLPixelFormat colorFormat = MTLPixelFormatBGRA8Unorm;
@@ -362,14 +368,47 @@ bool MTLContext::ApplyPipelineState() {
 
 	[renderEncoder setRenderPipelineState:pipelineState];
 
-	// Apply depth-stencil state
-	id<MTLDepthStencilState> dsState = pipeline->GetDepthStencilState();
-	if (dsState) {
-		[renderEncoder setDepthStencilState:dsState];
+	// Apply depth-stencil state with dynamic overrides
+	{
+		const auto& baseDS = pipeline->GetDesc().depthStencil;
+		bool depthTest  = dynamicDepthTestDirty  ? dynamicDepthTest  : baseDS.depthTestEnabled;
+		bool depthWrite = dynamicDepthWriteDirty ? dynamicDepthWrite : baseDS.depthWriteEnabled;
+
+		if (dynamicDepthTestDirty || dynamicDepthWriteDirty || dynamicDepthFuncDirty) {
+			// Dynamic depth state overrides — create a new depth-stencil state
+			CompareFunc depthFunc = dynamicDepthFuncDirty ? dynamicDepthFunc : baseDS.depthFunc;
+			MTLDepthStencilDescriptor* dsDesc = [[MTLDepthStencilDescriptor alloc] init];
+			dsDesc.depthWriteEnabled = depthWrite;
+			dsDesc.depthCompareFunction = depthTest
+				? MTLPipeline::ToMTLCompareFunc(depthFunc)
+				: MTLCompareFunctionAlways;
+			id<MTLDepthStencilState> dsState = [device->GetMTLDevice() newDepthStencilStateWithDescriptor:dsDesc];
+			[renderEncoder setDepthStencilState:dsState];
+		} else {
+			// Use pipeline's cached depth-stencil state
+			id<MTLDepthStencilState> dsState = pipeline->GetDepthStencilState();
+			if (dsState) {
+				[renderEncoder setDepthStencilState:dsState];
+			}
+		}
+
+		// Periodic diagnostics (show EFFECTIVE state, not just pipeline base)
+		static int psoLogCount = 0;
+		if (psoLogCount++ % 2000 == 0) {
+			const auto& blend = dynamicBlendDirty ? dynamicBlend : pipeline->GetDesc().blend;
+			LOG("[MTL-PSO-Detail] shader='%s' depthTest=%d depthWrite=%d blend=%d colorMask=%d%d%d%d (dynDT=%d dynDW=%d dynB=%d)",
+			    currentShader->GetName().c_str(),
+			    (int)depthTest, (int)depthWrite,
+			    (int)blend.enabled,
+			    (int)blend.colorMask[0], (int)blend.colorMask[1],
+			    (int)blend.colorMask[2], (int)blend.colorMask[3],
+			    (int)dynamicDepthTestDirty, (int)dynamicDepthWriteDirty, (int)dynamicBlendDirty);
+		}
 	}
 
 	// Apply rasterizer state
 	pipeline->ApplyRasterizerState(renderEncoder);
+
 	return true;
 }
 
@@ -425,6 +464,16 @@ void MTLContext::SetColorMask(bool r, bool g, bool b, bool a) {
 	dynamicBlendDirty = true;
 }
 
+void MTLContext::SetDepthTestEnabled(bool enabled) {
+	dynamicDepthTest = enabled;
+	dynamicDepthTestDirty = true;
+}
+
+void MTLContext::SetDepthFunc(CompareFunc func) {
+	dynamicDepthFunc = func;
+	dynamicDepthFuncDirty = true;
+}
+
 void MTLContext::SetDepthWriteEnabled(bool enabled) {
 	dynamicDepthWrite = enabled;
 	dynamicDepthWriteDirty = true;
@@ -465,6 +514,7 @@ void MTLContext::BindCurrentResources() {
 	}
 
 	// Bind textures
+	int texCount = 0;
 	for (uint32_t i = 0; i < MaxTextureUnits; i++) {
 		if (boundTextures[i]) {
 			id<MTLTexture> tex = boundTextures[i]->GetMTLTexture();
@@ -473,6 +523,7 @@ void MTLContext::BindCurrentResources() {
 			if (tex) {
 				[renderEncoder setFragmentTexture:tex atIndex:i];
 				[renderEncoder setVertexTexture:tex atIndex:i];
+				texCount++;
 			}
 			if (sampler) {
 				[renderEncoder setFragmentSamplerState:sampler atIndex:i];
@@ -480,13 +531,24 @@ void MTLContext::BindCurrentResources() {
 			}
 		}
 	}
+
+	// Periodic texture binding diagnostics
+	static int texLogCount = 0;
+	if (texLogCount++ % 5000 == 0 && currentShader) {
+		LOG("[MTL-Tex] shader='%s' boundTextures=%d vbo=%p",
+		    currentShader->GetName().c_str(), texCount,
+		    currentVertexBuffer ? (void*)currentVertexBuffer->GetMTLBuffer() : nullptr);
+	}
 }
 
 void MTLContext::Draw(PrimitiveType primitive, uint32_t vertexCount, uint32_t firstVertex) {
-	LOG("[MTL-Draw] verts=%u pipeline=%p shader=%s encoder=%p",
-	    vertexCount, (void*)currentPipeline,
-	    currentShader ? currentShader->GetName().c_str() : "null",
-	    (void*)renderEncoder);
+	static int drawLogCount = 0;
+	if (drawLogCount++ < 10 || drawLogCount % 5000 == 0) {
+		LOG("[MTL-Draw] verts=%u pipeline=%p shader=%s encoder=%p",
+		    vertexCount, (void*)currentPipeline,
+		    currentShader ? currentShader->GetName().c_str() : "null",
+		    (void*)renderEncoder);
+	}
 	EnsureRenderEncoder();
 	if (!renderEncoder) return;
 
@@ -499,10 +561,13 @@ void MTLContext::Draw(PrimitiveType primitive, uint32_t vertexCount, uint32_t fi
 }
 
 void MTLContext::DrawIndexed(PrimitiveType primitive, uint32_t indexCount, uint32_t firstIndex, int32_t vertexOffset) {
-	LOG("[MTL-DrawIdx] indices=%u pipeline=%p shader=%s encoder=%p",
-	    indexCount, (void*)currentPipeline,
-	    currentShader ? currentShader->GetName().c_str() : "null",
-	    (void*)renderEncoder);
+	static int drawIdxLogCount = 0;
+	if (drawIdxLogCount++ < 10 || drawIdxLogCount % 5000 == 0) {
+		LOG("[MTL-DrawIdx] indices=%u pipeline=%p shader=%s encoder=%p",
+		    indexCount, (void*)currentPipeline,
+		    currentShader ? currentShader->GetName().c_str() : "null",
+		    (void*)renderEncoder);
+	}
 	EnsureRenderEncoder();
 	if (!renderEncoder || !currentIndexBuffer) return;
 
@@ -592,6 +657,12 @@ void MTLContext::DrawIndexedIndirect(PrimitiveType primitive, IRHIBuffer* buffer
 }
 
 void MTLContext::SetViewport(const Viewport& viewport) {
+	static int vpLogCount = 0;
+	if (vpLogCount++ < 5 || vpLogCount % 5000 == 0) {
+		LOG("[MTLContext] SetViewport: x=%.0f y=%.0f w=%.0f h=%.0f znear=%.3f zfar=%.3f encoder=%p",
+		    viewport.x, viewport.y, viewport.width, viewport.height,
+		    viewport.minDepth, viewport.maxDepth, (void*)renderEncoder);
+	}
 	currentViewport = viewport;
 
 	if (renderEncoder) {
