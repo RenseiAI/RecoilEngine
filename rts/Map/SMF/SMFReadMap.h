@@ -16,6 +16,10 @@ class FBO;
 namespace Shader {
 	struct IProgramObject;
 }
+namespace RHI {
+	class IRHIFramebuffer;
+	class IRHIShader;
+}
 
 class CSMFReadMap : public CReadMap, public CEventClient
 {
@@ -186,6 +190,7 @@ private:
 	void CreateNormalTex();
 	void CreateHeightMapTex();
 	void CreateShadingGL();
+	void CreateShadingRHI();
 
 	void UpdateCornerHeightMapUnsynced(const SRectangle& update);
 	void UpdateHeightMapTexture(const SRectangle& update);
@@ -225,6 +230,10 @@ private:
 private:
 	std::unique_ptr<FBO> shadingFBO;
 	Shader::IProgramObject* shadingShader = nullptr;
+
+	// RHI path (Metal): replaces GL FBO + GL shader for dynamic shading
+	std::unique_ptr<RHI::IRHIFramebuffer> rhiShadingFBO;
+	std::unique_ptr<RHI::IRHIShader> rhiShadingShader;
 
 	MapTexture grassShadingTex;       // specifies grass-blade modulation color (defaults to minimapTex)
 	MapTexture detailTex;             // supplied by the map

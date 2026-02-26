@@ -48,6 +48,8 @@
 #include "Rendering/RHI/RHIDevice.h"
 #include "Rendering/RHI/RHIContext.h"
 #include "Rendering/RHI/RHITexture.h"
+#include "Rendering/RHI/RHIFramebuffer.h"
+#include "Rendering/RHI/RHIShader.h"
 #include "System/Config/ConfigHandler.h"
 #include "System/EventHandler.h"
 #include "System/Exceptions.h"
@@ -137,7 +139,12 @@ CSMFReadMap::CSMFReadMap(const std::string& mapName): CEventClient("[CSMFReadMap
 		CreateShadingTex();
 		CreateNormalTex();
 		CreateHeightMapTex();
-		CreateShadingGL();
+
+		// FBO + shader for height-based shading/normals
+		if (RHI::IsMetalBackend())
+			CreateShadingRHI();
+		else
+			CreateShadingGL();
 
 		// Wrap CBitmap-created textures with non-owning RHI wrappers.
 		// shadingTex, normalsTex, heightMapTexture already have RHI textures
@@ -542,6 +549,63 @@ void CSMFReadMap::CreateShadingGL()
 	shadingShader->Validate();
 }
 
+void CSMFReadMap::CreateShadingRHI()
+{
+	auto* device = RHI::GetDevice();
+	if (!device)
+		return;
+
+	// Create RHI framebuffer with 2 color attachments: shading (RGBA8) + normals (RG16F)
+	rhiShadingFBO = device->CreateFramebuffer();
+	rhiShadingFBO->AttachColor(shadingTex.GetRawRHITexture(), 0);
+	rhiShadingFBO->AttachColor(normalsTex.GetRawRHITexture(), 1);
+
+	const uint32_t drawBufs[] = { 0, 1 };
+	rhiShadingFBO->SetDrawBuffers(drawBufs, 2);
+
+	if (!rhiShadingFBO->IsComplete()) {
+		LOG_L(L_ERROR, "[CSMFReadMap] RHI shading FBO incomplete");
+		rhiShadingFBO.reset();
+		return;
+	}
+
+	// Create RHI shader — cross-compiles GLSL to MSL via ShaderCompiler
+	rhiShadingShader = device->CreateShader("SMFShadingTexture");
+	rhiShadingShader->AttachStage(RHI::ShaderStage::Vertex, "GLSL/SMFShadingTextureVertProg.glsl");
+	rhiShadingShader->AttachStage(RHI::ShaderStage::Fragment, "GLSL/SMFShadingTextureFragProg.glsl");
+	rhiShadingShader->BindAttribLocation("pos", 0);
+	rhiShadingShader->BindOutputLocation("shadingVal", 0);
+	rhiShadingShader->BindOutputLocation("normalXZ", 1);
+	rhiShadingShader->Link();
+
+	if (!rhiShadingShader->IsValid()) {
+		LOG_L(L_ERROR, "[CSMFReadMap] RHI shading shader failed to link");
+		rhiShadingShader.reset();
+		rhiShadingFBO.reset();
+		return;
+	}
+
+	// Set initial uniforms
+	rhiShadingShader->Bind();
+	rhiShadingShader->SetUniform4f("mapSizeP1",
+		static_cast<float>(mapDims.mapxp1), static_cast<float>(mapDims.mapyp1),
+		           1.0f / (mapDims.mapxp1),            1.0f / (mapDims.mapyp1)
+	);
+	rhiShadingShader->SetUniform1i("heightMapTex", 0);
+	rhiShadingShader->SetUniform4fv("groundAmbientColor", &sunLighting->groundAmbientColor.x);
+	rhiShadingShader->SetUniform4fv("groundDiffuseColor", &sunLighting->groundDiffuseColor.x);
+	rhiShadingShader->SetUniform4f("lightDir", 0.0f, 0.0f, 0.0f, 0.0f);
+	rhiShadingShader->SetUniform3fv("waterBaseColor", &waterRendering->baseColor.x);
+	rhiShadingShader->SetUniform3fv("waterAbsorb", &waterRendering->absorb.x);
+	rhiShadingShader->SetUniform3fv("waterMinColor", &waterRendering->minColor.x);
+	rhiShadingShader->SetUniform1f("waterLevel", CGround::GetWaterPlaneLevel());
+	rhiShadingShader->Unbind();
+
+	if (!rhiShadingShader->Validate()) {
+		LOG_L(L_WARNING, "[CSMFReadMap] RHI shading shader validation warning");
+	}
+}
+
 void CSMFReadMap::UpdateHeightMapUnsynced(const SRectangle& update)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -774,22 +838,17 @@ void CSMFReadMap::UpdateVisNormalsAndShadingTexture(const SRectangle& update)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 
-#ifndef HEADLESS
-	assert(shadingFBO->IsValid() && shadingShader->IsValid());
-#endif // !HEADLESS
+	const bool useRHIPath = (rhiShadingShader && rhiShadingShader->IsValid());
+	const bool useGLPath  = (shadingShader && shadingShader->IsValid());
 
-	using namespace GL::State;
-	auto state = GL::SubState(
-		DepthTest(GL_FALSE),
-		Blending(GL_FALSE)
-	);
+	if (!useRHIPath && !useGLPath)
+		return;
 
 	// enlarge rect by 1pixel in all directions (cause we use center normals and not corner ones)
 	const int x1 = std::max(update.x1 - 1,              0);
 	const int y1 = std::max(update.y1 - 1,              0);
 	const int x2 = std::min(update.x2 + 1, mapDims.mapxp1);
 	const int y2 = std::min(update.y2 + 1, mapDims.mapyp1);
-
 
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2D0>();
 	rb.AssertSubmission();
@@ -801,34 +860,81 @@ void CSMFReadMap::UpdateVisNormalsAndShadingTexture(const SRectangle& update)
 		{ static_cast<float>(x1), static_cast<float>(y2) }
 	);
 
-	shadingFBO->Bind();
 	auto* ctx = RHI::GetDevice()->GetContext();
-	ctx->SetViewport({0.0f, 0.0f, static_cast<float>(mapDims.mapxp1), static_cast<float>(mapDims.mapyp1)});
 
-	auto* rhiTexBind = heightMapTexture.GetRawRHITexture();
-	assert(rhiTexBind);
-	rhiTexBind->Bind(0);
+	if (useRHIPath) {
+		// RHI path (Metal): use IRHIFramebuffer + IRHIShader
+		RHI::RenderPassDesc rpDesc;
+		rpDesc.colorAttachments[0].loadAction = RHI::LoadAction::Load;
+		rpDesc.colorAttachments[0].storeAction = RHI::StoreAction::Store;
+		rpDesc.colorAttachments[1].loadAction = RHI::LoadAction::Load;
+		rpDesc.colorAttachments[1].storeAction = RHI::StoreAction::Store;
+		rpDesc.colorAttachmentCount = 2;
+		ctx->BeginRenderPass(rhiShadingFBO.get(), rpDesc);
+		ctx->SetViewport({0.0f, 0.0f, static_cast<float>(mapDims.mapxp1), static_cast<float>(mapDims.mapyp1)});
 
-	shadingShader->Enable();
+		ctx->SetDepthTestEnabled(false);
+		ctx->SetBlendEnabled(false);
 
-	shadingShader->SetUniform4v("groundAmbientColor", &sunLighting->groundAmbientColor.x);
-	shadingShader->SetUniform4v("groundDiffuseColor", &sunLighting->groundDiffuseColor.x);
-	shadingShader->SetUniform4v("lightDir", &ISky::GetSky()->GetLight()->GetLightDir().x);
-	shadingShader->SetUniform3v("waterBaseColor", &waterRendering->baseColor.x);
-	shadingShader->SetUniform3v("waterAbsorb", &waterRendering->absorb.x);
-	shadingShader->SetUniform3v("waterMinColor", &waterRendering->minColor.x);
-	shadingShader->SetUniform("waterLevel", CGround::GetWaterPlaneLevel());
+		auto* rhiTexBind = heightMapTexture.GetRawRHITexture();
+		assert(rhiTexBind);
+		ctx->BindTexture(rhiTexBind, 0);
 
-	rb.DrawElements(GL_TRIANGLES);
+		rhiShadingShader->Bind();
+		rhiShadingShader->SetUniform4fv("groundAmbientColor", &sunLighting->groundAmbientColor.x);
+		rhiShadingShader->SetUniform4fv("groundDiffuseColor", &sunLighting->groundDiffuseColor.x);
+		rhiShadingShader->SetUniform4fv("lightDir", &ISky::GetSky()->GetLight()->GetLightDir().x);
+		rhiShadingShader->SetUniform3fv("waterBaseColor", &waterRendering->baseColor.x);
+		rhiShadingShader->SetUniform3fv("waterAbsorb", &waterRendering->absorb.x);
+		rhiShadingShader->SetUniform3fv("waterMinColor", &waterRendering->minColor.x);
+		rhiShadingShader->SetUniform1f("waterLevel", CGround::GetWaterPlaneLevel());
 
-	shadingShader->Disable();
+		// Route the custom shading shader through RenderBuffer's RHI draw
+		rb.SetExternalShaderOverride(rhiShadingShader.get());
+		rb.DrawElements(GL_TRIANGLES);
 
-	shadingFBO->Unbind();
-	globalRendering->LoadViewport();
+		rhiShadingShader->Unbind();
+		ctx->EndRenderPass();
+		globalRendering->LoadViewport();
+	} else {
+		// GL path (OpenGL): existing FBO + ShaderHandler shader
+#ifndef HEADLESS
+		assert(shadingFBO->IsValid() && shadingShader->IsValid());
+#endif
+		using namespace GL::State;
+		auto state = GL::SubState(
+			DepthTest(GL_FALSE),
+			Blending(GL_FALSE)
+		);
 
-	auto* rhiTexUnbind = heightMapTexture.GetRawRHITexture();
-	assert(rhiTexUnbind);
-	rhiTexUnbind->Unbind(0);
+		shadingFBO->Bind();
+		ctx->SetViewport({0.0f, 0.0f, static_cast<float>(mapDims.mapxp1), static_cast<float>(mapDims.mapyp1)});
+
+		auto* rhiTexBind = heightMapTexture.GetRawRHITexture();
+		assert(rhiTexBind);
+		rhiTexBind->Bind(0);
+
+		shadingShader->Enable();
+
+		shadingShader->SetUniform4v("groundAmbientColor", &sunLighting->groundAmbientColor.x);
+		shadingShader->SetUniform4v("groundDiffuseColor", &sunLighting->groundDiffuseColor.x);
+		shadingShader->SetUniform4v("lightDir", &ISky::GetSky()->GetLight()->GetLightDir().x);
+		shadingShader->SetUniform3v("waterBaseColor", &waterRendering->baseColor.x);
+		shadingShader->SetUniform3v("waterAbsorb", &waterRendering->absorb.x);
+		shadingShader->SetUniform3v("waterMinColor", &waterRendering->minColor.x);
+		shadingShader->SetUniform("waterLevel", CGround::GetWaterPlaneLevel());
+
+		rb.DrawElements(GL_TRIANGLES);
+
+		shadingShader->Disable();
+
+		shadingFBO->Unbind();
+		globalRendering->LoadViewport();
+
+		auto* rhiTexUnbind = heightMapTexture.GetRawRHITexture();
+		assert(rhiTexUnbind);
+		rhiTexUnbind->Unbind(0);
+	}
 }
 
 void CSMFReadMap::SunChanged()
