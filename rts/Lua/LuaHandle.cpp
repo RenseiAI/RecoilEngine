@@ -4331,6 +4331,27 @@ int CLuaHandle::CallOutUpdateCallIn(lua_State* L)
 void CLuaHandle::InitializeRmlUi()
 {
 	rmlui = RmlGui::InitializeLua(L);
+
+	// If RmlUi initialization failed (e.g., on Metal backend where GL shaders
+	// can't compile), provide a self-referencing stub table. Any field access
+	// or function call returns the stub itself, allowing arbitrary chaining:
+	//   RmlUi.CreateContext("name"):LoadFontFace("font") -- all no-ops
+	if (!rmlui) {
+		const char* stubCode =
+			"local stub\n"
+			"stub = setmetatable({}, {\n"
+			"  __index = function() return stub end,\n"
+			"  __call = function() return stub end,\n"
+			"  __tostring = function() return 'RmlUiStub' end,\n"
+			"  __len = function() return 0 end,\n"
+			"})\n"
+			"RmlUi = stub\n";
+		if (luaL_dostring(L, stubCode) != 0) {
+			LOG_L(L_WARNING, "[CLuaHandle] Failed to create RmlUi stub: %s",
+				lua_tostring(L, -1));
+			lua_pop(L, 1);
+		}
+	}
 }
 
 

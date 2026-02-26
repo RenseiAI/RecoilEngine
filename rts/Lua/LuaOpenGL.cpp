@@ -488,9 +488,10 @@ bool LuaOpenGL::PushEntries(lua_State* L)
 	if (FBO::IsSupported()) {
 		// FIXME: obsolete
 		REGISTER_LUA_CFUNC(DeleteTextureFBO);
-		REGISTER_LUA_CFUNC(RenderToTexture);
 	}
-	if (IS_GL_FUNCTION_AVAILABLE(glGenerateMipmapEXT))
+	// RenderToTexture works on both GL (via FBO) and Metal (via RHI FBO)
+	REGISTER_LUA_CFUNC(RenderToTexture);
+	if (IS_GL_FUNCTION_AVAILABLE(glGenerateMipmapEXT) || RHI::IsMetalBackend())
 		REGISTER_LUA_CFUNC(GenerateMipmap);
 
 	REGISTER_LUA_CFUNC(ActiveTexture);
@@ -613,7 +614,7 @@ bool LuaOpenGL::PushEntries(lua_State* L)
 	if (canUseShaders)
 		LuaShaders::PushEntries(L);
 
-	if (FBO::IsSupported()) {
+	if (FBO::IsSupported() || RHI::IsMetalBackend()) {
 	 	LuaFBOs::PushEntries(L);
 	 	LuaRBOs::PushEntries(L);
 	}
@@ -4601,7 +4602,6 @@ int LuaOpenGL::CopyToTexture(lua_State* L)
 int LuaOpenGL::RenderToTexture(lua_State* L)
 {
 	CheckDrawingEnabled(L, __func__);
-	if (RHI::IsMetalBackend()) return 0;
 
 	const std::string& texture = luaL_checkstring(L, 1);
 
@@ -4612,6 +4612,36 @@ int LuaOpenGL::RenderToTexture(lua_State* L)
 		luaL_error(L, "Incorrect arguments to gl.RenderToTexture()");
 
 	const LuaTextures& textures = CLuaHandle::GetActiveTextures(L);
+
+	if (RHI::IsMetalBackend()) {
+		const size_t texIdx = textures.GetIdx(texture);
+		const auto* tex = textures.GetInfo(texIdx);
+		if (tex == nullptr)
+			return 0;
+
+		auto* rhiFBO = textures.GetRHIFramebuffer(texIdx);
+		if (rhiFBO == nullptr)
+			return 0;
+
+		auto* ctx = RHI::GetDevice()->GetContext();
+
+		rhiFBO->Bind();
+		ctx->SetViewport({0.0f, 0.0f,
+			static_cast<float>(tex->xsize), static_cast<float>(tex->ysize)});
+
+		const int error = lua_pcall(L, lua_gettop(L) - 2, 0, 0);
+
+		rhiFBO->Unbind();
+		ctx->BindDefaultFramebuffer();
+
+		if (error != 0) {
+			LOG_L(L_ERROR, "gl.RenderToTexture: error(%i) = %s",
+					error, lua_tostring(L, -1));
+			lua_error(L);
+		}
+		return 0;
+	}
+
 	const LuaTextures::Texture* tex = textures.GetInfo(texture);
 
 	if ((tex == nullptr) || (tex->fbo == 0))
@@ -4654,13 +4684,20 @@ int LuaOpenGL::RenderToTexture(lua_State* L)
 int LuaOpenGL::GenerateMipmap(lua_State* L)
 {
 	//CheckDrawingEnabled(L, __func__);
-	if (RHI::IsMetalBackend()) return 0;
 	const std::string& texStr = luaL_checkstring(L, 1);
 
 	if (texStr[0] != LuaTextures::prefix) // '!'
 		return 0;
 
 	const LuaTextures& textures = CLuaHandle::GetActiveTextures(L);
+
+	if (RHI::IsMetalBackend()) {
+		auto* rhiTex = textures.GetRHITexture(texStr);
+		if (rhiTex != nullptr)
+			rhiTex->GenerateMipmaps();
+		return 0;
+	}
+
 	const LuaTextures::Texture* tex = textures.GetInfo(texStr);
 
 	if (tex == nullptr)

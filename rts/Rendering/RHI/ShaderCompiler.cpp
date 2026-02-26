@@ -307,6 +307,13 @@ std::string ShaderCompiler::TranslateSPIRVToMSL(
 				// --- Fragment stage inputs (varyings from vertex) ---
 				// Sort by name for deterministic matching with vertex outputs
 				assignLocationsSorted(resources.stage_inputs, "varying input");
+
+				// --- Fragment stage outputs (MRT color attachments) ---
+				// Metal requires [[color(N)]] attributes on fragment output struct members.
+				// If GLSL uses unsized arrays (e.g., `out vec4 fragColor[5]`) instead of
+				// explicit `layout(location=N)`, the Location decoration may be missing.
+				// Assign sequential locations so SPIRV-Cross emits [[color(N)]].
+				assignLocationsSorted(resources.stage_outputs, "color attachment");
 			}
 		}
 
@@ -605,6 +612,44 @@ std::string ShaderCompiler::CompileGLSLToMSL(
 				assignLocationsSorted(resources.stage_outputs, "varying output");
 			} else {
 				assignLocationsSorted(resources.stage_inputs, "varying input");
+
+				// --- Fragment stage outputs (MRT color attachments) ---
+				// Metal requires [[color(N)]] attributes on fragment output struct members.
+				// If GLSL uses unsized arrays (e.g., `out vec4 fragColor[5]`) instead of
+				// explicit `layout(location=N)`, the Location decoration may be missing.
+				// Assign sequential locations so SPIRV-Cross emits [[color(N)]].
+				assignLocationsSorted(resources.stage_outputs, "color attachment");
+			}
+		}
+
+		// Fix descriptor aliasing: UBOs and SSBOs sharing the same
+		// (set, binding) cause SPIRV-Cross to generate a `constant void*`
+		// alias parameter with casts to both `constant T*` (for UBOs) and
+		// `const device T*` (for SSBOs). Metal rejects the cross-address-space
+		// cast. Fix: reassign conflicting SSBOs to unique binding numbers so
+		// SPIRV-Cross emits separate parameters.
+		{
+			auto res = mslCompiler.get_shader_resources();
+
+			std::set<std::pair<uint32_t, uint32_t>> uboBindings;
+			for (const auto& r : res.uniform_buffers) {
+				uint32_t dset = mslCompiler.has_decoration(r.id, spv::DecorationDescriptorSet)
+					? mslCompiler.get_decoration(r.id, spv::DecorationDescriptorSet) : 0;
+				uint32_t dbind = mslCompiler.get_decoration(r.id, spv::DecorationBinding);
+				uboBindings.emplace(dset, dbind);
+			}
+
+			uint32_t nextFreeBinding = 20;
+			for (const auto& r : res.storage_buffers) {
+				uint32_t dset = mslCompiler.has_decoration(r.id, spv::DecorationDescriptorSet)
+					? mslCompiler.get_decoration(r.id, spv::DecorationDescriptorSet) : 0;
+				uint32_t dbind = mslCompiler.get_decoration(r.id, spv::DecorationBinding);
+				if (uboBindings.count({dset, dbind})) {
+					mslCompiler.set_decoration(r.id, spv::DecorationBinding, nextFreeBinding);
+					LOG("[ShaderCompiler] Reassigned SSBO '%s' binding %u→%u (UBO alias conflict at set=%u)",
+					    mslCompiler.get_name(r.id).c_str(), dbind, nextFreeBinding, dset);
+					nextFreeBinding++;
+				}
 			}
 		}
 

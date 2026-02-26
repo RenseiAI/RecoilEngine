@@ -458,6 +458,18 @@ RHI::IRHITexture* LuaTextures::GetRHITexture(const std::string& name) const
 	return GetRHITexture(GetIdx(name));
 }
 
+RHI::IRHIFramebuffer* LuaTextures::GetRHIFramebuffer(size_t idx) const
+{
+	if (idx < rhiFBOVec.size())
+		return rhiFBOVec[idx].get();
+	return nullptr;
+}
+
+RHI::IRHIFramebuffer* LuaTextures::GetRHIFramebuffer(const std::string& name) const
+{
+	return GetRHIFramebuffer(GetIdx(name));
+}
+
 
 size_t LuaTextures::GetIdx(const std::string& name) const
 {

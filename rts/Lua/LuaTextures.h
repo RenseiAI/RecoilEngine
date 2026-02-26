@@ -100,6 +100,8 @@ public:
 	// RHI accessors — return nullptr on GL path or if index is out of range
 	RHI::IRHITexture* GetRHITexture(size_t idx) const;
 	RHI::IRHITexture* GetRHITexture(const std::string& name) const;
+	RHI::IRHIFramebuffer* GetRHIFramebuffer(size_t idx) const;
+	RHI::IRHIFramebuffer* GetRHIFramebuffer(const std::string& name) const;
 
 private:
 	int lastCode;
