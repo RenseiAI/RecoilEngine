@@ -575,22 +575,42 @@ void MTLShader::BindUniforms(id<MTLRenderCommandEncoder> encoder) {
 	if (uniformData.empty() || !encoder)
 		return;
 
+	// Metal's setVertexBytes/setFragmentBytes limit is 4096 bytes.
+	// For larger uniform blocks, allocate a temporary buffer from the device.
+	static constexpr size_t kMaxInlineBytes = 4096;
+
 	// Upload vertex-stage uniform buffers
 	for (const auto& range : vertexBufferRanges) {
 		if (range.byteOffset + range.byteSize > uniformData.size())
 			continue;
-		[encoder setVertexBytes:uniformData.data() + range.byteOffset
-		                 length:range.byteSize
-		                atIndex:range.metalBufferIndex];
+		const void* src = uniformData.data() + range.byteOffset;
+		if (range.byteSize <= kMaxInlineBytes) {
+			[encoder setVertexBytes:src
+			                 length:range.byteSize
+			                atIndex:range.metalBufferIndex];
+		} else {
+			id<MTLBuffer> buf = [encoder.device newBufferWithBytes:src
+			                                               length:range.byteSize
+			                                              options:MTLResourceStorageModeShared];
+			[encoder setVertexBuffer:buf offset:0 atIndex:range.metalBufferIndex];
+		}
 	}
 
 	// Upload fragment-stage uniform buffers
 	for (const auto& range : fragmentBufferRanges) {
 		if (range.byteOffset + range.byteSize > uniformData.size())
 			continue;
-		[encoder setFragmentBytes:uniformData.data() + range.byteOffset
-		                   length:range.byteSize
-		                  atIndex:range.metalBufferIndex];
+		const void* src = uniformData.data() + range.byteOffset;
+		if (range.byteSize <= kMaxInlineBytes) {
+			[encoder setFragmentBytes:src
+			                   length:range.byteSize
+			                  atIndex:range.metalBufferIndex];
+		} else {
+			id<MTLBuffer> buf = [encoder.device newBufferWithBytes:src
+			                                               length:range.byteSize
+			                                              options:MTLResourceStorageModeShared];
+			[encoder setFragmentBuffer:buf offset:0 atIndex:range.metalBufferIndex];
+		}
 	}
 }
 

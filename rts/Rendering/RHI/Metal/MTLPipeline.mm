@@ -216,6 +216,11 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
 		blendKey = (blendKey << 4) ^ static_cast<uintptr_t>(blend.dstAlpha);
 		blendKey = (blendKey << 2) ^ static_cast<uintptr_t>(blend.colorOp);
 		blendKey = (blendKey << 2) ^ static_cast<uintptr_t>(blend.alphaOp);
+		// colorMask affects PSO write mask — must be included in cache key
+		blendKey = (blendKey << 1) ^ static_cast<uintptr_t>(blend.colorMask[0]);
+		blendKey = (blendKey << 1) ^ static_cast<uintptr_t>(blend.colorMask[1]);
+		blendKey = (blendKey << 1) ^ static_cast<uintptr_t>(blend.colorMask[2]);
+		blendKey = (blendKey << 1) ^ static_cast<uintptr_t>(blend.colorMask[3]);
 		key ^= (blendKey * 0x9e3779b97f4a7c15ULL); // golden ratio hash mix
 	}
 	// Include color and depth pixel formats so PSOs for different render targets don't collide
@@ -227,8 +232,13 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
 		return it->second;
 	}
 
-	LOG("[MTLPipeline] PSO cache miss for shader '%s' (colorFmt=%lu depthFmt=%lu)",
-	    shader->GetName().c_str(), (unsigned long)colorFormat, (unsigned long)depthFormat);
+	LOG("[MTLPipeline] PSO cache miss for shader '%s' (colorFmt=%lu depthFmt=%lu vtxLayout=%d blend=%d/%d/%d/%d/%d/%d mask=%d%d%d%d)",
+	    shader->GetName().c_str(), (unsigned long)colorFormat, (unsigned long)depthFormat,
+	    vertexLayout ? (int)vertexLayout->attributeCount : -1,
+	    (int)blend.enabled, (int)blend.srcColor, (int)blend.dstColor,
+	    (int)blend.srcAlpha, (int)blend.dstAlpha, (int)blend.colorOp,
+	    (int)blend.colorMask[0], (int)blend.colorMask[1],
+	    (int)blend.colorMask[2], (int)blend.colorMask[3]);
 
 	// Validate device
 	id<MTLDevice> mtlDevice = device ? device->GetMTLDevice() : nil;
@@ -337,6 +347,9 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
 		      error ? [[error localizedDescription] UTF8String] : "unknown error");
 		return nil;
 	}
+
+	LOG("[MTLPipeline] PSO created OK for shader '%s' (key=0x%lx)",
+	    shader->GetName().c_str(), (unsigned long)key);
 
 	// Cache and return
 	pipelineCache[key] = pipelineState;

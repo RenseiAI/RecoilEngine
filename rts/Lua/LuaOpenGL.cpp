@@ -1510,12 +1510,16 @@ int LuaOpenGL::DrawMiniMap(lua_State* L)
 
 	if (luaL_optboolean(L, 1, true)) {
 		// default transform
-		glPushMatrix();
-		glScalef(globalRendering->viewSizeX, globalRendering->viewSizeY, 1.0f);
+		if (!RHI::IsMetalBackend()) {
+			glPushMatrix();
+			glScalef(globalRendering->viewSizeX, globalRendering->viewSizeY, 1.0f);
+		}
 
 		minimap->DrawForReal(true, false, true);
 
-		glPopMatrix();
+		if (!RHI::IsMetalBackend()) {
+			glPopMatrix();
+		}
 	} else {
 		// custom transform
 		minimap->DrawForReal(false, false, true);

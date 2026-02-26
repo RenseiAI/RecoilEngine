@@ -214,6 +214,9 @@ private:
 	IndexType       currentIndexType    = IndexType::UInt32;
 	uint32_t        currentVertexBinding = 0;
 
+	// Instance buffer (binding 1 → Metal buffer index 29)
+	MTLBuffer*      currentInstanceBuffer = nullptr;
+
 	// Bound textures
 	static constexpr uint32_t MaxTextureUnits = 32;
 	std::array<MTLTexture*, MaxTextureUnits> boundTextures = {};
@@ -254,8 +257,11 @@ private:
 	// Default depth texture for screen render pass
 #ifdef __OBJC__
 	id<MTLTexture> defaultDepthTexture = nil;
+	// Default sampler for texture slots without explicit samplers
+	id<MTLSamplerState> defaultSampler = nil;
 #else
 	void* defaultDepthTexture = nullptr;
+	void* defaultSampler = nullptr;
 #endif
 	uint32_t defaultDepthWidth = 0;
 	uint32_t defaultDepthHeight = 0;

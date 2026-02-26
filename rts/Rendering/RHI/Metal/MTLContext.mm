@@ -73,6 +73,8 @@ void MTLContext::EnsureRenderEncoder() {
 		// Auto-begin default render pass when drawing without an explicit pass.
 		// The game rendering path (CGame::Draw -> WorldDrawer) doesn't explicitly
 		// call BeginDefaultRenderPass — it just sets up state and draws.
+		// This also handles the case where a Lua widget's RenderToTexture ended
+		// a custom FBO render pass, leaving no active encoder.
 		RenderPassDesc passDesc;
 		passDesc.colorAttachmentCount = 1;
 		if (pendingColorClear) {
@@ -82,6 +84,10 @@ void MTLContext::EnsureRenderEncoder() {
 			passDesc.colorAttachments[0].loadAction = LoadAction::Load;
 		}
 		BeginDefaultRenderPass(passDesc);
+
+		if (!renderEncoder) {
+			LOG_L(L_ERROR, "[MTLContext] EnsureRenderEncoder: BeginDefaultRenderPass failed to create encoder");
+		}
 	}
 }
 
@@ -266,6 +272,9 @@ void MTLContext::EndRenderPass() {
 	[renderEncoder endEncoding];
 	renderEncoder = nil;
 	inRenderPass = false;
+	// Clear framebuffer pointer so that ApplyPipelineState doesn't use
+	// stale pixel format info from a custom FBO after ending its pass.
+	currentFramebuffer = nullptr;
 }
 
 void MTLContext::BindPipeline(IRHIPipeline* pipeline) {
@@ -286,7 +295,11 @@ void MTLContext::BindPipeline(IRHIPipeline* pipeline) {
 }
 
 void MTLContext::BindVertexBuffer(IRHIBuffer* buffer, uint32_t binding) {
-	currentVertexBuffer = static_cast<MTLBuffer*>(buffer);
+	if (binding == 0) {
+		currentVertexBuffer = static_cast<MTLBuffer*>(buffer);
+	} else if (binding == 1) {
+		currentInstanceBuffer = static_cast<MTLBuffer*>(buffer);
+	}
 	currentVertexBinding = binding;
 }
 
@@ -366,7 +379,14 @@ bool MTLContext::ApplyPipelineState() {
 		return false;
 	}
 
-	[renderEncoder setRenderPipelineState:pipelineState];
+	@try {
+		[renderEncoder setRenderPipelineState:pipelineState];
+	} @catch (NSException* exception) {
+		LOG_L(L_ERROR, "[MTL-PSO] setRenderPipelineState exception for shader '%s': %s — %s",
+		      currentShader->GetName().c_str(),
+		      [[exception name] UTF8String], [[exception reason] UTF8String]);
+		return false;
+	}
 
 	// Apply depth-stencil state with dynamic overrides
 	{
@@ -374,8 +394,17 @@ bool MTLContext::ApplyPipelineState() {
 		bool depthTest  = dynamicDepthTestDirty  ? dynamicDepthTest  : baseDS.depthTestEnabled;
 		bool depthWrite = dynamicDepthWriteDirty ? dynamicDepthWrite : baseDS.depthWriteEnabled;
 
-		if (dynamicDepthTestDirty || dynamicDepthWriteDirty || dynamicDepthFuncDirty) {
-			// Dynamic depth state overrides — create a new depth-stencil state
+		// Metal requires depth test/write to be disabled when the render pass
+		// has no depth attachment. Custom FBOs (e.g., Lua gl.RenderToTexture)
+		// often have color-only attachments.
+		if (depthFormat == MTLPixelFormatInvalid) {
+			depthTest = false;
+			depthWrite = false;
+		}
+
+		if (dynamicDepthTestDirty || dynamicDepthWriteDirty || dynamicDepthFuncDirty
+		    || depthFormat == MTLPixelFormatInvalid) {
+			// Dynamic depth state overrides or no-depth-attachment override
 			CompareFunc depthFunc = dynamicDepthFuncDirty ? dynamicDepthFunc : baseDS.depthFunc;
 			MTLDepthStencilDescriptor* dsDesc = [[MTLDepthStencilDescriptor alloc] init];
 			dsDesc.depthWriteEnabled = depthWrite;
@@ -407,7 +436,13 @@ bool MTLContext::ApplyPipelineState() {
 	}
 
 	// Apply rasterizer state
-	pipeline->ApplyRasterizerState(renderEncoder);
+	@try {
+		pipeline->ApplyRasterizerState(renderEncoder);
+	} @catch (NSException* exception) {
+		LOG_L(L_ERROR, "[MTL-PSO] ApplyRasterizerState exception: %s — %s",
+		      [[exception name] UTF8String], [[exception reason] UTF8String]);
+		return false;
+	}
 
 	return true;
 }
@@ -489,11 +524,23 @@ void MTLContext::BindCurrentResources() {
 	// MTLPipeline::GetRenderPipelineState.
 	static constexpr uint32_t kVertexBufferIndex = 30;
 
-	// Bind vertex buffer
-	if (currentVertexBuffer && currentVertexBuffer->GetMTLBuffer()) {
-		[renderEncoder setVertexBuffer:currentVertexBuffer->GetMTLBuffer()
-		                        offset:0
-		                       atIndex:kVertexBufferIndex];
+	// Bind vertex buffer (per-vertex data at index 30)
+	if (currentVertexBuffer) {
+		id<MTLBuffer> vbo = currentVertexBuffer->GetMTLBuffer();
+		if (vbo) {
+			[renderEncoder setVertexBuffer:vbo offset:0 atIndex:kVertexBufferIndex];
+		} else {
+			LOG_L(L_ERROR, "[MTLContext] BindCurrentResources: nil backing MTLBuffer for vertex buffer");
+		}
+	}
+
+	// Bind instance buffer (per-instance data at index 29)
+	static constexpr uint32_t kInstanceBufferIndex = 29;
+	if (currentInstanceBuffer) {
+		id<MTLBuffer> ibo = currentInstanceBuffer->GetMTLBuffer();
+		if (ibo) {
+			[renderEncoder setVertexBuffer:ibo offset:0 atIndex:kInstanceBufferIndex];
+		}
 	}
 
 	// Bind uniform data from shader
@@ -513,22 +560,45 @@ void MTLContext::BindCurrentResources() {
 		}
 	}
 
-	// Bind textures
+	// Ensure default sampler exists (lazy init, once per context lifetime)
+	if (!defaultSampler) {
+		MTLSamplerDescriptor* sampDesc = [[MTLSamplerDescriptor alloc] init];
+		sampDesc.minFilter = MTLSamplerMinMagFilterLinear;
+		sampDesc.magFilter = MTLSamplerMinMagFilterLinear;
+		sampDesc.sAddressMode = MTLSamplerAddressModeRepeat;
+		sampDesc.tAddressMode = MTLSamplerAddressModeRepeat;
+		defaultSampler = [device->GetMTLDevice() newSamplerStateWithDescriptor:sampDesc];
+	}
+
+	// Bind textures and ensure every sampler slot has a valid binding.
+	// Metal supports up to 31 textures per stage but only 16 samplers.
+	// Shaders compiled from GLSL via SPIRV-Cross expect sampler bindings at
+	// every texture index referenced in the shader. If the caller only binds
+	// textures via OpenGL calls (not RHI), the sampler slot would be empty,
+	// causing a Metal validation failure or SIGSEGV.
+	static constexpr uint32_t MaxMetalSamplers = 16;
 	int texCount = 0;
 	for (uint32_t i = 0; i < MaxTextureUnits; i++) {
 		if (boundTextures[i]) {
 			id<MTLTexture> tex = boundTextures[i]->GetMTLTexture();
-			id<MTLSamplerState> sampler = boundTextures[i]->GetSamplerState();
 
 			if (tex) {
 				[renderEncoder setFragmentTexture:tex atIndex:i];
 				[renderEncoder setVertexTexture:tex atIndex:i];
 				texCount++;
 			}
-			if (sampler) {
-				[renderEncoder setFragmentSamplerState:sampler atIndex:i];
-				[renderEncoder setVertexSamplerState:sampler atIndex:i];
+			// Bind sampler only for slots within Metal's 16-sampler limit
+			if (i < MaxMetalSamplers) {
+				id<MTLSamplerState> sampler = boundTextures[i]->GetSamplerState();
+				id<MTLSamplerState> effectiveSampler = sampler ? sampler : defaultSampler;
+				[renderEncoder setFragmentSamplerState:effectiveSampler atIndex:i];
+				[renderEncoder setVertexSamplerState:effectiveSampler atIndex:i];
 			}
+		} else if (i < MaxMetalSamplers) {
+			// Bind default sampler for empty slots within the 16-sampler limit —
+			// the shader may reference a sampler at this index
+			[renderEncoder setFragmentSamplerState:defaultSampler atIndex:i];
+			[renderEncoder setVertexSamplerState:defaultSampler atIndex:i];
 		}
 	}
 
@@ -555,21 +625,34 @@ void MTLContext::Draw(PrimitiveType primitive, uint32_t vertexCount, uint32_t fi
 	if (!ApplyPipelineState()) return;
 	BindCurrentResources();
 
-	[renderEncoder drawPrimitives:ToMTLPrimitiveType(primitive)
-	                  vertexStart:firstVertex
-	                  vertexCount:vertexCount];
+	@try {
+		[renderEncoder drawPrimitives:ToMTLPrimitiveType(primitive)
+		                  vertexStart:firstVertex
+		                  vertexCount:vertexCount];
+	} @catch (NSException* exception) {
+		LOG_L(L_ERROR, "[MTLContext] Draw exception: %s — %s",
+		      [[exception name] UTF8String], [[exception reason] UTF8String]);
+	}
+
 }
 
 void MTLContext::DrawIndexed(PrimitiveType primitive, uint32_t indexCount, uint32_t firstIndex, int32_t vertexOffset) {
 	static int drawIdxLogCount = 0;
 	if (drawIdxLogCount++ < 10 || drawIdxLogCount % 5000 == 0) {
-		LOG("[MTL-DrawIdx] indices=%u pipeline=%p shader=%s encoder=%p",
+		LOG("[MTL-DrawIdx] indices=%u pipeline=%p shader=%s encoder=%p idxBuf=%p",
 		    indexCount, (void*)currentPipeline,
 		    currentShader ? currentShader->GetName().c_str() : "null",
-		    (void*)renderEncoder);
+		    (void*)renderEncoder,
+		    currentIndexBuffer ? (void*)currentIndexBuffer->GetMTLBuffer() : nullptr);
 	}
 	EnsureRenderEncoder();
 	if (!renderEncoder || !currentIndexBuffer) return;
+
+	id<MTLBuffer> idxBuf = currentIndexBuffer->GetMTLBuffer();
+	if (!idxBuf) {
+		LOG_L(L_ERROR, "[MTLContext] DrawIndexed: nil backing MTLBuffer for index buffer");
+		return;
+	}
 
 	if (!ApplyPipelineState()) return;
 	BindCurrentResources();
@@ -577,14 +660,20 @@ void MTLContext::DrawIndexed(PrimitiveType primitive, uint32_t indexCount, uint3
 	MTLIndexType indexType = ToMTLIndexType(currentIndexType);
 	size_t indexSize = (currentIndexType == IndexType::UInt16) ? 2 : 4;
 
-	[renderEncoder drawIndexedPrimitives:ToMTLPrimitiveType(primitive)
-	                          indexCount:indexCount
-	                           indexType:indexType
-	                         indexBuffer:currentIndexBuffer->GetMTLBuffer()
-	                   indexBufferOffset:firstIndex * indexSize
-	                       instanceCount:1
-	                          baseVertex:vertexOffset
-	                         baseInstance:0];
+	@try {
+		[renderEncoder drawIndexedPrimitives:ToMTLPrimitiveType(primitive)
+		                          indexCount:indexCount
+		                           indexType:indexType
+		                         indexBuffer:idxBuf
+		                   indexBufferOffset:firstIndex * indexSize
+		                       instanceCount:1
+		                          baseVertex:vertexOffset
+		                         baseInstance:0];
+	} @catch (NSException* exception) {
+		LOG_L(L_ERROR, "[MTLContext] DrawIndexed exception: %s — %s",
+		      [[exception name] UTF8String], [[exception reason] UTF8String]);
+	}
+
 }
 
 void MTLContext::DrawInstanced(PrimitiveType primitive, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) {
@@ -594,16 +683,27 @@ void MTLContext::DrawInstanced(PrimitiveType primitive, uint32_t vertexCount, ui
 	if (!ApplyPipelineState()) return;
 	BindCurrentResources();
 
-	[renderEncoder drawPrimitives:ToMTLPrimitiveType(primitive)
-	                  vertexStart:firstVertex
-	                  vertexCount:vertexCount
-	                instanceCount:instanceCount
-	                 baseInstance:firstInstance];
+	@try {
+		[renderEncoder drawPrimitives:ToMTLPrimitiveType(primitive)
+		                  vertexStart:firstVertex
+		                  vertexCount:vertexCount
+		                instanceCount:instanceCount
+		                 baseInstance:firstInstance];
+	} @catch (NSException* exception) {
+		LOG_L(L_ERROR, "[MTLContext] DrawInstanced exception: %s — %s",
+		      [[exception name] UTF8String], [[exception reason] UTF8String]);
+	}
 }
 
 void MTLContext::DrawIndexedInstanced(PrimitiveType primitive, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) {
 	EnsureRenderEncoder();
 	if (!renderEncoder || !currentIndexBuffer) return;
+
+	id<MTLBuffer> idxBuf = currentIndexBuffer->GetMTLBuffer();
+	if (!idxBuf) {
+		LOG_L(L_ERROR, "[MTLContext] DrawIndexedInstanced: nil backing MTLBuffer");
+		return;
+	}
 
 	if (!ApplyPipelineState()) return;
 	BindCurrentResources();
@@ -611,14 +711,19 @@ void MTLContext::DrawIndexedInstanced(PrimitiveType primitive, uint32_t indexCou
 	MTLIndexType indexType = ToMTLIndexType(currentIndexType);
 	size_t indexSize = (currentIndexType == IndexType::UInt16) ? 2 : 4;
 
-	[renderEncoder drawIndexedPrimitives:ToMTLPrimitiveType(primitive)
-	                          indexCount:indexCount
-	                           indexType:indexType
-	                         indexBuffer:currentIndexBuffer->GetMTLBuffer()
-	                   indexBufferOffset:firstIndex * indexSize
-	                       instanceCount:instanceCount
-	                          baseVertex:vertexOffset
-	                         baseInstance:firstInstance];
+	@try {
+		[renderEncoder drawIndexedPrimitives:ToMTLPrimitiveType(primitive)
+		                          indexCount:indexCount
+		                           indexType:indexType
+		                         indexBuffer:idxBuf
+		                   indexBufferOffset:firstIndex * indexSize
+		                       instanceCount:instanceCount
+		                          baseVertex:vertexOffset
+		                         baseInstance:firstInstance];
+	} @catch (NSException* exception) {
+		LOG_L(L_ERROR, "[MTLContext] DrawIndexedInstanced exception: %s — %s",
+		      [[exception name] UTF8String], [[exception reason] UTF8String]);
+	}
 }
 
 void MTLContext::DrawIndirect(PrimitiveType primitive, IRHIBuffer* buffer, size_t offset, uint32_t drawCount, uint32_t stride) {
@@ -943,8 +1048,22 @@ void MTLContext::BlitTexture(id<MTLTexture> srcTex, id<MTLTexture> dstTex,
 	const bool sameSize = (srcW == dstW && srcH == dstH);
 	const bool noFlip = (srcW > 0 && srcH > 0 && dstW > 0 && dstH > 0);
 	const bool sameFormat = (srcTex.pixelFormat == dstTex.pixelFormat);
+	const bool msaaResolve = (srcTex.sampleCount > 1 && dstTex.sampleCount == 1);
 
-	if (sameSize && noFlip && sameFormat) {
+	if (msaaResolve && sameSize && sameFormat) {
+		// MSAA resolve: source is multisampled, destination is not
+		// Metal does not allow copyFromTexture with mismatched sample counts;
+		// use a render pass with resolveTexture instead.
+		MTLRenderPassDescriptor* rpDesc = [MTLRenderPassDescriptor renderPassDescriptor];
+		rpDesc.colorAttachments[0].texture = srcTex;
+		rpDesc.colorAttachments[0].resolveTexture = dstTex;
+		rpDesc.colorAttachments[0].loadAction = MTLLoadActionLoad;
+		rpDesc.colorAttachments[0].storeAction = MTLStoreActionMultisampleResolve;
+
+		id<MTLRenderCommandEncoder> enc = [commandBuffer renderCommandEncoderWithDescriptor:rpDesc];
+		enc.label = @"RHI Blit (MSAA resolve)";
+		[enc endEncoding];
+	} else if (sameSize && noFlip && sameFormat && !msaaResolve) {
 		// Fast path: use blit command encoder for pixel-exact copy
 		const uint32_t srcTexH = (uint32_t)srcTex.height;
 		const uint32_t dstTexH = (uint32_t)dstTex.height;

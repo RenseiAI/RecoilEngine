@@ -111,6 +111,7 @@ trap cleanup EXIT
 
 # Use --isolation-dir to point engine at cont/ for all data (read + write).
 # This makes the engine find gamedata/parse_tdf.lua, base archives, etc.
+# export MTL_DEBUG_LAYER=1  # Enable for detailed Metal validation
 LAUNCH_CMD="$BINARY --metal-backend --isolation-dir $CONT_DIR $CONT_DIR/script.txt"
 echo "  Command: $LAUNCH_CMD"
 echo ""

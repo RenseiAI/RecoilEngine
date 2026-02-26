@@ -29,7 +29,7 @@ MTLPixelFormat MTLTexture::ToMTLPixelFormat(TextureFormat format) {
 		case TextureFormat::Depth16:         return MTLPixelFormatDepth16Unorm;
 		case TextureFormat::Depth24:         return MTLPixelFormatDepth32Float;  // No 24-bit depth on Metal
 		case TextureFormat::Depth32F:        return MTLPixelFormatDepth32Float;
-		case TextureFormat::Depth24Stencil8: return MTLPixelFormatDepth24Unorm_Stencil8;
+		case TextureFormat::Depth24Stencil8: return MTLPixelFormatDepth32Float_Stencil8;  // Depth24Unorm_Stencil8 unsupported on Apple Silicon
 		case TextureFormat::Depth32FStencil8: return MTLPixelFormatDepth32Float_Stencil8;
 		case TextureFormat::SRGB8Alpha8:     return MTLPixelFormatRGBA8Unorm_sRGB;
 		case TextureFormat::CompressedDXT1:  return MTLPixelFormatBC1_RGBA;
@@ -432,6 +432,12 @@ void MTLTexture::SetMaxLOD(float maxLod) {
 
 void MTLTexture::GenerateMipmaps() {
 	if (!mtlTexture || !device || !device->IsValid()) {
+		return;
+	}
+
+	// Metal requires the texture to have more than 1 mipmap level.
+	// Textures created without mipmaps (mipmapLevelCount == 1) must be skipped.
+	if (mtlTexture.mipmapLevelCount <= 1) {
 		return;
 	}
 
