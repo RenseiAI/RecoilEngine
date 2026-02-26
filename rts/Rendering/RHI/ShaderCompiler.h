@@ -63,20 +63,26 @@ public:
 	///   1. From attribLocations if the input name matches
 	///   2. Auto-assigned sequentially for unmatched inputs
 	/// This is required because Metal's stage_in struct needs [[attribute(N)]].
+	/// outputLocations: optional name->index map from BindOutputLocation.
+	/// Fragment outputs are assigned [[color(N)]] based on these mappings,
+	/// falling back to alphabetical auto-assignment for unmapped outputs.
 	std::string TranslateSPIRVToMSL(
 		const std::vector<uint32_t>& spirv,
 		const MSLCompilerOptions& options = MSLCompilerOptions{},
-		const std::unordered_map<std::string, uint32_t>& attribLocations = {});
+		const std::unordered_map<std::string, uint32_t>& attribLocations = {},
+		const std::unordered_map<std::string, uint32_t>& outputLocations = {});
 
 	/// Extract reflection data from SPIR-V.
 	ShaderReflection ReflectSPIRV(const std::vector<uint32_t>& spirv);
 
 	/// Convenience: compile GLSL directly to MSL (cached by content hash).
 	/// attribLocations: forwarded to TranslateSPIRVToMSL for vertex shaders.
+	/// outputLocations: forwarded for fragment output [[color(N)]] assignment.
 	std::string CompileGLSLToMSL(
 		const std::string& source,
 		CompilerShaderStage stage,
-		const std::unordered_map<std::string, uint32_t>& attribLocations = {});
+		const std::unordered_map<std::string, uint32_t>& attribLocations = {},
+		const std::unordered_map<std::string, uint32_t>& outputLocations = {});
 
 	/// Retrieve cached reflection data for a previously compiled shader.
 	/// Returns nullptr if not found in cache.

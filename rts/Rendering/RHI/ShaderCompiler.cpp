@@ -94,6 +94,126 @@ static void RemapOutOfBoundsBufferIndices(std::string& msl) {
 // Forward declaration: defined later after CompileSPIRVToMSL
 static ShaderReflection ExtractReflectionFromCompiler(spirv_cross::CompilerMSL& compiler);
 
+/// Fix SPIRV-Cross bug: gl_PerVertex output block variables are referenced but
+/// never declared in vertex shaders compiled from GLSL compatibility profile.
+///
+/// SPIRV-Cross generates fixup code like:
+///   out.m_14_RESERVED_IDENTIFIER_FIXUP_gl_FrontColor = _14._RESERVED_IDENTIFIER_FIXUP_gl_FrontColor;
+/// where "_14" (the SPIR-V ID of the gl_PerVertex block) is never declared.
+/// This happens because SPIRV-Cross skips local declarations for builtin output
+/// variables in non-tessellation vertex shaders.
+///
+/// Fix: parse the MSL to find undeclared variable IDs, derive their struct type
+/// from the output struct member declarations, and insert proper declarations.
+static void FixGlPerVertexDeclarations(std::string& msl) {
+	const std::string FIXUP_GL = "_RESERVED_IDENTIFIER_FIXUP_gl_";
+	const std::string DOT_FIXUP_GL = "." + FIXUP_GL;
+
+	// Step 1: Find undeclared gl_PerVertex variable accesses.
+	// Pattern: standalone _NNN._RESERVED_IDENTIFIER_FIXUP_gl_MEMBER
+	// (not "m_NNN_..." which is an output struct member definition)
+	struct MemberInfo {
+		std::string fullMemberName;  // e.g. "_RESERVED_IDENTIFIER_FIXUP_gl_FrontColor"
+		std::string type;            // e.g. "float4"
+	};
+
+	std::map<std::string, std::vector<MemberInfo>> undeclaredVars;  // varId -> members
+	std::map<std::string, std::set<std::string>> seenMembers;
+
+	size_t searchPos = 0;
+	while ((searchPos = msl.find(DOT_FIXUP_GL, searchPos)) != std::string::npos) {
+		size_t dotPos = searchPos;
+
+		// Walk backward past digits to find the variable name "_NNN"
+		size_t numEnd = dotPos;
+		size_t cursor = dotPos;
+		while (cursor > 0 && msl[cursor - 1] >= '0' && msl[cursor - 1] <= '9')
+			cursor--;
+
+		// Must have at least one digit preceded by '_'
+		if (cursor == numEnd || cursor == 0 || msl[cursor - 1] != '_') {
+			searchPos = dotPos + 1;
+			continue;
+		}
+		cursor--;  // include the leading '_'
+
+		// Must be standalone: preceded by whitespace, '=', '(', etc.
+		// This excludes "out.m_14_..." struct member access patterns.
+		if (cursor > 0 && (std::isalnum(msl[cursor - 1]) || msl[cursor - 1] == '_')) {
+			searchPos = dotPos + 1;
+			continue;
+		}
+
+		std::string varId = msl.substr(cursor, numEnd - cursor);  // e.g. "_14"
+		std::string idNum = varId.substr(1);                       // e.g. "14"
+
+		// Extract member suffix
+		size_t memberStart = dotPos + DOT_FIXUP_GL.size();
+		size_t memberEnd = memberStart;
+		while (memberEnd < msl.size() && (std::isalnum(msl[memberEnd]) || msl[memberEnd] == '_'))
+			memberEnd++;
+		std::string memberSuffix = msl.substr(memberStart, memberEnd - memberStart);
+		std::string fullMember = FIXUP_GL + memberSuffix;
+
+		if (seenMembers[varId].insert(fullMember).second) {
+			// Derive the type from the output struct member "TYPE m_NNN_MEMBER"
+			std::string structMemberPat = "m_" + idNum + "_" + fullMember;
+			size_t structPos = msl.find(structMemberPat);
+			std::string type = "float4";  // safe default for gl_ builtins
+
+			if (structPos != std::string::npos) {
+				size_t lineStart = msl.rfind('\n', structPos);
+				lineStart = (lineStart == std::string::npos) ? 0 : lineStart + 1;
+				std::string prefix = msl.substr(lineStart, structPos - lineStart);
+				size_t typeStart = prefix.find_first_not_of(" \t");
+				if (typeStart != std::string::npos) {
+					size_t typeEnd = prefix.find(' ', typeStart);
+					if (typeEnd != std::string::npos)
+						type = prefix.substr(typeStart, typeEnd - typeStart);
+				}
+			}
+
+			undeclaredVars[varId].push_back({fullMember, type});
+		}
+
+		searchPos = dotPos + 1;
+	}
+
+	if (undeclaredVars.empty()) return;
+
+	// Step 2: Insert struct definitions and variable declarations
+	for (const auto& [varId, members] : undeclaredVars) {
+		std::string structTypeName = "gl_PerVertex" + varId + "_t";
+
+		std::string structDef = "struct " + structTypeName + " {\n";
+		for (const auto& m : members) {
+			structDef += "    " + m.type + " " + m.fullMemberName + ";\n";
+		}
+		structDef += "};\n\n";
+
+		// Find the vertex function
+		size_t funcPos = msl.find("vertex vertexMain_out vertexMain(");
+		if (funcPos == std::string::npos)
+			funcPos = msl.find("vertex main0_out main0(");
+		if (funcPos == std::string::npos) continue;
+
+		// Insert struct definition before the vertex function
+		msl.insert(funcPos, structDef);
+		funcPos += structDef.size();
+
+		// Find the opening '{' of the function body
+		size_t bracePos = msl.find('{', funcPos);
+		if (bracePos == std::string::npos) continue;
+
+		// Insert variable declaration right after '{'
+		std::string varDecl = "\n    " + structTypeName + " " + varId + " = {};\n";
+		msl.insert(bracePos + 1, varDecl);
+
+		LOG("[ShaderCompiler] Declared gl_PerVertex variable '%s' with %zu members (SPIRV-Cross workaround)",
+		    varId.c_str(), members.size());
+	}
+}
+
 static EShLanguage ToGlslangStage(CompilerShaderStage stage) {
 	switch (stage) {
 		case CompilerShaderStage::Vertex:   return EShLangVertex;
@@ -260,7 +380,8 @@ std::vector<uint32_t> ShaderCompiler::CompileGLSLToSPIRV(
 std::string ShaderCompiler::TranslateSPIRVToMSL(
 	const std::vector<uint32_t>& spirv,
 	const MSLCompilerOptions& options,
-	const std::unordered_map<std::string, uint32_t>& attribLocations)
+	const std::unordered_map<std::string, uint32_t>& attribLocations,
+	const std::unordered_map<std::string, uint32_t>& outputLocations)
 {
 	lastError.clear();
 
@@ -421,15 +542,34 @@ std::string ShaderCompiler::TranslateSPIRVToMSL(
 				assignLocationsSorted(resources.stage_inputs, "varying input");
 
 				// --- Fragment stage outputs (MRT color attachments) ---
-				// Metal requires [[color(N)]] attributes on fragment output struct members.
-				// If GLSL uses unsized arrays (e.g., `out vec4 fragColor[5]`) instead of
-				// explicit `layout(location=N)`, the Location decoration may be missing.
-				// Assign sequential locations so SPIRV-Cross emits [[color(N)]].
+				// Apply explicit output locations from BindOutputLocation first.
+				// Without this, alphabetical auto-assignment can produce wrong
+				// [[color(N)]] indices, causing PSO creation failures when the
+				// fragment output component count doesn't match the render target.
+				if (!outputLocations.empty()) {
+					for (const auto& v : resources.stage_outputs) {
+						if (mslCompiler.has_decoration(v.id, spv::DecorationLocation))
+							continue;
+						if (mslCompiler.has_decoration(v.id, spv::DecorationBuiltIn))
+							continue;
+						const std::string outName = mslCompiler.get_name(v.id);
+						auto outIt = outputLocations.find(outName);
+						if (outIt != outputLocations.end()) {
+							mslCompiler.set_decoration(v.id, spv::DecorationLocation, outIt->second);
+							LOG("[ShaderCompiler] Assigned color attachment location %u to '%s' (from BindOutputLocation)",
+							    outIt->second, outName.c_str());
+						}
+					}
+				}
+				// Auto-assign remaining unlocated outputs alphabetically
 				assignLocationsSorted(resources.stage_outputs, "color attachment");
 			}
 		}
 
 		std::string msl = mslCompiler.compile();
+
+		// Post-process MSL: fix undeclared gl_PerVertex variables
+		FixGlPerVertexDeclarations(msl);
 
 		// Post-process MSL: fix address-space mismatch in helper functions.
 		//
@@ -609,7 +749,8 @@ static ShaderReflection ExtractReflectionFromCompiler(spirv_cross::CompilerMSL& 
 std::string ShaderCompiler::CompileGLSLToMSL(
 	const std::string& source,
 	CompilerShaderStage stage,
-	const std::unordered_map<std::string, uint32_t>& attribLocations)
+	const std::unordered_map<std::string, uint32_t>& attribLocations,
+	const std::unordered_map<std::string, uint32_t>& outputLocations)
 {
 	const uint64_t key = HashSource(source, stage);
 
@@ -756,10 +897,23 @@ std::string ShaderCompiler::CompileGLSLToMSL(
 				assignLocationsSorted(resources.stage_inputs, "varying input");
 
 				// --- Fragment stage outputs (MRT color attachments) ---
-				// Metal requires [[color(N)]] attributes on fragment output struct members.
-				// If GLSL uses unsized arrays (e.g., `out vec4 fragColor[5]`) instead of
-				// explicit `layout(location=N)`, the Location decoration may be missing.
-				// Assign sequential locations so SPIRV-Cross emits [[color(N)]].
+				// Apply explicit output locations from BindOutputLocation first.
+				if (!outputLocations.empty()) {
+					for (const auto& v : resources.stage_outputs) {
+						if (mslCompiler.has_decoration(v.id, spv::DecorationLocation))
+							continue;
+						if (mslCompiler.has_decoration(v.id, spv::DecorationBuiltIn))
+							continue;
+						const std::string outName = mslCompiler.get_name(v.id);
+						auto outIt = outputLocations.find(outName);
+						if (outIt != outputLocations.end()) {
+							mslCompiler.set_decoration(v.id, spv::DecorationLocation, outIt->second);
+							LOG("[ShaderCompiler] Assigned color attachment location %u to '%s' (from BindOutputLocation)",
+							    outIt->second, outName.c_str());
+						}
+					}
+				}
+				// Auto-assign remaining unlocated outputs alphabetically
 				assignLocationsSorted(resources.stage_outputs, "color attachment");
 			}
 		}
@@ -797,6 +951,9 @@ std::string ShaderCompiler::CompileGLSLToMSL(
 
 		// Generate MSL — this triggers auto-assignment of [[buffer(N)]] etc.
 		std::string msl = mslCompiler.compile();
+
+		// Post-process MSL: fix undeclared gl_PerVertex variables
+		FixGlPerVertexDeclarations(msl);
 
 		// Post-process: fix address-space mismatch in helper functions
 		{
@@ -884,7 +1041,7 @@ std::vector<uint32_t> ShaderCompiler::CompileGLSLToSPIRV(const std::string&, Com
 	return {};
 }
 
-std::string ShaderCompiler::TranslateSPIRVToMSL(const std::vector<uint32_t>&, const MSLCompilerOptions&, const std::unordered_map<std::string, uint32_t>&) {
+std::string ShaderCompiler::TranslateSPIRVToMSL(const std::vector<uint32_t>&, const MSLCompilerOptions&, const std::unordered_map<std::string, uint32_t>&, const std::unordered_map<std::string, uint32_t>&) {
 	lastError = "ShaderCompiler: Metal shader pipeline only available on Apple platforms";
 	return {};
 }
@@ -894,7 +1051,7 @@ ShaderReflection ShaderCompiler::ReflectSPIRV(const std::vector<uint32_t>&) {
 	return {};
 }
 
-std::string ShaderCompiler::CompileGLSLToMSL(const std::string&, CompilerShaderStage, const std::unordered_map<std::string, uint32_t>&) {
+std::string ShaderCompiler::CompileGLSLToMSL(const std::string&, CompilerShaderStage, const std::unordered_map<std::string, uint32_t>&, const std::unordered_map<std::string, uint32_t>&) {
 	lastError = "ShaderCompiler: Metal shader pipeline only available on Apple platforms";
 	return {};
 }

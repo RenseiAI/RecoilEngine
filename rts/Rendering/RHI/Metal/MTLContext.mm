@@ -101,6 +101,18 @@ void MTLContext::BeginFrame() {
 
 void MTLContext::EndFrame() {
 	@autoreleasepool {
+		// Log per-frame draw totals
+		static int frameCount = 0;
+		if (frameCount++ < 20 || frameCount % 300 == 0) {
+			LOG("[MTL-Frame] frame=%d draws=%u drawIdx=%u drawInst=%u drawIdxInst=%u",
+			    frameCount - 1, frameDrawCount, frameDrawIdxCount,
+			    frameDrawInstCount, frameDrawIdxInstCount);
+		}
+		frameDrawCount = 0;
+		frameDrawIdxCount = 0;
+		frameDrawInstCount = 0;
+		frameDrawIdxInstCount = 0;
+
 		// End any active render pass
 		if (inRenderPass) {
 			EndRenderPass();
@@ -146,10 +158,15 @@ void MTLContext::BeginRenderPass(IRHIFramebuffer* framebuffer, const RenderPassD
 	currentFramebuffer = static_cast<MTLFramebuffer*>(framebuffer);
 	currentPassDesc = desc;
 
+	// Set hasDepth based on whether the FBO has a depth attachment
+	if (currentFramebuffer && currentFramebuffer->GetDepthPixelFormat() != MTLPixelFormatInvalid) {
+		currentPassDesc.hasDepth = true;
+	}
+
 	// Create render pass descriptor
 	MTLRenderPassDescriptor* rpDesc = nil;
 	if (currentFramebuffer) {
-		rpDesc = currentFramebuffer->CreateRenderPassDescriptor(desc);
+		rpDesc = currentFramebuffer->CreateRenderPassDescriptor(currentPassDesc);
 	}
 
 	if (!rpDesc) {
@@ -178,6 +195,7 @@ void MTLContext::BeginDefaultRenderPass(const RenderPassDesc& desc) {
 
 	currentFramebuffer = nullptr;
 	currentPassDesc = desc;
+	currentPassDesc.hasDepth = true;  // Default render pass always has depth
 
 	// Create render pass descriptor for the screen
 	MTLRenderPassDescriptor* rpDesc = [MTLRenderPassDescriptor renderPassDescriptor];
@@ -378,7 +396,8 @@ bool MTLContext::ApplyPipelineState() {
 	id<MTLRenderPipelineState> pipelineState =
 		pipeline->GetRenderPipelineState(currentShader, colorFormat, depthFormat,
 		                                 hasVertexLayout ? &currentVertexLayout : nullptr,
-		                                 blendOverride, perInstanceStride);
+		                                 blendOverride, perInstanceStride,
+		                                 currentFramebuffer);
 
 	if (!pipelineState) {
 		LOG_L(L_ERROR, "[MTL-PSO] GetRenderPipelineState returned nil for shader '%s'",
@@ -619,6 +638,7 @@ void MTLContext::BindCurrentResources() {
 }
 
 void MTLContext::Draw(PrimitiveType primitive, uint32_t vertexCount, uint32_t firstVertex) {
+	frameDrawCount++;
 	static int drawLogCount = 0;
 	if (drawLogCount++ < 10 || drawLogCount % 5000 == 0) {
 		LOG("[MTL-Draw] verts=%u pipeline=%p shader=%s encoder=%p",
@@ -644,6 +664,7 @@ void MTLContext::Draw(PrimitiveType primitive, uint32_t vertexCount, uint32_t fi
 }
 
 void MTLContext::DrawIndexed(PrimitiveType primitive, uint32_t indexCount, uint32_t firstIndex, int32_t vertexOffset) {
+	frameDrawIdxCount++;
 	static int drawIdxLogCount = 0;
 	if (drawIdxLogCount++ < 10 || drawIdxLogCount % 5000 == 0) {
 		LOG("[MTL-DrawIdx] indices=%u pipeline=%p shader=%s encoder=%p idxBuf=%p",
@@ -684,6 +705,14 @@ void MTLContext::DrawIndexed(PrimitiveType primitive, uint32_t indexCount, uint3
 }
 
 void MTLContext::DrawInstanced(PrimitiveType primitive, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) {
+	frameDrawInstCount++;
+	static int drawInstLogCount = 0;
+	if (drawInstLogCount++ < 20 || drawInstLogCount % 5000 == 0) {
+		LOG("[MTL-DrawInst] verts=%u instances=%u shader=%s encoder=%p",
+		    vertexCount, instanceCount,
+		    currentShader ? currentShader->GetName().c_str() : "null",
+		    (void*)renderEncoder);
+	}
 	EnsureRenderEncoder();
 	if (!renderEncoder) return;
 
@@ -703,6 +732,14 @@ void MTLContext::DrawInstanced(PrimitiveType primitive, uint32_t vertexCount, ui
 }
 
 void MTLContext::DrawIndexedInstanced(PrimitiveType primitive, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) {
+	frameDrawIdxInstCount++;
+	static int drawIdxInstLogCount = 0;
+	if (drawIdxInstLogCount++ < 20 || drawIdxInstLogCount % 5000 == 0) {
+		LOG("[MTL-DrawIdxInst] indices=%u instances=%u shader=%s encoder=%p",
+		    indexCount, instanceCount,
+		    currentShader ? currentShader->GetName().c_str() : "null",
+		    (void*)renderEncoder);
+	}
 	EnsureRenderEncoder();
 	if (!renderEncoder || !currentIndexBuffer) return;
 

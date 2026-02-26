@@ -127,7 +127,9 @@ void MTLShader::Link() {
 	}
 
 	if (!fragmentSource.empty()) {
-		fragmentMSL = shaderCompiler->CompileGLSLToMSL(fragmentSourceWithDefines, CompilerShaderStage::Fragment);
+		// Pass outputLocations so SPIRV-Cross can assign correct [[color(N)]]
+		// decorations to fragment outputs matching the FBO attachment layout
+		fragmentMSL = shaderCompiler->CompileGLSLToMSL(fragmentSourceWithDefines, CompilerShaderStage::Fragment, {}, outputLocations);
 		if (fragmentMSL.empty()) {
 			LOG_L(L_ERROR, "[MTLShader] %s: Failed to compile fragment shader: %s",
 			      shaderName.c_str(), shaderCompiler->GetLastError().c_str());

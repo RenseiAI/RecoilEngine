@@ -3,6 +3,7 @@
 #import "MTLPipeline.h"
 #import "MTLDevice.h"
 #import "MTLShader.h"
+#import "MTLFramebuffer.h"
 
 #import <Metal/Metal.h>
 
@@ -196,7 +197,8 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
                                                                 MTLPixelFormat depthFormat,
                                                                 const VertexLayout* vertexLayout,
                                                                 const BlendState* blendOverride,
-                                                                uint32_t instanceStride) {
+                                                                uint32_t instanceStride,
+                                                                MTLFramebuffer* framebuffer) {
 	if (!shader || !shader->IsValid()) {
 		return nil;
 	}
@@ -229,14 +231,23 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
 	key ^= (static_cast<uintptr_t>(depthFormat) * 3266489917ULL);
 	// Include instance stride so per-vertex vs per-instance layout differences produce distinct PSOs
 	key ^= (static_cast<uintptr_t>(instanceStride) * 1640531527ULL);
+	// Include MRT color attachment count + per-attachment formats for distinct PSOs
+	const uint32_t fboColorCount = framebuffer ? framebuffer->GetColorAttachmentCount() : 1;
+	key ^= (static_cast<uintptr_t>(fboColorCount) * 4197999714ULL);
+	if (framebuffer && fboColorCount > 1) {
+		for (uint32_t i = 1; i < fboColorCount; i++) {
+			key ^= (static_cast<uintptr_t>(framebuffer->GetColorPixelFormat(i)) * (2246822519ULL + i));
+		}
+	}
 
 	auto it = pipelineCache.find(key);
 	if (it != pipelineCache.end()) {
 		return it->second;
 	}
 
-	LOG("[MTLPipeline] PSO cache miss for shader '%s' (colorFmt=%lu depthFmt=%lu vtxLayout=%d blend=%d/%d/%d/%d/%d/%d mask=%d%d%d%d)",
+	LOG("[MTLPipeline] PSO cache miss for shader '%s' (colorFmt=%lu depthFmt=%lu colorAttachments=%u vtxLayout=%d blend=%d/%d/%d/%d/%d/%d mask=%d%d%d%d)",
 	    shader->GetName().c_str(), (unsigned long)colorFormat, (unsigned long)depthFormat,
+	    fboColorCount,
 	    vertexLayout ? (int)vertexLayout->attributeCount : -1,
 	    (int)blend.enabled, (int)blend.srcColor, (int)blend.dstColor,
 	    (int)blend.srcAlpha, (int)blend.dstAlpha, (int)blend.colorOp,
@@ -264,30 +275,34 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
 	pipelineDesc.vertexFunction = vtxFn;
 	pipelineDesc.fragmentFunction = fragFn;
 
-	// Color attachment configuration
-	MTLRenderPipelineColorAttachmentDescriptor* colorAttachment = pipelineDesc.colorAttachments[0];
-	colorAttachment.pixelFormat = colorFormat;
-
-	// Blend state (from override or pipeline desc)
-	if (blend.enabled) {
-		colorAttachment.blendingEnabled = YES;
-		colorAttachment.sourceRGBBlendFactor = ToMTLBlendFactor(blend.srcColor);
-		colorAttachment.destinationRGBBlendFactor = ToMTLBlendFactor(blend.dstColor);
-		colorAttachment.rgbBlendOperation = ToMTLBlendOp(blend.colorOp);
-		colorAttachment.sourceAlphaBlendFactor = ToMTLBlendFactor(blend.srcAlpha);
-		colorAttachment.destinationAlphaBlendFactor = ToMTLBlendFactor(blend.dstAlpha);
-		colorAttachment.alphaBlendOperation = ToMTLBlendOp(blend.alphaOp);
-	} else {
-		colorAttachment.blendingEnabled = NO;
-	}
-
-	// Color write mask
+	// Color write mask (shared across all color attachments)
 	MTLColorWriteMask writeMask = MTLColorWriteMaskNone;
 	if (blend.colorMask[0]) writeMask |= MTLColorWriteMaskRed;
 	if (blend.colorMask[1]) writeMask |= MTLColorWriteMaskGreen;
 	if (blend.colorMask[2]) writeMask |= MTLColorWriteMaskBlue;
 	if (blend.colorMask[3]) writeMask |= MTLColorWriteMaskAlpha;
-	colorAttachment.writeMask = writeMask;
+
+	// Color attachment configuration — MRT support
+	// When a framebuffer is provided, configure each color attachment with
+	// its actual pixel format. Otherwise use the single colorFormat for attachment 0.
+	for (uint32_t i = 0; i < fboColorCount; i++) {
+		MTLRenderPipelineColorAttachmentDescriptor* ca = pipelineDesc.colorAttachments[i];
+		ca.pixelFormat = (framebuffer && fboColorCount > 1)
+			? framebuffer->GetColorPixelFormat(i) : colorFormat;
+
+		if (blend.enabled) {
+			ca.blendingEnabled = YES;
+			ca.sourceRGBBlendFactor = ToMTLBlendFactor(blend.srcColor);
+			ca.destinationRGBBlendFactor = ToMTLBlendFactor(blend.dstColor);
+			ca.rgbBlendOperation = ToMTLBlendOp(blend.colorOp);
+			ca.sourceAlphaBlendFactor = ToMTLBlendFactor(blend.srcAlpha);
+			ca.destinationAlphaBlendFactor = ToMTLBlendFactor(blend.dstAlpha);
+			ca.alphaBlendOperation = ToMTLBlendOp(blend.alphaOp);
+		} else {
+			ca.blendingEnabled = NO;
+		}
+		ca.writeMask = writeMask;
+	}
 
 	// Vertex descriptor — maps RHI VertexLayout to Metal vertex descriptor
 	// Use buffer index 30 for vertex data to avoid conflicts with SPIRV-Cross

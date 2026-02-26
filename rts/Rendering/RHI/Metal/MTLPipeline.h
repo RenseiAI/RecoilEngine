@@ -32,6 +32,7 @@ namespace RHI {
 
 class MTLDevice;
 class MTLShader;
+class MTLFramebuffer;
 
 class MTLPipeline : public IRHIPipeline {
 public:
@@ -58,12 +59,15 @@ public:
 	/// instanceStride: stride for per-instance buffer (Metal buffer index 29).
 	/// Needed because SetVertexLayout is additive and the single VertexLayout::stride
 	/// gets overwritten by the last call (instance attribs), losing the per-vertex stride.
+	/// framebuffer: when non-null, configures MRT color attachment formats
+	/// from the FBO instead of using the single colorFormat for attachment 0.
 	id<MTLRenderPipelineState> GetRenderPipelineState(MTLShader* shader,
 	                                                   MTLPixelFormat colorFormat,
 	                                                   MTLPixelFormat depthFormat,
 	                                                   const VertexLayout* vertexLayout = nullptr,
 	                                                   const BlendState* blendOverride = nullptr,
-	                                                   uint32_t instanceStride = 0);
+	                                                   uint32_t instanceStride = 0,
+	                                                   MTLFramebuffer* framebuffer = nullptr);
 
 	/// Get the depth-stencil state
 	id<MTLDepthStencilState> GetDepthStencilState() const { return depthStencilState; }

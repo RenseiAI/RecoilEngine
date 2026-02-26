@@ -273,6 +273,12 @@ private:
 	uint32_t defaultDepthWidth = 0;
 	uint32_t defaultDepthHeight = 0;
 
+	// Per-frame draw counters (reset in EndFrame)
+	uint32_t frameDrawCount = 0;
+	uint32_t frameDrawIdxCount = 0;
+	uint32_t frameDrawInstCount = 0;
+	uint32_t frameDrawIdxInstCount = 0;
+
 	// Render pass state
 	bool        inRenderPass = false;
 	RenderPassDesc currentPassDesc;
