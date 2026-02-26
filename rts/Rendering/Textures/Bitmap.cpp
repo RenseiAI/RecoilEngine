@@ -19,6 +19,7 @@
 #include <utility>
 #include <cstring>
 #include <memory>
+#include <vector>
 
 #include <IL/il.h>
 #include <SDL_video.h>
@@ -1944,11 +1945,13 @@ std::unique_ptr<RHI::IRHITexture> CBitmap::CreateTextureRHI(float aniso, float l
 	if (!device)
 		return nullptr;
 
-	// Determine format based on channels
+	// Determine format based on channels.
+	// Metal has no native RGB8 format — it maps RGB8 -> RGBA8 internally, so
+	// GetBytesPerPixel(RGB8) returns 4 while the source has only 3 bytes/pixel.
+	// To avoid a buffer overread in replaceRegion:withBytes:bytesPerRow:, we
+	// always use RGBA8 for 3-channel bitmaps and expand the data ourselves.
 	RHI::TextureFormat format = RHI::TextureFormat::RGBA8;
-	if (channels == 3)
-		format = RHI::TextureFormat::RGB8;
-	else if (channels == 1)
+	if (channels == 1)
 		format = RHI::TextureFormat::R8;
 
 	// Calculate mip levels
@@ -1963,8 +1966,22 @@ std::unique_ptr<RHI::IRHITexture> CBitmap::CreateTextureRHI(float aniso, float l
 	if (!texture)
 		return nullptr;
 
-	// Upload base level
-	texture->Upload(0, 0, 0, xsize, ysize, GetRawMem());
+	// Upload base level — expand RGB to RGBA so the upload stride matches the
+	// RGBA8 texture format that Metal uses internally for all colour textures.
+	if (channels == 3) {
+		const size_t pixelCount = static_cast<size_t>(xsize) * static_cast<size_t>(ysize);
+		std::vector<uint8_t> rgbaData(pixelCount * 4);
+		const uint8_t* src = GetRawMem();
+		for (size_t i = 0; i < pixelCount; ++i) {
+			rgbaData[i * 4 + 0] = src[i * 3 + 0];
+			rgbaData[i * 4 + 1] = src[i * 3 + 1];
+			rgbaData[i * 4 + 2] = src[i * 3 + 2];
+			rgbaData[i * 4 + 3] = 255;
+		}
+		texture->Upload(0, 0, 0, xsize, ysize, rgbaData.data());
+	} else {
+		texture->Upload(0, 0, 0, xsize, ysize, GetRawMem());
+	}
 
 	// Generate mipmaps
 	if (numLevels > 1)

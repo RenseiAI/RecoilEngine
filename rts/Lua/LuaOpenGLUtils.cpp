@@ -3,14 +3,18 @@
 /**
  * Lua OpenGL Utilities Implementation
  *
- * RHI Migration Status: Phase 19.1 — Expanded engine texture resolution on Metal
+ * RHI Migration Status: Phase 20 — S3O/3DO, cubemap, decal atlas texture resolution on Metal
  * - GetTextureID/GetTextureTarget: Returns GL handles (unchanged, not called on Metal)
  * - Bind/Unbind: Metal-guarded; resolved via ResolveEngineTexture() helper on Metal
  * - BindToUnit/UnbindFromUnit: Metal-guarded; resolved via ResolveEngineTexture() helper on Metal
  *
  * ResolveEngineTexture() resolves each LUATEX_* type to an IRHITexture* where the
- * underlying engine subsystem already owns an RHI texture object.  Types that only
- * have a raw GL ID (cubemaps, G-buffers, S3O/3DO atlases) remain no-ops on Metal
+ * underlying engine subsystem already owns an RHI texture object.
+ * - LUATEX_UNITTEXTURE1/2: resolved via CS3OTextureHandler S3OTexMat::tex1RHI/tex2RHI (Phase 20.0)
+ * - LUATEX_3DOTEXTURE: resolved via C3DOTextureHandler::GetAtlasTex1()/GetAtlasTex2() (Phase 20.0)
+ * - Cubemap textures: resolved via CubeMapHandler RHI texture accessors (Phase 20.1)
+ * - LUATEX_DECALS_ATLAS: resolved via IGroundDecalDrawer::GetRHITexture() (Phase 20.2)
+ * Types with only raw GL IDs (G-buffers, info textures) remain no-ops on Metal
  * because GLAD is not loaded on the Metal backend — raw GL IDs cannot be wrapped.
  */
 
@@ -914,13 +918,50 @@ static RHI::IRHITexture* ResolveEngineTexture(const LuaMatTexture& tex)
 			return icon::iconHandler.GetAtlasRHITexture(1);
 		}
 
+		// Cubemap textures: CubeMapHandler owns IRHITexture objects
+		case LuaMatTexture::LUATEX_MAP_REFLECTION: {
+			return cubeMapHandler.GetEnvReflectionTexture();
+		}
+		case LuaMatTexture::LUATEX_SKY_REFLECTION: {
+			return cubeMapHandler.GetSkyReflectionTexture();
+		}
+		case LuaMatTexture::LUATEX_SPECULAR: {
+			return cubeMapHandler.GetSpecularTexture();
+		}
+
+		// S3O model textures: CS3OTextureHandler stores shared_ptr<IRHITexture> per material.
+		// tex.data holds the texType int (material index) set by ParseTexture().
+		case LuaMatTexture::LUATEX_UNITTEXTURE1: {
+			const CS3OTextureHandler::S3OTexMat* stex =
+				textureHandlerS3O.GetTexture(*reinterpret_cast<const int*>(&tex.data));
+			if (stex == nullptr)
+				return nullptr;
+			return stex->tex1RHI.get();
+		}
+		case LuaMatTexture::LUATEX_UNITTEXTURE2: {
+			const CS3OTextureHandler::S3OTexMat* stex =
+				textureHandlerS3O.GetTexture(*reinterpret_cast<const int*>(&tex.data));
+			if (stex == nullptr)
+				return nullptr;
+			return stex->tex2RHI.get();
+		}
+
+		// 3DO model textures: C3DOTextureHandler stores unique_ptr<IRHITexture> for each atlas.
+		// tex.data holds 1 (atlas1) or 2 (atlas2) set by ParseUnitTexture().
+		case LuaMatTexture::LUATEX_3DOTEXTURE: {
+			if (*reinterpret_cast<const int*>(&tex.data) == 1)
+				return textureHandler3DO.GetAtlasTex1();
+			return textureHandler3DO.GetAtlasTex2();
+		}
+
+		// Decal atlas: IGroundDecalDrawer owns a CTextureRenderAtlas with IRHITexture
+		case LuaMatTexture::LUATEX_DECALS_ATLAS: {
+			return groundDecals ? groundDecals->GetRHITexture() : nullptr;
+		}
+
 		// Types with only raw GL IDs — not resolvable on Metal:
-		//   LUATEX_UNITTEXTURE1/2 — CS3OTextureHandler GL atlas IDs
-		//   LUATEX_3DOTEXTURE     — C3DOTextureHandler GL atlas IDs
-		//   LUATEX_MAP_REFLECTION / SKY_REFLECTION / SPECULAR — GL cubemap IDs
 		//   LUATEX_MAP_GBUFFER_*  / MODEL_GBUFFER_* — GL FBO attachment IDs
 		//   LUATEX_INFOTEX_*      — CNullInfoTextureHandler on Metal (returns 0)
-		//   LUATEX_DECALS_ATLAS   — IGroundDecalDrawer has no GetRHITexture() in base interface
 		default:
 			return nullptr;
 	}

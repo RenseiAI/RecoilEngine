@@ -50,11 +50,12 @@ public:
 	// --- Metal-specific accessors ---
 
 	/// Get or create a render pipeline state for the given shader.
-	/// Caches compiled states by shader pointer + vertex layout hash.
+	/// Caches compiled states by shader pointer + vertex layout hash + blend override hash.
 	id<MTLRenderPipelineState> GetRenderPipelineState(MTLShader* shader,
 	                                                   MTLPixelFormat colorFormat,
 	                                                   MTLPixelFormat depthFormat,
-	                                                   const VertexLayout* vertexLayout = nullptr);
+	                                                   const VertexLayout* vertexLayout = nullptr,
+	                                                   const BlendState* blendOverride = nullptr);
 
 	/// Get the depth-stencil state
 	id<MTLDepthStencilState> GetDepthStencilState() const { return depthStencilState; }

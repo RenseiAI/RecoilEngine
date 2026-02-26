@@ -92,18 +92,17 @@ public:
 	void SetMultisampleEnabled(bool enabled) override {}
 	void SetSampleShading(bool enabled, float minRate) override {}
 
-	// --- Dynamic state (Metal handles via pipeline descriptors — no-ops) ---
-	// TODO: Track state changes and apply them when creating render command encoder
-	void SetDepthWriteEnabled(bool enabled) override {}
-	void SetBlendEnabled(bool enabled) override {}
-	void SetBlendFunc(BlendFactor src, BlendFactor dst) override {}
-	void SetBlendFuncSeparate(BlendFactor srcColor, BlendFactor dstColor, BlendFactor srcAlpha, BlendFactor dstAlpha) override {}
-	void SetBlendEquation(BlendOp op) override {}            // Metal: pipeline state
-	void SetBlendEquationSeparate(BlendOp colorOp, BlendOp alphaOp) override {} // Metal: pipeline state
-	void SetBlendColor(float r, float g, float b, float a) override {} // Metal: set via render encoder
+	// --- Dynamic state tracked and applied via pipeline override ---
+	void SetDepthWriteEnabled(bool enabled) override;
+	void SetBlendEnabled(bool enabled) override;
+	void SetBlendFunc(BlendFactor src, BlendFactor dst) override;
+	void SetBlendFuncSeparate(BlendFactor srcColor, BlendFactor dstColor, BlendFactor srcAlpha, BlendFactor dstAlpha) override;
+	void SetBlendEquation(BlendOp op) override;
+	void SetBlendEquationSeparate(BlendOp colorOp, BlendOp alphaOp) override;
+	void SetBlendColor(float r, float g, float b, float a) override;
 	void SetCullFaceEnabled(bool enabled) override {}
 	void SetCullFace(CullMode mode) override {}
-	void SetColorMask(bool r, bool g, bool b, bool a) override {}
+	void SetColorMask(bool r, bool g, bool b, bool a) override;
 	void SetPolygonOffset(bool enabled, float factor, float units) override {}
 	void SetLineWidth(float width) override {}
 	void SetPointSize(float size) override {}
@@ -236,6 +235,12 @@ private:
 	VertexAttribute storedAttributes[MaxVertexAttribs] = {};
 	VertexLayout currentVertexLayout{};
 	bool hasVertexLayout = false;
+
+	// Dynamic blend/depth state (overrides pipeline desc at draw time)
+	BlendState        dynamicBlend;
+	bool              dynamicBlendDirty = false;
+	bool              dynamicDepthWrite = false;
+	bool              dynamicDepthWriteDirty = false;
 
 	// Render pass state
 	bool        inRenderPass = false;

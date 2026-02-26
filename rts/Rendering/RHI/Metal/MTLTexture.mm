@@ -2,6 +2,7 @@
 
 #import "MTLTexture.h"
 #import "MTLDevice.h"
+#import "MTLContext.h"
 
 #import <Metal/Metal.h>
 #include <cstring>
@@ -222,13 +223,17 @@ MTLTexture::~MTLTexture() {
 }
 
 void MTLTexture::Bind(uint32_t unit) {
-	// Metal doesn't have global texture binding state.
-	// Textures are set directly on command encoder.
-	(void)unit;
+	// Forward to context so the texture is registered in boundTextures[]
+	// and set on the render encoder at draw time.
+	if (device) {
+		device->GetContext()->BindTexture(this, unit);
+	}
 }
 
 void MTLTexture::Unbind(uint32_t unit) {
-	(void)unit;
+	if (device) {
+		device->GetContext()->BindTexture(nullptr, unit);
+	}
 }
 
 void MTLTexture::Upload(uint32_t level, uint32_t x, uint32_t y,

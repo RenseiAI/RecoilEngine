@@ -1181,7 +1181,9 @@ inline void TypedRenderBuffer<T>::DrawArrays(uint32_t mode, bool rewind)
 			rhiSh->Bind();
 			rhiSh->SetUniformMatrix4fv("transformMatrix", false, mvp);
 		} else {
-			static_cast<Shader::IProgramObject*>(shaderHandler->GetCurrentlyBoundProgram())->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
+			auto* boundProg = shaderHandler->GetCurrentlyBoundProgram();
+			if (boundProg)
+				static_cast<Shader::IProgramObject*>(boundProg)->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
 		}
 
 		ctx->BindVertexBuffer(rhiVbo.get(), 0);
@@ -1279,7 +1281,9 @@ inline void TypedRenderBuffer<T>::DrawElements(uint32_t mode, bool rewind)
 			rhiSh->Bind();
 			rhiSh->SetUniformMatrix4fv("transformMatrix", false, mvp);
 		} else {
-			static_cast<Shader::IProgramObject*>(shaderHandler->GetCurrentlyBoundProgram())->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
+			auto* boundProg = shaderHandler->GetCurrentlyBoundProgram();
+			if (boundProg)
+				static_cast<Shader::IProgramObject*>(boundProg)->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
 		}
 
 		ctx->BindVertexBuffer(rhiVbo.get(), 0);

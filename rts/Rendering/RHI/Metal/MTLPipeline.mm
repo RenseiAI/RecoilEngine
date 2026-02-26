@@ -186,15 +186,30 @@ void MTLPipeline::CreateDepthStencilState() {
 id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader,
                                                                 MTLPixelFormat colorFormat,
                                                                 MTLPixelFormat depthFormat,
-                                                                const VertexLayout* vertexLayout) {
+                                                                const VertexLayout* vertexLayout,
+                                                                const BlendState* blendOverride) {
 	if (!shader || !shader->IsValid()) {
 		return nil;
 	}
 
-	// Cache key: shader pointer XOR vertex layout hash
+	// Use dynamic blend override if provided, otherwise pipeline's own blend state
+	const BlendState& blend = blendOverride ? *blendOverride : desc.blend;
+
+	// Cache key: shader pointer XOR vertex layout hash XOR blend state hash
 	uintptr_t key = reinterpret_cast<uintptr_t>(shader);
 	if (vertexLayout)
 		key ^= HashVertexLayout(*vertexLayout);
+	// Include blend state in cache key so different blend modes get different PSOs
+	{
+		uintptr_t blendKey = static_cast<uintptr_t>(blend.enabled);
+		blendKey = (blendKey << 4) ^ static_cast<uintptr_t>(blend.srcColor);
+		blendKey = (blendKey << 4) ^ static_cast<uintptr_t>(blend.dstColor);
+		blendKey = (blendKey << 4) ^ static_cast<uintptr_t>(blend.srcAlpha);
+		blendKey = (blendKey << 4) ^ static_cast<uintptr_t>(blend.dstAlpha);
+		blendKey = (blendKey << 2) ^ static_cast<uintptr_t>(blend.colorOp);
+		blendKey = (blendKey << 2) ^ static_cast<uintptr_t>(blend.alphaOp);
+		key ^= (blendKey * 0x9e3779b97f4a7c15ULL); // golden ratio hash mix
+	}
 
 	auto it = pipelineCache.find(key);
 	if (it != pipelineCache.end()) {
@@ -212,25 +227,25 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
 	MTLRenderPipelineColorAttachmentDescriptor* colorAttachment = pipelineDesc.colorAttachments[0];
 	colorAttachment.pixelFormat = colorFormat;
 
-	// Blend state
-	if (desc.blend.enabled) {
+	// Blend state (from override or pipeline desc)
+	if (blend.enabled) {
 		colorAttachment.blendingEnabled = YES;
-		colorAttachment.sourceRGBBlendFactor = ToMTLBlendFactor(desc.blend.srcColor);
-		colorAttachment.destinationRGBBlendFactor = ToMTLBlendFactor(desc.blend.dstColor);
-		colorAttachment.rgbBlendOperation = ToMTLBlendOp(desc.blend.colorOp);
-		colorAttachment.sourceAlphaBlendFactor = ToMTLBlendFactor(desc.blend.srcAlpha);
-		colorAttachment.destinationAlphaBlendFactor = ToMTLBlendFactor(desc.blend.dstAlpha);
-		colorAttachment.alphaBlendOperation = ToMTLBlendOp(desc.blend.alphaOp);
+		colorAttachment.sourceRGBBlendFactor = ToMTLBlendFactor(blend.srcColor);
+		colorAttachment.destinationRGBBlendFactor = ToMTLBlendFactor(blend.dstColor);
+		colorAttachment.rgbBlendOperation = ToMTLBlendOp(blend.colorOp);
+		colorAttachment.sourceAlphaBlendFactor = ToMTLBlendFactor(blend.srcAlpha);
+		colorAttachment.destinationAlphaBlendFactor = ToMTLBlendFactor(blend.dstAlpha);
+		colorAttachment.alphaBlendOperation = ToMTLBlendOp(blend.alphaOp);
 	} else {
 		colorAttachment.blendingEnabled = NO;
 	}
 
 	// Color write mask
 	MTLColorWriteMask writeMask = MTLColorWriteMaskNone;
-	if (desc.blend.colorMask[0]) writeMask |= MTLColorWriteMaskRed;
-	if (desc.blend.colorMask[1]) writeMask |= MTLColorWriteMaskGreen;
-	if (desc.blend.colorMask[2]) writeMask |= MTLColorWriteMaskBlue;
-	if (desc.blend.colorMask[3]) writeMask |= MTLColorWriteMaskAlpha;
+	if (blend.colorMask[0]) writeMask |= MTLColorWriteMaskRed;
+	if (blend.colorMask[1]) writeMask |= MTLColorWriteMaskGreen;
+	if (blend.colorMask[2]) writeMask |= MTLColorWriteMaskBlue;
+	if (blend.colorMask[3]) writeMask |= MTLColorWriteMaskAlpha;
 	colorAttachment.writeMask = writeMask;
 
 	// Vertex descriptor — maps RHI VertexLayout to Metal vertex descriptor

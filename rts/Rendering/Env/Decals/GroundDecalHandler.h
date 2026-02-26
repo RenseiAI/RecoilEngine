@@ -50,6 +50,7 @@ public:
 	uint32_t GetTexID() const override { return 0; }
 	uint32_t GetTexTarget() const override { return 0; }
 	std::array<uint32_t, 3> GetTexSize() const override { return std::array<uint32_t, 3>{0}; }
+	RHI::IRHITexture* GetRHITexture() const override { return atlasTex ? atlasTex->GetRHITexture() : nullptr; }
 
 	void AddSolidObject(const CSolidObject* object) override {}
 	void ForceRemoveSolidObject(const CSolidObject* object) override {}

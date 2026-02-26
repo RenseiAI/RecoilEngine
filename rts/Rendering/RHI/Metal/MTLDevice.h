@@ -166,6 +166,9 @@ public:
 
 	/// Get the drawable texture for rendering to screen.
 	id<MTLTexture> GetDrawableTexture();
+
+	/// Release the current drawable (must be called after EndFrame presents it).
+	void ClearCurrentDrawable() { currentDrawable = nil; }
 #endif
 
 	/// Check if the device is properly initialized

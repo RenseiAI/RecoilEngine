@@ -84,34 +84,40 @@ void MTLContext::BeginFrame() {
 }
 
 void MTLContext::EndFrame() {
-	// End any active render pass
-	if (inRenderPass) {
-		EndRenderPass();
+	@autoreleasepool {
+		// End any active render pass
+		if (inRenderPass) {
+			EndRenderPass();
+		}
+
+		if (!commandBuffer) {
+			// Still release the drawable even if no command buffer
+			device->ClearCurrentDrawable();
+			return;
+		}
+
+		// Present the drawable
+		id<CAMetalDrawable> drawable = device->GetCurrentDrawable();
+		if (drawable) {
+			[commandBuffer presentDrawable:drawable];
+		}
+
+		// Add completion handler to signal semaphore
+		__block dispatch_semaphore_t blockSemaphore = frameSemaphore;
+		[commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+			(void)buffer;
+			dispatch_semaphore_signal(blockSemaphore);
+		}];
+
+		// Commit the command buffer
+		[commandBuffer commit];
+
+		// Clear state for next frame — drawable must be released so the layer
+		// can recycle it; each CAMetalDrawable can only be presented once.
+		commandBuffer = nil;
+		renderEncoder = nil;
+		device->ClearCurrentDrawable();
 	}
-
-	if (!commandBuffer) {
-		return;
-	}
-
-	// Present the drawable
-	id<CAMetalDrawable> drawable = device->GetCurrentDrawable();
-	if (drawable) {
-		[commandBuffer presentDrawable:drawable];
-	}
-
-	// Add completion handler to signal semaphore
-	__block dispatch_semaphore_t blockSemaphore = frameSemaphore;
-	[commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
-		(void)buffer;
-		dispatch_semaphore_signal(blockSemaphore);
-	}];
-
-	// Commit the command buffer
-	[commandBuffer commit];
-
-	// Clear state for next frame
-	commandBuffer = nil;
-	renderEncoder = nil;
 }
 
 void MTLContext::BeginRenderPass(IRHIFramebuffer* framebuffer, const RenderPassDesc& desc) {
@@ -283,9 +289,13 @@ bool MTLContext::ApplyPipelineState() {
 		depthFormat = currentFramebuffer->GetDepthPixelFormat();
 	}
 
+	// Pass dynamic blend state override if it has been set
+	const BlendState* blendOverride = dynamicBlendDirty ? &dynamicBlend : nullptr;
+
 	id<MTLRenderPipelineState> pipelineState =
 		pipeline->GetRenderPipelineState(currentShader, colorFormat, depthFormat,
-		                                 hasVertexLayout ? &currentVertexLayout : nullptr);
+		                                 hasVertexLayout ? &currentVertexLayout : nullptr,
+		                                 blendOverride);
 
 	if (!pipelineState) {
 		return false;
@@ -302,6 +312,63 @@ bool MTLContext::ApplyPipelineState() {
 	// Apply rasterizer state
 	pipeline->ApplyRasterizerState(renderEncoder);
 	return true;
+}
+
+// --- Dynamic blend/depth state implementations ---
+
+void MTLContext::SetBlendEnabled(bool enabled) {
+	dynamicBlend.enabled = enabled;
+	dynamicBlendDirty = true;
+}
+
+void MTLContext::SetBlendFunc(BlendFactor src, BlendFactor dst) {
+	dynamicBlend.srcColor = src;
+	dynamicBlend.dstColor = dst;
+	dynamicBlend.srcAlpha = src;
+	dynamicBlend.dstAlpha = dst;
+	dynamicBlendDirty = true;
+}
+
+void MTLContext::SetBlendFuncSeparate(BlendFactor srcColor, BlendFactor dstColor,
+                                      BlendFactor srcAlpha, BlendFactor dstAlpha) {
+	dynamicBlend.srcColor = srcColor;
+	dynamicBlend.dstColor = dstColor;
+	dynamicBlend.srcAlpha = srcAlpha;
+	dynamicBlend.dstAlpha = dstAlpha;
+	dynamicBlendDirty = true;
+}
+
+void MTLContext::SetBlendEquation(BlendOp op) {
+	dynamicBlend.colorOp = op;
+	dynamicBlend.alphaOp = op;
+	dynamicBlendDirty = true;
+}
+
+void MTLContext::SetBlendEquationSeparate(BlendOp colorOp, BlendOp alphaOp) {
+	dynamicBlend.colorOp = colorOp;
+	dynamicBlend.alphaOp = alphaOp;
+	dynamicBlendDirty = true;
+}
+
+void MTLContext::SetBlendColor(float r, float g, float b, float a) {
+	dynamicBlend.blendColor[0] = r;
+	dynamicBlend.blendColor[1] = g;
+	dynamicBlend.blendColor[2] = b;
+	dynamicBlend.blendColor[3] = a;
+	dynamicBlendDirty = true;
+}
+
+void MTLContext::SetColorMask(bool r, bool g, bool b, bool a) {
+	dynamicBlend.colorMask[0] = r;
+	dynamicBlend.colorMask[1] = g;
+	dynamicBlend.colorMask[2] = b;
+	dynamicBlend.colorMask[3] = a;
+	dynamicBlendDirty = true;
+}
+
+void MTLContext::SetDepthWriteEnabled(bool enabled) {
+	dynamicDepthWrite = enabled;
+	dynamicDepthWriteDirty = true;
 }
 
 void MTLContext::BindCurrentResources() {

@@ -70,7 +70,6 @@ void ShowSplashScreen(
 
 	auto& rb = RenderBuffer::GetTypedRenderBuffer<VA_TYPE_2DT>();
 	rb.AssertSubmission();
-	auto& sh = rb.GetShader();
 
 	for (spring_time t0 = spring_now(), t1 = t0; !testDoneFunc(); t1 = spring_now()) {
 		auto* ctx = RHI::GetDevice()->GetContext();
@@ -95,11 +94,12 @@ void ShowSplashScreen(
 		);
 
 		if (!RHI::IsMetalBackend()) {
+			auto& sh = rb.GetShader();
 			sh.Enable();
-		}
-		rb.DrawElements(GL_TRIANGLES);
-		if (!RHI::IsMetalBackend()) {
+			rb.DrawElements(GL_TRIANGLES);
 			sh.Disable();
+		} else {
+			rb.DrawElements(GL_TRIANGLES);
 		}
 
 		font->Begin();

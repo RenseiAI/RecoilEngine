@@ -8,6 +8,8 @@
 #include "Decals/GroundDecal.h"
 #include "System/creg/creg.h"
 
+namespace RHI { class IRHITexture; }
+
 class CSolidObject;
 class GhostSolidObject;
 
@@ -29,6 +31,7 @@ public:
 	virtual uint32_t GetTexID() const = 0;
 	virtual uint32_t GetTexTarget() const = 0;
 	virtual std::array<uint32_t, 3> GetTexSize() const = 0;
+	virtual RHI::IRHITexture* GetRHITexture() const { return nullptr; }
 
 	virtual uint32_t CreateLuaDecal() = 0;
 	virtual bool DeleteLuaDecal(uint32_t id) = 0;
