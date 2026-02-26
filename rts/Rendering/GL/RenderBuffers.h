@@ -521,8 +521,9 @@ inline const std::string RenderBufferShader<VA_TYPE_TC3>::GetFragOutput()
 template<>
 inline const std::string RenderBufferShader<VA_TYPE_PROJ>::GetFragOutput()
 {
-	assert(false); //change tex type to sampler2darray
-	return "\toutColor = vcolor * texture(tex, vuvw);";
+	// TODO: projectile rendering may need sampler2DArray for texture array
+	// For now, use 2D coords to avoid glslang parse failure
+	return "\toutColor = vcolor * texture(tex, vuvw.st);";
 }
 
 template<>
@@ -558,7 +559,7 @@ inline const std::string RenderBufferShader<VA_TYPE_2DTC>::GetFragOutput()
 template<>
 inline const std::string RenderBufferShader<VA_TYPE_2DTC3>::GetFragOutput()
 {
-	return "\toutColor = vcolor * texture(tex, vuv);";
+	return "\toutColor = vcolor * texture(tex, vuvw.st);";
 }
 
 template <typename T>
@@ -1172,18 +1173,26 @@ inline void TypedRenderBuffer<T>::DrawArrays(uint32_t mode, bool rewind)
 			mvp = RenderBuffer::globalProjection * RenderBuffer::globalModelView;
 		}
 
-		// Use external override if set, else cross-compiled RHI shader, else GL fallback
-		auto* rhiSh = externalShaderOverride ? externalShaderOverride : GetRHIShader();
+		// Shader priority: external override > caller's RHI shader > auto-generated RB shader
+		// "Caller's RHI shader" handles terrain/model shaders bound via RHIProgramObject::Enable()
+		RHI::IRHIShader* callerRHIShader = nullptr;
+		auto* boundProg = shaderHandler->GetCurrentlyBoundProgram();
+		if (boundProg)
+			callerRHIShader = boundProg->GetBoundRHIShader();
+
+		auto* rhiSh = externalShaderOverride ? externalShaderOverride :
+		              callerRHIShader ? callerRHIShader :
+		              GetRHIShader();
 		if (externalShaderOverride)
 			externalShaderOverride = nullptr; // consumed
 		if (rhiSh) {
 			ctx->BindShader(rhiSh);
 			rhiSh->Bind();
-			rhiSh->SetUniformMatrix4fv("transformMatrix", false, mvp);
-		} else {
-			auto* boundProg = shaderHandler->GetCurrentlyBoundProgram();
-			if (boundProg)
-				static_cast<Shader::IProgramObject*>(boundProg)->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
+			if (!callerRHIShader) {
+				// Only set transformMatrix for auto-generated RB shaders.
+				// Caller shaders (terrain/model) manage their own uniforms.
+				rhiSh->SetUniformMatrix4fv("transformMatrix", false, mvp);
+			}
 		}
 
 		ctx->BindVertexBuffer(rhiVbo.get(), 0);
@@ -1272,18 +1281,26 @@ inline void TypedRenderBuffer<T>::DrawElements(uint32_t mode, bool rewind)
 			mvp = RenderBuffer::globalProjection * RenderBuffer::globalModelView;
 		}
 
-		// Use external override if set, else cross-compiled RHI shader, else GL fallback
-		auto* rhiSh = externalShaderOverride ? externalShaderOverride : GetRHIShader();
+		// Shader priority: external override > caller's RHI shader > auto-generated RB shader
+		// "Caller's RHI shader" handles terrain/model shaders bound via RHIProgramObject::Enable()
+		RHI::IRHIShader* callerRHIShader = nullptr;
+		auto* boundProg = shaderHandler->GetCurrentlyBoundProgram();
+		if (boundProg)
+			callerRHIShader = boundProg->GetBoundRHIShader();
+
+		auto* rhiSh = externalShaderOverride ? externalShaderOverride :
+		              callerRHIShader ? callerRHIShader :
+		              GetRHIShader();
 		if (externalShaderOverride)
 			externalShaderOverride = nullptr; // consumed
 		if (rhiSh) {
 			ctx->BindShader(rhiSh);
 			rhiSh->Bind();
-			rhiSh->SetUniformMatrix4fv("transformMatrix", false, mvp);
-		} else {
-			auto* boundProg = shaderHandler->GetCurrentlyBoundProgram();
-			if (boundProg)
-				static_cast<Shader::IProgramObject*>(boundProg)->SetUniformMatrix4x4<float>("transformMatrix", false, mvp);
+			if (!callerRHIShader) {
+				// Only set transformMatrix for auto-generated RB shaders.
+				// Caller shaders (terrain/model) manage their own uniforms.
+				rhiSh->SetUniformMatrix4fv("transformMatrix", false, mvp);
+			}
 		}
 
 		ctx->BindVertexBuffer(rhiVbo.get(), 0);

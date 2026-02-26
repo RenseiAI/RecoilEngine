@@ -112,6 +112,7 @@ set(sources_engine_Rendering
 		"${CMAKE_CURRENT_SOURCE_DIR}/Shaders/LuaShaderContainer.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Shader.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Shaders/ShaderHandler.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/Shaders/RHIProgramObject.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/Shaders/ShaderStates.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/ShadowHandler.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/TeamHighlight.cpp"

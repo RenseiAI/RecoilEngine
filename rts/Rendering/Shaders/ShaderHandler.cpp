@@ -4,6 +4,7 @@
 
 #include "Rendering/Shaders/ShaderHandler.h"
 #include "Rendering/Shaders/Shader.h"
+#include "Rendering/Shaders/RHIProgramObject.h"
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "System/Log/ILog.h"
@@ -123,8 +124,10 @@ Shader::IProgramObject* CShaderHandler::CreateProgramObject(const std::string& p
 		programObjects[poClass] = ProgramObjMap();
 	}
 
-	// GLSLProgramObject uses raw GL (glCreateProgram, etc.) — return null on Metal
+	// On non-OpenGL backends (Metal), create RHIProgramObject which wraps IRHIShader
+	// and cross-compiles GLSL -> SPIR-V -> MSL at Link() time
 	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL) {
+		po = new Shader::RHIProgramObject(poName);
 		programObjects[poClass][poName] = po;
 		return po;
 	}
@@ -144,10 +147,9 @@ Shader::IShaderObject* CShaderHandler::CreateShaderObject(const std::string& soN
 	assert(!soName.empty());
 	Shader::IShaderObject* so = Shader::nullShaderObject;
 #ifndef HEADLESS
-	// GLSLShaderObject uses raw GL (glCreateShader, etc.) — return null on Metal
-	if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL)
-		return so;
-
+	// On Metal, create GLSLShaderObject to store source path + defines.
+	// Its constructor is GL-free; CompileShaderObject() (GL-only) won't be called.
+	// RHIProgramObject reads the source via GetSrcText()/ReloadFromDisk() instead.
 	so = new Shader::GLSLShaderObject(soType, soName, soDefs);
 
 	if (so == Shader::nullShaderObject) {

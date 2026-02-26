@@ -63,6 +63,12 @@ namespace Shader {
 
 		void SetDefinitions(const std::string& defs) { modDefStrs = defs; }
 		std::string GetShaderSource(const std::string& fileName);
+
+		/// Source accessors for RHIProgramObject (reads loaded source without GL)
+		const std::string& GetSrcFile() const { return srcFile; }
+		const std::string& GetSrcText() const { return srcText; }
+		const std::string& GetRawDefStrs() const { return rawDefStrs; }
+		const std::string& GetModDefStrs() const { return modDefStrs; }
 	protected:
 		unsigned int objID;
 		unsigned int type;
@@ -183,6 +189,11 @@ namespace Shader {
 		}
 
 		unsigned int GetObjID() const { return objID; }
+
+		/// Returns the underlying RHI shader if this program uses the RHI backend
+		/// (e.g., RHIProgramObject on Metal). Returns nullptr for GL programs.
+		/// Used by TypedRenderBuffer to prefer the caller's shader over its own.
+		virtual RHI::IRHIShader* GetBoundRHIShader() const { return nullptr; }
 
 		const std::string& GetName() const { return name; }
 		const std::string& GetLog() const { return log; }
