@@ -15,6 +15,7 @@
 #include <spirv_msl.hpp>
 
 #include <algorithm>
+#include <regex>
 #include <set>
 
 #include "System/Log/ILog.h"
@@ -22,6 +23,73 @@
 namespace RHI {
 
 // --- Helpers ---
+
+// Post-process MSL to remap [[buffer(N)]] indices that exceed Metal's limit of 30.
+// SPIRV-Cross auto-assigns buffer indices without knowledge of Metal's constraint;
+// large uniform arrays (e.g., gl_TextureMatrix[32]) or many standalone uniforms can
+// push indices past 30. This rewrites the MSL text to compact indices into 0-29,
+// reserving index 30 for the vertex buffer.
+static void RemapOutOfBoundsBufferIndices(std::string& msl) {
+	// Find all [[buffer(N)]] occurrences and collect used indices
+	std::set<int> usedIndices;
+	std::regex bufferRe(R"(\[\[buffer\((\d+)\)\]\])");
+	{
+		auto begin = std::sregex_iterator(msl.begin(), msl.end(), bufferRe);
+		auto end = std::sregex_iterator();
+		for (auto it = begin; it != end; ++it) {
+			usedIndices.insert(std::stoi((*it)[1].str()));
+		}
+	}
+
+	// Check if any index exceeds 30 (Metal's max buffer argument table index)
+	bool needsRemap = false;
+	for (int idx : usedIndices) {
+		if (idx > 29) { // reserve 30 for vertex buffer
+			needsRemap = true;
+			break;
+		}
+	}
+	if (!needsRemap) return;
+
+	// Build remap table: assign out-of-bounds indices to free slots in 0-29
+	// Collect in-bounds indices that we must preserve
+	std::set<int> takenSlots;
+	for (int idx : usedIndices) {
+		if (idx <= 29) {
+			takenSlots.insert(idx);
+		}
+	}
+
+	std::map<int, int> remap;
+	int nextFree = 0;
+	for (int idx : usedIndices) {
+		if (idx > 29) {
+			// Find next slot in 0-29 not taken by an existing in-bounds index or previous remap
+			while (nextFree <= 29 && takenSlots.count(nextFree))
+				nextFree++;
+			if (nextFree > 29) {
+				LOG_L(L_WARNING, "[ShaderCompiler] Cannot remap buffer(%d): no free slots in 0-29", idx);
+				return; // give up if we can't fit
+			}
+			remap[idx] = nextFree;
+			takenSlots.insert(nextFree);
+			LOG("[ShaderCompiler] Remapped [[buffer(%d)]] -> [[buffer(%d)]] (Metal limit)", idx, nextFree);
+			nextFree++;
+		}
+	}
+
+	// Apply remapping — replace from highest index first to avoid cascading
+	for (auto it = remap.rbegin(); it != remap.rend(); ++it) {
+		if (it->first == it->second) continue;
+		std::string oldStr = "[[buffer(" + std::to_string(it->first) + ")]]";
+		std::string newStr = "[[buffer(" + std::to_string(it->second) + ")]]";
+		size_t pos = 0;
+		while ((pos = msl.find(oldStr, pos)) != std::string::npos) {
+			msl.replace(pos, oldStr.size(), newStr);
+			pos += newStr.size();
+		}
+	}
+}
 
 // Forward declaration: defined later after CompileSPIRVToMSL
 static ShaderReflection ExtractReflectionFromCompiler(spirv_cross::CompilerMSL& compiler);
@@ -106,11 +174,30 @@ std::vector<uint32_t> ShaderCompiler::CompileGLSLToSPIRV(
 {
 	lastError.clear();
 
+	// Pre-process: join backslash-continuation lines. GLSL 1.10 (which we use
+	// as the default parse version for ECompatibilityProfile) does not support
+	// line continuation in preprocessor directives. Some shaders (e.g., decals)
+	// declare #version 130+ and use backslash continuations in #define macros.
+	// Joining them before parsing avoids "line continuation not supported" errors.
+	std::string preprocessed;
+	preprocessed.reserve(source.size());
+	for (size_t i = 0; i < source.size(); ++i) {
+		if (source[i] == '\\' && i + 1 < source.size() && source[i + 1] == '\n') {
+			++i; // skip the backslash and newline
+			continue;
+		}
+		if (source[i] == '\\' && i + 2 < source.size() && source[i + 1] == '\r' && source[i + 2] == '\n') {
+			i += 2; // skip backslash, CR, LF
+			continue;
+		}
+		preprocessed += source[i];
+	}
+
 	const EShLanguage glslangStage = ToGlslangStage(stage);
 	glslang::TShader shader(glslangStage);
 
-	const char* sources[] = { source.c_str() };
-	const int   lengths[] = { static_cast<int>(source.size()) };
+	const char* sources[] = { preprocessed.c_str() };
+	const int   lengths[] = { static_cast<int>(preprocessed.size()) };
 	shader.setStringsWithLengths(sources, lengths, 1);
 	shader.setEntryPoint(entryPoint.c_str());
 	shader.setSourceEntryPoint(entryPoint.c_str());
@@ -235,14 +322,32 @@ std::string ShaderCompiler::TranslateSPIRVToMSL(
 
 			// Helper: assign locations to a set of variables, sorted by name
 			// for deterministic cross-stage matching
+			// Compute how many locations a variable consumes.
+			// Arrays consume one location per element; matrices consume one per column.
+			auto getLocationCount = [&](uint32_t typeId) -> uint32_t {
+				const spirv_cross::SPIRType& type = mslCompiler.get_type(typeId);
+				uint32_t count = 1;
+				// Arrays: multiply by array size (check variable type, not base type)
+				if (!type.array.empty())
+					count *= type.array[0];
+				// Matrices: each column is a separate location
+				if (type.columns > 1)
+					count *= type.columns;
+				return count;
+			};
+
 			auto assignLocationsSorted = [&](
 				const spirv_cross::SmallVector<spirv_cross::Resource>& vars,
 				const char* label)
 			{
 				std::set<uint32_t> usedLocs;
 				for (const auto& v : vars) {
-					if (mslCompiler.has_decoration(v.id, spv::DecorationLocation))
-						usedLocs.insert(mslCompiler.get_decoration(v.id, spv::DecorationLocation));
+					if (mslCompiler.has_decoration(v.id, spv::DecorationLocation)) {
+						uint32_t baseLoc = mslCompiler.get_decoration(v.id, spv::DecorationLocation);
+						uint32_t numLocs = getLocationCount(v.type_id);
+						for (uint32_t i = 0; i < numLocs; ++i)
+							usedLocs.insert(baseLoc + i);
+					}
 				}
 
 				// Collect unlocated, non-builtin variables and sort by name
@@ -258,12 +363,19 @@ std::string ShaderCompiler::TranslateSPIRVToMSL(
 
 				uint32_t nextLoc = 0;
 				for (const auto& [name, id] : unlocated) {
+					// Use type_id from the resource for location counting
+					uint32_t typeId = 0;
+					for (const auto& v : vars) {
+						if (v.id == id) { typeId = v.type_id; break; }
+					}
+					uint32_t numLocs = getLocationCount(typeId);
 					while (usedLocs.count(nextLoc)) nextLoc++;
 					mslCompiler.set_decoration(id, spv::DecorationLocation, nextLoc);
-					usedLocs.insert(nextLoc);
-					LOG("[ShaderCompiler] Auto-assigned %s location %u to '%s'",
-					    label, nextLoc, name.c_str());
-					nextLoc++;
+					for (uint32_t i = 0; i < numLocs; ++i)
+						usedLocs.insert(nextLoc + i);
+					LOG("[ShaderCompiler] Auto-assigned %s location %u (+%u) to '%s'",
+					    label, nextLoc, numLocs, name.c_str());
+					nextLoc += numLocs;
 				}
 			};
 
@@ -339,32 +451,41 @@ std::string ShaderCompiler::TranslateSPIRVToMSL(
 			while ((pos = msl.find(needle, pos)) != std::string::npos) {
 				// Find the & that makes this a reference parameter
 				// Pattern: "thread const TYPE& NAME" → "TYPE NAME"
-				size_t ampPos = msl.find('&', pos + needle.size());
-				size_t commaPos = msl.find(',', pos + needle.size());
-				size_t parenPos = msl.find(')', pos + needle.size());
+				// Must skip commas inside template angle brackets <...>
+				size_t searchStart = pos + needle.size();
 				size_t nextLine = msl.find('\n', pos);
+				if (nextLine == std::string::npos) nextLine = msl.size();
 
-				// The & must come before the next comma, closing paren, or newline
-				size_t limit = std::min({commaPos, parenPos, nextLine});
-				if (ampPos != std::string::npos && ampPos < limit) {
-					// Remove "thread const " prefix
+				size_t ampPos = std::string::npos;
+				size_t endPos = std::string::npos; // first , or ) outside templates
+				int angleDepth = 0;
+				for (size_t i = searchStart; i < nextLine; ++i) {
+					char c = msl[i];
+					if (c == '<') { angleDepth++; continue; }
+					if (c == '>') { angleDepth--; continue; }
+					if (angleDepth > 0) continue;
+					if (c == '&' && ampPos == std::string::npos) { ampPos = i; continue; }
+					if (c == ',' || c == ')') { endPos = i; break; }
+				}
+
+				if (ampPos != std::string::npos && (endPos == std::string::npos || ampPos < endPos)) {
+					// Remove "thread const " prefix and "&" reference → pass by value.
 					msl.erase(pos, needle.size());
-					// Recalculate ampPos after the erase
 					ampPos -= needle.size();
-					// Remove the "& " (reference + space)
 					if (ampPos < msl.size() && msl[ampPos] == '&') {
 						msl.erase(ampPos, 1);
-						// Also remove a trailing space if present
 						if (ampPos < msl.size() && msl[ampPos] == ' ')
 							; // keep the space (it's between type and name)
 					}
-					// Don't advance pos — check same position again in case of
-					// multiple "thread const" params on the same line
+					// Don't advance pos — check same position again
 				} else {
 					pos += needle.size();
 				}
 			}
 		}
+
+		// Remap any [[buffer(N)]] indices > 29 into free slots (Metal limit)
+		RemapOutOfBoundsBufferIndices(msl);
 
 		return msl;
 	} catch (const spirv_cross::CompilerError& e) {
@@ -547,14 +668,29 @@ std::string ShaderCompiler::CompileGLSLToMSL(
 			}
 			const bool isVertexStage = (execModel == spv::ExecutionModelVertex);
 
+			// Compute how many locations a variable consumes.
+			auto getLocationCount = [&](uint32_t typeId) -> uint32_t {
+				const spirv_cross::SPIRType& type = mslCompiler.get_type(typeId);
+				uint32_t count = 1;
+				if (!type.array.empty())
+					count *= type.array[0];
+				if (type.columns > 1)
+					count *= type.columns;
+				return count;
+			};
+
 			auto assignLocationsSorted = [&](
 				const spirv_cross::SmallVector<spirv_cross::Resource>& vars,
 				const char* label)
 			{
 				std::set<uint32_t> usedLocs;
 				for (const auto& v : vars) {
-					if (mslCompiler.has_decoration(v.id, spv::DecorationLocation))
-						usedLocs.insert(mslCompiler.get_decoration(v.id, spv::DecorationLocation));
+					if (mslCompiler.has_decoration(v.id, spv::DecorationLocation)) {
+						uint32_t baseLoc = mslCompiler.get_decoration(v.id, spv::DecorationLocation);
+						uint32_t numLocs = getLocationCount(v.type_id);
+						for (uint32_t i = 0; i < numLocs; ++i)
+							usedLocs.insert(baseLoc + i);
+					}
 				}
 
 				std::vector<std::pair<std::string, uint32_t>> unlocated;
@@ -569,12 +705,18 @@ std::string ShaderCompiler::CompileGLSLToMSL(
 
 				uint32_t nextLoc = 0;
 				for (const auto& [name, id] : unlocated) {
+					uint32_t typeId = 0;
+					for (const auto& v : vars) {
+						if (v.id == id) { typeId = v.type_id; break; }
+					}
+					uint32_t numLocs = getLocationCount(typeId);
 					while (usedLocs.count(nextLoc)) nextLoc++;
 					mslCompiler.set_decoration(id, spv::DecorationLocation, nextLoc);
-					usedLocs.insert(nextLoc);
-					LOG("[ShaderCompiler] Auto-assigned %s location %u to '%s'",
-					    label, nextLoc, name.c_str());
-					nextLoc++;
+					for (uint32_t i = 0; i < numLocs; ++i)
+						usedLocs.insert(nextLoc + i);
+					LOG("[ShaderCompiler] Auto-assigned %s location %u (+%u) to '%s'",
+					    label, nextLoc, numLocs, name.c_str());
+					nextLoc += numLocs;
 				}
 			};
 
@@ -661,13 +803,23 @@ std::string ShaderCompiler::CompileGLSLToMSL(
 			const std::string needle = "thread const ";
 			size_t pos = 0;
 			while ((pos = msl.find(needle, pos)) != std::string::npos) {
-				size_t ampPos = msl.find('&', pos + needle.size());
-				size_t commaPos = msl.find(',', pos + needle.size());
-				size_t parenPos = msl.find(')', pos + needle.size());
+				size_t searchStart = pos + needle.size();
 				size_t nextLine = msl.find('\n', pos);
+				if (nextLine == std::string::npos) nextLine = msl.size();
 
-				size_t limit = std::min({commaPos, parenPos, nextLine});
-				if (ampPos != std::string::npos && ampPos < limit) {
+				size_t ampPos = std::string::npos;
+				size_t endPos = std::string::npos;
+				int angleDepth = 0;
+				for (size_t i = searchStart; i < nextLine; ++i) {
+					char c = msl[i];
+					if (c == '<') { angleDepth++; continue; }
+					if (c == '>') { angleDepth--; continue; }
+					if (angleDepth > 0) continue;
+					if (c == '&' && ampPos == std::string::npos) { ampPos = i; continue; }
+					if (c == ',' || c == ')') { endPos = i; break; }
+				}
+
+				if (ampPos != std::string::npos && (endPos == std::string::npos || ampPos < endPos)) {
 					msl.erase(pos, needle.size());
 					ampPos -= needle.size();
 					if (ampPos < msl.size() && msl[ampPos] == '&') {
@@ -680,6 +832,9 @@ std::string ShaderCompiler::CompileGLSLToMSL(
 				}
 			}
 		}
+
+		// Remap any [[buffer(N)]] indices > 29 into free slots (Metal limit)
+		RemapOutOfBoundsBufferIndices(msl);
 
 		// Extract reflection from the SAME compiler that generated the MSL.
 		// This guarantees metalBufferIndex values match the [[buffer(N)]] in the

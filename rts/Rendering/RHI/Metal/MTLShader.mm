@@ -56,10 +56,13 @@ MTLShader::~MTLShader() {
 }
 
 void MTLShader::AttachStage(ShaderStage stage, const std::string& sourceFile, const std::string& defines) {
-	// Read shader source from file
-	CFileHandler file(sourceFile);
+	// GL shader loading prepends "shaders/" to relative paths (see Shader.cpp).
+	// Mirror that convention so paths like "GLSL/SMFShadingTextureVertProg.glsl"
+	// resolve correctly in the VFS.
+	const std::string fullPath = "shaders/" + sourceFile;
+	CFileHandler file(fullPath);
 	if (!file.FileExists()) {
-		LOG_L(L_ERROR, "[MTLShader] Shader file not found: %s", sourceFile.c_str());
+		LOG_L(L_ERROR, "[MTLShader] Shader file not found: %s (tried: %s)", sourceFile.c_str(), fullPath.c_str());
 		return;
 	}
 
