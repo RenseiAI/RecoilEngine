@@ -129,6 +129,16 @@ void MTLShader::Link() {
 		}
 	}
 
+	// Log the generated MSL for debugging pipeline creation issues
+	if (!vertexMSL.empty()) {
+		LOG("[MTLShader] %s: Vertex MSL (%zu bytes):\n%s",
+		    shaderName.c_str(), vertexMSL.size(), vertexMSL.c_str());
+	}
+	if (!fragmentMSL.empty()) {
+		LOG("[MTLShader] %s: Fragment MSL (%zu bytes):\n%s",
+		    shaderName.c_str(), fragmentMSL.size(), fragmentMSL.c_str());
+	}
+
 	// Compile vertex and fragment MSL into separate Metal libraries.
 	// They must be separate because SPIRV-Cross generates identical struct
 	// definitions for interface blocks (e.g. "struct Data") in both stages,

@@ -154,6 +154,14 @@ MTLPipeline::~MTLPipeline() {
 	depthStencilState = nil;
 }
 
+void MTLPipeline::UpdateDesc(const PipelineDesc& newDesc) {
+	desc = newDesc;
+	// PSO cache keys include blend state + pixel formats, so cached entries
+	// remain valid even after desc changes. Only depth-stencil and rasterizer
+	// state (applied separately to the encoder) need rebuilding.
+	CreateDepthStencilState();
+}
+
 void MTLPipeline::CreateDepthStencilState() {
 	MTLDepthStencilDescriptor* dsDesc = [[MTLDepthStencilDescriptor alloc] init];
 
@@ -195,7 +203,7 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
 	// Use dynamic blend override if provided, otherwise pipeline's own blend state
 	const BlendState& blend = blendOverride ? *blendOverride : desc.blend;
 
-	// Cache key: shader pointer XOR vertex layout hash XOR blend state hash
+	// Cache key: shader pointer XOR vertex layout hash XOR blend state hash XOR format hashes
 	uintptr_t key = reinterpret_cast<uintptr_t>(shader);
 	if (vertexLayout)
 		key ^= HashVertexLayout(*vertexLayout);
@@ -210,18 +218,38 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
 		blendKey = (blendKey << 2) ^ static_cast<uintptr_t>(blend.alphaOp);
 		key ^= (blendKey * 0x9e3779b97f4a7c15ULL); // golden ratio hash mix
 	}
+	// Include color and depth pixel formats so PSOs for different render targets don't collide
+	key ^= (static_cast<uintptr_t>(colorFormat) * 2246822519ULL);
+	key ^= (static_cast<uintptr_t>(depthFormat) * 3266489917ULL);
 
 	auto it = pipelineCache.find(key);
 	if (it != pipelineCache.end()) {
 		return it->second;
 	}
 
+	LOG("[MTLPipeline] PSO cache miss for shader '%s' (colorFmt=%lu depthFmt=%lu)",
+	    shader->GetName().c_str(), (unsigned long)colorFormat, (unsigned long)depthFormat);
+
+	// Validate device
+	id<MTLDevice> mtlDevice = device ? device->GetMTLDevice() : nil;
+	if (!mtlDevice) {
+		LOG_L(L_ERROR, "[MTLPipeline] nil MTLDevice (device=%p)", (void*)device);
+		return nil;
+	}
+
 	// Create render pipeline descriptor
 	MTLRenderPipelineDescriptor* pipelineDesc = [[MTLRenderPipelineDescriptor alloc] init];
+	pipelineDesc.label = [NSString stringWithUTF8String:shader->GetName().c_str()];
 
 	// Set shader functions
-	pipelineDesc.vertexFunction = shader->GetVertexFunction();
-	pipelineDesc.fragmentFunction = shader->GetFragmentFunction();
+	id<MTLFunction> vtxFn = shader->GetVertexFunction();
+	id<MTLFunction> fragFn = shader->GetFragmentFunction();
+	if (!vtxFn) {
+		LOG_L(L_ERROR, "[MTLPipeline] nil vertex function for shader '%s'", shader->GetName().c_str());
+		return nil;
+	}
+	pipelineDesc.vertexFunction = vtxFn;
+	pipelineDesc.fragmentFunction = fragFn;
 
 	// Color attachment configuration
 	MTLRenderPipelineColorAttachmentDescriptor* colorAttachment = pipelineDesc.colorAttachments[0];
@@ -249,31 +277,64 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
 	colorAttachment.writeMask = writeMask;
 
 	// Vertex descriptor — maps RHI VertexLayout to Metal vertex descriptor
+	// Use buffer index 30 for vertex data to avoid conflicts with SPIRV-Cross
+	// auto-assigned buffer indices (which start from 0 for uniform blocks).
+	static constexpr uint32_t kVertexBufferIndex = 30;
+
 	if (vertexLayout && vertexLayout->attributeCount > 0) {
 		MTLVertexDescriptor* vd = [[MTLVertexDescriptor alloc] init];
+
+		// Separate per-vertex and per-instance attributes into different buffer layouts
+		bool hasPerInstance = false;
 		for (uint32_t i = 0; i < vertexLayout->attributeCount; ++i) {
 			const auto& attr = vertexLayout->attributes[i];
-			vd.attributes[attr.location].format = ToMTLVertexFormat(attr.format);
+			MTLVertexFormat mtlFmt = ToMTLVertexFormat(attr.format);
+			vd.attributes[attr.location].format = mtlFmt;
 			vd.attributes[attr.location].offset = attr.offset;
-			vd.attributes[attr.location].bufferIndex = 1; // vertex buffer at index 1 (index 0 = uniforms)
+
+			if (attr.divisor > 0) {
+				vd.attributes[attr.location].bufferIndex = kVertexBufferIndex - 1;
+				hasPerInstance = true;
+			} else {
+				vd.attributes[attr.location].bufferIndex = kVertexBufferIndex;
+			}
 		}
-		vd.layouts[1].stride = vertexLayout->stride;
-		vd.layouts[1].stepFunction = MTLVertexStepFunctionPerVertex;
+
+		vd.layouts[kVertexBufferIndex].stride = vertexLayout->stride;
+		vd.layouts[kVertexBufferIndex].stepFunction = MTLVertexStepFunctionPerVertex;
+		vd.layouts[kVertexBufferIndex].stepRate = 1;
+
+		if (hasPerInstance) {
+			vd.layouts[kVertexBufferIndex - 1].stride = vertexLayout->stride;
+			vd.layouts[kVertexBufferIndex - 1].stepFunction = MTLVertexStepFunctionPerInstance;
+			vd.layouts[kVertexBufferIndex - 1].stepRate = 1;
+		}
+
 		pipelineDesc.vertexDescriptor = vd;
 	}
 
 	// Depth format
 	pipelineDesc.depthAttachmentPixelFormat = depthFormat;
 
-	// Compile the pipeline
+	// Compile the pipeline — wrap in @try/@catch for ObjC exceptions
 	NSError* error = nil;
-	id<MTLRenderPipelineState> pipelineState =
-		[device->GetMTLDevice() newRenderPipelineStateWithDescriptor:pipelineDesc
-		                                                       error:&error];
+	id<MTLRenderPipelineState> pipelineState = nil;
+
+	@try {
+		pipelineState = [mtlDevice newRenderPipelineStateWithDescriptor:pipelineDesc
+		                                                          error:&error];
+	} @catch (NSException* exception) {
+		LOG_L(L_ERROR, "[MTLPipeline] Exception creating PSO for %s: %s — %s",
+		      shader->GetName().c_str(),
+		      [[exception name] UTF8String],
+		      [[exception reason] UTF8String]);
+		return nil;
+	}
 
 	if (!pipelineState) {
-		LOG_L(L_ERROR, "[MTLPipeline] Failed to create render pipeline state: %s",
-		      [[error localizedDescription] UTF8String]);
+		LOG_L(L_ERROR, "[MTLPipeline] Failed to create PSO for %s: %s",
+		      shader->GetName().c_str(),
+		      error ? [[error localizedDescription] UTF8String] : "unknown error");
 		return nil;
 	}
 

@@ -69,9 +69,19 @@ void MTLContext::EnsureCommandBuffer() {
 }
 
 void MTLContext::EnsureRenderEncoder() {
-	// Render encoder must be created via BeginRenderPass
 	if (!renderEncoder) {
-		LOG_L(L_WARNING, "[MTLContext] No active render encoder - call BeginRenderPass first");
+		// Auto-begin default render pass when drawing without an explicit pass.
+		// The game rendering path (CGame::Draw -> WorldDrawer) doesn't explicitly
+		// call BeginDefaultRenderPass — it just sets up state and draws.
+		RenderPassDesc passDesc;
+		passDesc.colorAttachmentCount = 1;
+		if (pendingColorClear) {
+			passDesc.colorAttachments[0].loadAction = LoadAction::Clear;
+			passDesc.colorAttachments[0].clearColor = clearColor;
+		} else {
+			passDesc.colorAttachments[0].loadAction = LoadAction::Load;
+		}
+		BeginDefaultRenderPass(passDesc);
 	}
 }
 
@@ -206,6 +216,33 @@ void MTLContext::BeginDefaultRenderPass(const RenderPassDesc& desc) {
 
 	rpDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
 
+	// Create or resize default depth texture to match drawable
+	NSUInteger drawW = drawableTexture.width;
+	NSUInteger drawH = drawableTexture.height;
+	if (!defaultDepthTexture || defaultDepthWidth != drawW || defaultDepthHeight != drawH) {
+		MTLTextureDescriptor* depthDesc = [MTLTextureDescriptor
+			texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+			width:drawW height:drawH mipmapped:NO];
+		depthDesc.usage = MTLTextureUsageRenderTarget;
+		depthDesc.storageMode = MTLStorageModePrivate;
+		defaultDepthTexture = [device->GetMTLDevice() newTextureWithDescriptor:depthDesc];
+		defaultDepthTexture.label = @"Default Depth";
+		defaultDepthWidth = static_cast<uint32_t>(drawW);
+		defaultDepthHeight = static_cast<uint32_t>(drawH);
+	}
+
+	// Attach depth
+	rpDesc.depthAttachment.texture = defaultDepthTexture;
+	if (pendingDepthClear) {
+		rpDesc.depthAttachment.loadAction = MTLLoadActionClear;
+		rpDesc.depthAttachment.clearDepth = clearDepthValue;
+		pendingDepthClear = false;
+	} else {
+		rpDesc.depthAttachment.loadAction = MTLLoadActionClear;
+		rpDesc.depthAttachment.clearDepth = 1.0;
+	}
+	rpDesc.depthAttachment.storeAction = MTLStoreActionStore;
+
 	// Create render command encoder
 	renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:rpDesc];
 	renderEncoder.label = @"RHI Default Render Pass";
@@ -229,7 +266,20 @@ void MTLContext::EndRenderPass() {
 }
 
 void MTLContext::BindPipeline(IRHIPipeline* pipeline) {
-	currentPipeline = static_cast<MTLPipeline*>(pipeline);
+	if (pipeline) {
+		// Keep a context-owned copy of the pipeline configuration.
+		// Callers typically create local unique_ptr<IRHIPipeline> that gets
+		// destroyed after this call (GL applies state immediately, but Metal
+		// needs the pipeline object at draw time for PSO creation).
+		if (!explicitPipeline) {
+			explicitPipeline = std::make_unique<MTLPipeline>(device, pipeline->GetDesc());
+		} else {
+			explicitPipeline->UpdateDesc(pipeline->GetDesc());
+		}
+		currentPipeline = explicitPipeline.get();
+	} else {
+		currentPipeline = nullptr;
+	}
 }
 
 void MTLContext::BindVertexBuffer(IRHIBuffer* buffer, uint32_t binding) {
@@ -275,10 +325,15 @@ MTLPipeline* MTLContext::GetOrCreateDefaultPipeline() {
 }
 
 bool MTLContext::ApplyPipelineState() {
+	bool usedDefault = (currentPipeline == nullptr);
 	MTLPipeline* pipeline = currentPipeline ? currentPipeline : GetOrCreateDefaultPipeline();
 	if (!renderEncoder || !pipeline || !currentShader) {
 		return false;
 	}
+
+	LOG("[MTL-PSO] pipeline=%p (%s) shader='%s' vtxLayout=%d",
+	    (void*)pipeline, usedDefault ? "default" : "explicit",
+	    currentShader->GetName().c_str(), (int)hasVertexLayout);
 
 	// Get or create the render pipeline state
 	MTLPixelFormat colorFormat = MTLPixelFormatBGRA8Unorm;
@@ -287,6 +342,8 @@ bool MTLContext::ApplyPipelineState() {
 	if (currentFramebuffer) {
 		colorFormat = currentFramebuffer->GetColorPixelFormat();
 		depthFormat = currentFramebuffer->GetDepthPixelFormat();
+	} else if (defaultDepthTexture) {
+		depthFormat = MTLPixelFormatDepth32Float;
 	}
 
 	// Pass dynamic blend state override if it has been set
@@ -298,6 +355,8 @@ bool MTLContext::ApplyPipelineState() {
 		                                 blendOverride);
 
 	if (!pipelineState) {
+		LOG_L(L_ERROR, "[MTL-PSO] GetRenderPipelineState returned nil for shader '%s'",
+		      currentShader->GetName().c_str());
 		return false;
 	}
 
@@ -376,11 +435,16 @@ void MTLContext::BindCurrentResources() {
 		return;
 	}
 
+	// Vertex buffer at index 30 to avoid conflicts with SPIRV-Cross auto-assigned
+	// buffer indices (uniform blocks start from 0). Matches kVertexBufferIndex in
+	// MTLPipeline::GetRenderPipelineState.
+	static constexpr uint32_t kVertexBufferIndex = 30;
+
 	// Bind vertex buffer
 	if (currentVertexBuffer && currentVertexBuffer->GetMTLBuffer()) {
 		[renderEncoder setVertexBuffer:currentVertexBuffer->GetMTLBuffer()
 		                        offset:0
-		                       atIndex:currentVertexBinding + 1];  // Index 0 reserved for uniforms
+		                       atIndex:kVertexBufferIndex];
 	}
 
 	// Bind uniform data from shader
@@ -419,6 +483,10 @@ void MTLContext::BindCurrentResources() {
 }
 
 void MTLContext::Draw(PrimitiveType primitive, uint32_t vertexCount, uint32_t firstVertex) {
+	LOG("[MTL-Draw] verts=%u pipeline=%p shader=%s encoder=%p",
+	    vertexCount, (void*)currentPipeline,
+	    currentShader ? currentShader->GetName().c_str() : "null",
+	    (void*)renderEncoder);
 	EnsureRenderEncoder();
 	if (!renderEncoder) return;
 
@@ -431,6 +499,10 @@ void MTLContext::Draw(PrimitiveType primitive, uint32_t vertexCount, uint32_t fi
 }
 
 void MTLContext::DrawIndexed(PrimitiveType primitive, uint32_t indexCount, uint32_t firstIndex, int32_t vertexOffset) {
+	LOG("[MTL-DrawIdx] indices=%u pipeline=%p shader=%s encoder=%p",
+	    indexCount, (void*)currentPipeline,
+	    currentShader ? currentShader->GetName().c_str() : "null",
+	    (void*)renderEncoder);
 	EnsureRenderEncoder();
 	if (!renderEncoder || !currentIndexBuffer) return;
 

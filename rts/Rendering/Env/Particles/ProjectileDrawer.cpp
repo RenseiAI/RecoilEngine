@@ -719,12 +719,10 @@ void CProjectileDrawer::DrawOpaque(bool drawReflection, bool drawRefraction)
 {
 	ZoneScopedN("ProjectileDrawer::DrawOpaque");
 
-	using namespace GL::State;
-	auto state = GL::SubState(
-		Blending(GL_FALSE),
-		DepthTest(GL_TRUE),
-		DepthMask(GL_TRUE)
-	);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetBlendEnabled(false);
+	ctx->SetDepthTestEnabled(true);
+	ctx->SetDepthWriteEnabled(true);
 
 	const uint8_t thisPassMask =
 		(1 - (drawReflection || drawRefraction)) * DrawFlags::SO_OPAQUE_FLAG +
@@ -820,14 +818,12 @@ void CProjectileDrawer::DrawAlpha(bool drawAboveWater, bool drawBelowWater, bool
 	{
 		ZoneScopedN("ProjectileDrawer::DrawAlpha(RR)");
 
-		using namespace GL::State;
-		auto state = GL::SubState(
-			Blending(GL_TRUE),
-			BlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA),
-			DepthTest(GL_TRUE),
-			DepthMask(GL_FALSE),
-			ClipDistance<0>(GL_TRUE)
-		);
+		auto* ctx = RHI::GetDevice()->GetContext();
+		ctx->SetBlendEnabled(true);
+		ctx->SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::OneMinusSrcAlpha);
+		ctx->SetDepthTestEnabled(true);
+		ctx->SetDepthWriteEnabled(false);
+		ctx->SetClipDistanceEnabled(0, true);
 
 		eventHandler.DrawWorldPreParticles(drawAboveWater, drawBelowWater, drawReflection, drawRefraction);
 
@@ -943,13 +939,11 @@ void CProjectileDrawer::DrawShadowTransparent()
 	//glEnable(GL_DEPTH_TEST);
 	//glDepthMask(GL_FALSE);
 
-	using namespace GL::State;
-	auto state = GL::SubState(
-		DepthTest(GL_TRUE),
-		DepthMask(GL_FALSE),
-		Blending(GL_TRUE),
-		BlendFunc(GL_ZERO, GL_SRC_COLOR)
-	);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetDepthTestEnabled(true);
+	ctx->SetDepthWriteEnabled(false);
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::Zero, RHI::BlendFactor::SrcColor);
 
 	// 6) Render transparents in arbitrary order
 	textureAtlas->GetRHITexture()->Bind(0);

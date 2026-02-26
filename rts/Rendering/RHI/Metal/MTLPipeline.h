@@ -46,6 +46,10 @@ public:
 
 	const PipelineDesc& GetDesc() const override { return desc; }
 
+	/// Update the pipeline descriptor and rebuild depth-stencil state.
+	/// Clears the PSO cache since blend/depth config may have changed.
+	void UpdateDesc(const PipelineDesc& newDesc);
+
 #ifdef __OBJC__
 	// --- Metal-specific accessors ---
 

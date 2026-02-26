@@ -821,18 +821,13 @@ void CGroundDecalHandler::Draw()
 		decalsUpdateList.ResetNeedUpdateAll();
 	}
 
-	using namespace GL::State;
-
-	auto state = GL::SubState(
-		SampleShading(highQuality ? GL_TRUE : GL_FALSE),
-		MinSampleShading(1.0f),
-		Blending(GL_TRUE),
-		BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA),
-		DepthMask(GL_FALSE),
-		DepthTest(GL_FALSE),
-		Culling(GL_TRUE),
-		CullFace(GL_BACK)
-	);
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+	ctx->SetDepthWriteEnabled(false);
+	ctx->SetDepthTestEnabled(false);
+	ctx->SetCullFaceEnabled(true);
+	ctx->SetCullFace(RHI::CullMode::Back);
 
 	BindTextures();
 

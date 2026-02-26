@@ -1257,10 +1257,9 @@ void CMiniMap::Draw()
 		ctx->SetBlendEnabled(true);
 		ctx->SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
-		auto state = GL::SubState(
-			DepthTest(GL_FALSE),
-			DepthFunc(GL_LEQUAL),
-			DepthMask(GL_FALSE));
+		ctx->SetDepthTestEnabled(false);
+		ctx->SetDepthFunc(RHI::CompareFunc::LessEqual);
+		ctx->SetDepthWriteEnabled(false);
 
 		if (minimized) {
 			DrawMinimizedButtonQuad();
@@ -1895,12 +1894,9 @@ void CMiniMap::DrawBackground() const
 	projStack.Push().LoadMatrix(projMats[0]);
 
 	// draw the map
-	auto state = GL::SubState(
-		Blending(GL_FALSE),
-		SampleShading(GL_FALSE) // sample shading is detrimental for minimap background sharpness
-	);
-
 	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetBlendEnabled(false);
+	// SampleShading: no-op on Metal, disable on GL for minimap background sharpness
 	if (globalRendering->minSampleShadingRate > 0)
 		ctx->SetSampleShading(false);
 

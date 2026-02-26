@@ -53,13 +53,11 @@ public:
 	}
 
 	~ScopedPipeline() {
-		// Restore default pipeline state
-		if (device) {
-			PipelineDesc defaultDesc;
-			auto defaultPipeline = device->CreatePipeline(defaultDesc);
-			if (defaultPipeline)
-				device->GetContext()->BindPipeline(defaultPipeline.get());
-		}
+		// Restore default pipeline state by binding nullptr.
+		// ApplyPipelineState() falls back to GetOrCreateDefaultPipeline()
+		// when currentPipeline is null.
+		if (device)
+			device->GetContext()->BindPipeline(nullptr);
 	}
 
 	// Non-copyable
@@ -89,12 +87,8 @@ public:
 	}
 
 	~ScopedBlendState() {
-		if (device) {
-			PipelineDesc defaultDesc;
-			auto defaultPipeline = device->CreatePipeline(defaultDesc);
-			if (defaultPipeline)
-				device->GetContext()->BindPipeline(defaultPipeline.get());
-		}
+		if (device)
+			device->GetContext()->BindPipeline(nullptr);
 	}
 
 	ScopedBlendState(const ScopedBlendState&) = delete;
@@ -123,12 +117,8 @@ public:
 	}
 
 	~ScopedDepthStencilState() {
-		if (device) {
-			PipelineDesc defaultDesc;
-			auto defaultPipeline = device->CreatePipeline(defaultDesc);
-			if (defaultPipeline)
-				device->GetContext()->BindPipeline(defaultPipeline.get());
-		}
+		if (device)
+			device->GetContext()->BindPipeline(nullptr);
 	}
 
 	ScopedDepthStencilState(const ScopedDepthStencilState&) = delete;

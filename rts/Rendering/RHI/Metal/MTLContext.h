@@ -200,6 +200,11 @@ private:
 	// Default pipeline for draw calls without explicit BindPipeline
 	std::unique_ptr<MTLPipeline> defaultPipeline;
 
+	// Context-owned pipeline for explicit BindPipeline calls.
+	// Callers create temporary pipeline objects that go out of scope after
+	// BindPipeline, so the context must own a copy to keep the pointer valid.
+	std::unique_ptr<MTLPipeline> explicitPipeline;
+
 	// Current bound state
 	MTLPipeline*    currentPipeline   = nullptr;
 	MTLShader*      currentShader     = nullptr;
@@ -241,6 +246,15 @@ private:
 	bool              dynamicBlendDirty = false;
 	bool              dynamicDepthWrite = false;
 	bool              dynamicDepthWriteDirty = false;
+
+	// Default depth texture for screen render pass
+#ifdef __OBJC__
+	id<MTLTexture> defaultDepthTexture = nil;
+#else
+	void* defaultDepthTexture = nullptr;
+#endif
+	uint32_t defaultDepthWidth = 0;
+	uint32_t defaultDepthHeight = 0;
 
 	// Render pass state
 	bool        inRenderPass = false;

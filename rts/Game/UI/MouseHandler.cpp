@@ -2,6 +2,9 @@
 
 #include "MouseHandler.h"
 
+#include "Rendering/RHI/RHIFactory.h"
+#include "Rendering/RHI/RHIContext.h"
+#include "Rendering/RHI/RHIDevice.h"
 #include "CommandColors.h"
 #include "InputReceiver.h"
 #include "GuiHandler.h"
@@ -623,11 +626,12 @@ void CMouseHandler::DrawSelectionBox() const
 		{tpLeft , cmdColors.mouseBox},
 	});
 
-	auto state = GL::SubState(
-		DepthTest(GL_FALSE),
-		Blending(GL_TRUE),
-		BlendFunc((GLenum)cmdColors.MouseBoxBlendSrc(), (GLenum)cmdColors.MouseBoxBlendDst()),
-		LineWidth(cmdColors.MouseBoxLineWidth()));
+	auto* ctx = RHI::GetDevice()->GetContext();
+	ctx->SetDepthTestEnabled(false);
+	ctx->SetBlendEnabled(true);
+	ctx->SetBlendFunc(
+		GL::RHIConvert::BlendFactorToRHI((GLenum)cmdColors.MouseBoxBlendSrc()),
+		GL::RHIConvert::BlendFactorToRHI((GLenum)cmdColors.MouseBoxBlendDst()));
 
 	sh.Enable();
 
