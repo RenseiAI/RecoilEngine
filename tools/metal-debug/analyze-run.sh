@@ -115,5 +115,46 @@ echo ""
 echo "## Timing"
 grep 'Loading took\|LoadFinalize\|loading map\|game started' "$LOG" 2>/dev/null | head -5 || echo "(no timing data)"
 
+# 15. Machine-readable status for automated debug loop
+echo ""
+echo "## Machine-Readable Status"
+
+CRASHES=$(grep -c 'SIGSEGV\|SIGABRT\|SIGBUS\|SIGFPE\|SIGILL\|EXC_BAD_ACCESS\|std::terminate' "$LOG" 2>/dev/null || echo 0)
+SHADER_FAILS=$(grep -c 'Failed to compile\|Failed to link\|failed to link\|glslang parse failed' "$LOG" 2>/dev/null || echo 0)
+PSO_FAILS=$(grep -c 'GetRenderPipelineState returned nil\|Failed to create' "$LOG" 2>/dev/null || echo 0)
+DRAW_CALLS=$(( $(grep -c '\[MTL-Draw\]' "$LOG" 2>/dev/null || echo 0) + $(grep -c '\[MTL-DrawIdx\]' "$LOG" 2>/dev/null || echo 0) ))
+
+# Clean exit: exit code 0 and no TIMEOUT
+if [[ -f "$RUN_DIR/exit_code.txt" ]] && [[ "$(cat "$RUN_DIR/exit_code.txt")" == "0" ]]; then
+    CLEAN_EXIT=1
+else
+    CLEAN_EXIT=0
+fi
+if [[ -f "$RUN_DIR/exit_reason.txt" ]] && [[ "$(cat "$RUN_DIR/exit_reason.txt")" == "TIMEOUT" ]]; then
+    CLEAN_EXIT=0
+fi
+
+# Screenshots count
+if [[ -d "$RUN_DIR/screenshots" ]]; then
+    SCREENSHOTS=$(ls "$RUN_DIR/screenshots/"*.png 2>/dev/null | wc -l | tr -d ' ')
+else
+    SCREENSHOTS=0
+fi
+
+# Verdict: PASS when no crashes, no shader/PSO failures, clean exit, and screenshots captured
+if [[ "$CRASHES" -eq 0 && "$SHADER_FAILS" -eq 0 && "$PSO_FAILS" -eq 0 && "$CLEAN_EXIT" -gt 0 && "$SCREENSHOTS" -gt 0 ]]; then
+    VERDICT="PASS"
+else
+    VERDICT="FAIL"
+fi
+
+echo "CRASHES=$CRASHES"
+echo "SHADER_FAILS=$SHADER_FAILS"
+echo "PSO_FAILS=$PSO_FAILS"
+echo "DRAW_CALLS=$DRAW_CALLS"
+echo "CLEAN_EXIT=$CLEAN_EXIT"
+echo "SCREENSHOTS=$SCREENSHOTS"
+echo "VERDICT=$VERDICT"
+
 echo ""
 echo "=== Analysis complete ==="

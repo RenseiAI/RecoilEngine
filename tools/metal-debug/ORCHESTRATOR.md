@@ -137,3 +137,100 @@ The game auto-starts via `cont/script.txt`:
 - Game: Beyond All Reason
 - Player vs NullAI (minimal CPU load)
 - MinimalSetup=1 (skip expensive UI)
+
+---
+
+## Linear-Driven Debug Loop
+
+An automated debug loop where each test→fix→retest iteration runs as a separate Linear issue with a fresh agent context window. State passes between iterations via structured issue descriptions.
+
+### Architecture
+
+```
+Governor (agent-fleet) scans Linear "Recoil-on-Metal" project
+        ↓ dispatches Backlog issues
+Worker Fleet (tools/start-worker-fleet.sh, CWD=RecoilEngine)
+        ↓ creates worktree, runs agent session
+Agent (.claude/agents/debug-loop.md)
+        ↓ test → analyze → fix ONE thing → rebuild → retest → commit+push
+        ↓
+   VERDICT?
+   ├─ FAIL → Create next iteration issue in Backlog → loop repeats
+   └─ PASS → Done! No next issue created.
+```
+
+### Starting the Loop
+
+```bash
+# Create the seed issue (iteration 1)
+bash tools/metal-debug/create-seed-issue.sh
+
+# With known context from previous work
+bash tools/metal-debug/create-seed-issue.sh --known-state "Black screen fixed, testing terrain"
+
+# With a focus hint
+bash tools/metal-debug/create-seed-issue.sh --focus "shader compilation failures"
+```
+
+### Launching the Worker Fleet
+
+Workers must run from the RecoilEngine directory so worktrees, `.claude/agents/`, and build tools are available:
+
+```bash
+# Start with defaults from .env.local (5 workers, 1 agent each)
+bash tools/start-worker-fleet.sh
+
+# Dry run to verify config
+bash tools/start-worker-fleet.sh --dry-run
+
+# Override worker count
+bash tools/start-worker-fleet.sh -w 3 -c 1
+```
+
+The fleet reads credentials from `.env.local` and resolves the `af-worker-fleet` binary from the sibling `agent-fleet` repo.
+
+### Pausing and Resuming
+
+- **Pause:** Add a `HOLD` comment on the latest Backlog issue. The governor skips issues with HOLD comments.
+- **Resume:** Remove the HOLD comment. The governor dispatches on the next scan cycle.
+- **Emergency stop:** Kill the worker fleet process (`Ctrl+C` or stop the terminal).
+
+### Inspecting the Issue Chain
+
+Each iteration issue links to the previous one via `PREVIOUS_ISSUE`. To see the full history:
+
+1. Open the latest `debug-loop` issue in Linear
+2. Follow `PREVIOUS_ISSUE` links back through the chain
+3. Each issue contains: what was fixed, the commit hash, remaining issues, and machine-readable metrics
+
+### Machine-Readable Verdict
+
+`analyze-run.sh` outputs a `## Machine-Readable Status` section:
+
+```
+CRASHES=0          # Fatal signals (SIGSEGV, SIGABRT, etc.)
+SHADER_FAILS=12    # Shader compilation/link failures
+PSO_FAILS=0        # Pipeline state object creation failures
+DRAW_CALLS=55      # Total Metal draw calls executed
+CLEAN_EXIT=0       # 1 if exit code 0 and no timeout, else 0
+SCREENSHOTS=0      # Number of screenshots captured
+VERDICT=FAIL       # PASS only when all checks pass
+```
+
+**VERDICT=PASS** requires: `CRASHES=0`, `SHADER_FAILS=0`, `PSO_FAILS=0`, `CLEAN_EXIT>0`, `SCREENSHOTS>0`.
+
+### Termination Criteria
+
+The loop stops automatically when `VERDICT=PASS`. This means:
+- No crashes
+- All shaders compile successfully
+- All PSOs create successfully
+- Engine exits cleanly
+- Screenshots are captured (game reached rendering)
+
+### Design Decisions
+
+- **One fix per iteration:** Keeps context lean, each fix gets its own commit (easy bisection), clean audit trail in Linear.
+- **Direct push (no PR):** Debug iterations are small incremental fixes. The retest IS the QA. Full PR→QA→acceptance adds latency.
+- **State in issue descriptions:** No shared filesystem between agent sessions (worktrees are ephemeral). Linear issues are the canonical state store.
+- **Separate worker fleet:** Workers must run from the RecoilEngine repo so worktrees have access to the build system and agent prompts.
