@@ -115,6 +115,8 @@ static void FixGlPerVertexDeclarations(std::string& msl) {
 	struct MemberInfo {
 		std::string fullMemberName;  // e.g. "_RESERVED_IDENTIFIER_FIXUP_gl_FrontColor"
 		std::string type;            // e.g. "float4"
+		bool isArray = false;
+		int arraySize = 0;
 	};
 
 	std::map<std::string, std::vector<MemberInfo>> undeclaredVars;  // varId -> members
@@ -155,9 +157,25 @@ static void FixGlPerVertexDeclarations(std::string& msl) {
 		std::string memberSuffix = msl.substr(memberStart, memberEnd - memberStart);
 		std::string fullMember = FIXUP_GL + memberSuffix;
 
+		// Check if this member is used with array indexing (e.g. _14.gl_TexCoord[0])
+		bool usedAsArray = false;
+		int maxArrayIdx = -1;
+		if (memberEnd < msl.size() && msl[memberEnd] == '[') {
+			usedAsArray = true;
+			size_t idxStart = memberEnd + 1;
+			size_t idxEnd = msl.find(']', idxStart);
+			if (idxEnd != std::string::npos) {
+				std::string idxStr = msl.substr(idxStart, idxEnd - idxStart);
+				try { maxArrayIdx = std::stoi(idxStr); } catch (...) {}
+			}
+		}
+
 		if (seenMembers[varId].insert(fullMember).second) {
 			// Derive the type from the output struct member "TYPE m_NNN_MEMBER"
-			std::string structMemberPat = "m_" + idNum + "_" + fullMember;
+			// Note: fullMember starts with "_", so no extra "_" separator needed.
+			// SPIRV-Cross output member pattern: "m_" + id + fullMember
+			// e.g. "m_14_RESERVED_IDENTIFIER_FIXUP_gl_FogFragCoord"
+			std::string structMemberPat = "m_" + idNum + fullMember;
 			size_t structPos = msl.find(structMemberPat);
 			std::string type = "float4";  // safe default for gl_ builtins
 
@@ -173,7 +191,17 @@ static void FixGlPerVertexDeclarations(std::string& msl) {
 				}
 			}
 
-			undeclaredVars[varId].push_back({fullMember, type});
+			MemberInfo info{fullMember, type, usedAsArray, maxArrayIdx + 1};
+			undeclaredVars[varId].push_back(info);
+		} else if (usedAsArray) {
+			// Update array size if we see a larger index
+			for (auto& [vid, members] : undeclaredVars) {
+				if (vid != varId) continue;
+				for (auto& m : members) {
+					if (m.fullMemberName == fullMember && maxArrayIdx + 1 > m.arraySize)
+						m.arraySize = maxArrayIdx + 1;
+				}
+			}
 		}
 
 		searchPos = dotPos + 1;
@@ -187,7 +215,13 @@ static void FixGlPerVertexDeclarations(std::string& msl) {
 
 		std::string structDef = "struct " + structTypeName + " {\n";
 		for (const auto& m : members) {
-			structDef += "    " + m.type + " " + m.fullMemberName + ";\n";
+			if (m.isArray && m.arraySize > 0) {
+				// Array members like gl_TexCoord — use C-style array
+				// (spvUnsafeArray template may not be defined in all shaders)
+				structDef += "    " + m.type + " " + m.fullMemberName + "[" + std::to_string(m.arraySize) + "];\n";
+			} else {
+				structDef += "    " + m.type + " " + m.fullMemberName + ";\n";
+			}
 		}
 		structDef += "};\n\n";
 

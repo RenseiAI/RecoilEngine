@@ -828,6 +828,7 @@ int LuaShaders::CreateShader(lua_State* L)
 		for (const auto& s : fragSrcs) fragSrc += s;
 
 		LuaShaders& shaders = CLuaHandle::GetActiveShaders(L);
+		shaders.errorLog.clear();
 
 		auto* device = RHI::GetDevice();
 		if (!device) return 0;
