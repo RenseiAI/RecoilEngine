@@ -186,6 +186,19 @@ build-*
 # macOS metadata
 .DS_Store
 
+# Metal debug test runs (large logs/screenshots, local only)
+/tools/metal-debug/runs
+
+# dSYM debug symbol bundles
+*.dSYM
+
+# Local test/temp files
+/cont/LuaUI/Config
+/cont/LuaUI/Widgets
+/cont/ruins_blueprints_temp.txt
+/cont/fontcache
+/cont/screenshots
+
 # Secrets & credentials
 .env
 .env.*
