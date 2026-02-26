@@ -62,6 +62,14 @@ public:
 			case 4: return RHI::VertexFormat::Int4;
 			}
 			break;
+		case 0x1405: // GL_UNSIGNED_INT
+			switch (count) {
+			case 1: return RHI::VertexFormat::UInt1;
+			case 2: return RHI::VertexFormat::UInt2;
+			case 3: return RHI::VertexFormat::UInt3;
+			case 4: return RHI::VertexFormat::UInt4;
+			}
+			break;
 		}
 		return RHI::VertexFormat::Float4; // fallback
 	}

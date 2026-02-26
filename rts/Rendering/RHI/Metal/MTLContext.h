@@ -244,6 +244,13 @@ private:
 	VertexLayout currentVertexLayout{};
 	bool hasVertexLayout = false;
 
+	// Per-buffer strides: SetVertexLayout is called twice (once for per-vertex
+	// attribs, once for per-instance), but VertexLayout has a single stride field.
+	// Track them separately so the PSO builder can assign correct strides to
+	// Metal buffer layouts 30 (per-vertex) and 29 (per-instance).
+	uint32_t perVertexStride = 0;
+	uint32_t perInstanceStride = 0;
+
 	// Dynamic blend/depth state (overrides pipeline desc at draw time)
 	BlendState        dynamicBlend;
 	bool              dynamicBlendDirty = false;

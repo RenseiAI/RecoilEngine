@@ -55,11 +55,15 @@ public:
 
 	/// Get or create a render pipeline state for the given shader.
 	/// Caches compiled states by shader pointer + vertex layout hash + blend override hash.
+	/// instanceStride: stride for per-instance buffer (Metal buffer index 29).
+	/// Needed because SetVertexLayout is additive and the single VertexLayout::stride
+	/// gets overwritten by the last call (instance attribs), losing the per-vertex stride.
 	id<MTLRenderPipelineState> GetRenderPipelineState(MTLShader* shader,
 	                                                   MTLPixelFormat colorFormat,
 	                                                   MTLPixelFormat depthFormat,
 	                                                   const VertexLayout* vertexLayout = nullptr,
-	                                                   const BlendState* blendOverride = nullptr);
+	                                                   const BlendState* blendOverride = nullptr,
+	                                                   uint32_t instanceStride = 0);
 
 	/// Get the depth-stencil state
 	id<MTLDepthStencilState> GetDepthStencilState() const { return depthStencilState; }

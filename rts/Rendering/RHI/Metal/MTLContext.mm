@@ -368,10 +368,17 @@ bool MTLContext::ApplyPipelineState() {
 	// Pass dynamic blend state override if it has been set
 	const BlendState* blendOverride = dynamicBlendDirty ? &dynamicBlend : nullptr;
 
+	// Set per-vertex stride on the layout (the stride field may have been
+	// overwritten by a subsequent SetVertexLayout call for instance attribs).
+	// perInstanceStride is passed separately.
+	if (hasVertexLayout && perVertexStride > 0) {
+		currentVertexLayout.stride = perVertexStride;
+	}
+
 	id<MTLRenderPipelineState> pipelineState =
 		pipeline->GetRenderPipelineState(currentShader, colorFormat, depthFormat,
 		                                 hasVertexLayout ? &currentVertexLayout : nullptr,
-		                                 blendOverride);
+		                                 blendOverride, perInstanceStride);
 
 	if (!pipelineState) {
 		LOG_L(L_ERROR, "[MTL-PSO] GetRenderPipelineState returned nil for shader '%s'",
@@ -818,21 +825,39 @@ void MTLContext::SetVertexLayout(const VertexLayout& layout) {
 	const uint32_t count = (layout.attributeCount + base <= MaxVertexAttribs)
 		? layout.attributeCount : (MaxVertexAttribs - base);
 
+	// Detect whether this batch contains per-instance attributes (divisor > 0)
+	bool hasInstanceAttribs = false;
 	for (uint32_t i = 0; i < count; ++i) {
 		storedAttributes[base + i] = layout.attributes[i];
+		if (layout.attributes[i].divisor > 0)
+			hasInstanceAttribs = true;
 	}
+
 
 	currentVertexLayout.attributes = storedAttributes;
 	currentVertexLayout.attributeCount = base + count;
-	// Use the latest stride (caller sets stride per-call; the last call's stride
-	// is typically the instance stride, but Metal uses per-buffer strides anyway)
 	currentVertexLayout.stride = layout.stride;
+
+	// Track per-buffer strides separately. S3DModelVAO::Bind() calls
+	// SetVertexLayout twice: first with per-vertex attribs (divisor=0,
+	// stride=sizeof(SVertexData)), then with per-instance attribs
+	// (divisor>0, stride=sizeof(SInstanceData)). The single stride field
+	// gets overwritten, but Metal needs different strides for buffer
+	// layouts 30 (per-vertex) and 29 (per-instance).
+	if (hasInstanceAttribs) {
+		perInstanceStride = layout.stride;
+	} else {
+		perVertexStride = layout.stride;
+	}
+
 	hasVertexLayout = true;
 }
 
 void MTLContext::ClearVertexLayout() {
 	currentVertexLayout = {};
 	hasVertexLayout = false;
+	perVertexStride = 0;
+	perInstanceStride = 0;
 }
 
 void MTLContext::ClearColor(float r, float g, float b, float a) {
@@ -1121,8 +1146,10 @@ void MTLContext::BlitFramebuffer(IRHIFramebuffer* src, IRHIFramebuffer* dst,
 
 	// Blit depth attachment
 	if (depthBit) {
-		id<MTLTexture> srcTex = srcFB ? srcFB->GetDepthTexture() : nil;
-		id<MTLTexture> dstTex = dstFB ? dstFB->GetDepthTexture() : nil;
+		// When src is nil (drawable), fall back to the default depth texture
+		// used by the screen render pass — the drawable itself has no depth.
+		id<MTLTexture> srcTex = srcFB ? srcFB->GetDepthTexture() : defaultDepthTexture;
+		id<MTLTexture> dstTex = dstFB ? dstFB->GetDepthTexture() : defaultDepthTexture;
 
 		if (srcTex && dstTex) {
 			// Depth blits always use nearest filtering

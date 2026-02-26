@@ -195,7 +195,8 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
                                                                 MTLPixelFormat colorFormat,
                                                                 MTLPixelFormat depthFormat,
                                                                 const VertexLayout* vertexLayout,
-                                                                const BlendState* blendOverride) {
+                                                                const BlendState* blendOverride,
+                                                                uint32_t instanceStride) {
 	if (!shader || !shader->IsValid()) {
 		return nil;
 	}
@@ -226,6 +227,8 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
 	// Include color and depth pixel formats so PSOs for different render targets don't collide
 	key ^= (static_cast<uintptr_t>(colorFormat) * 2246822519ULL);
 	key ^= (static_cast<uintptr_t>(depthFormat) * 3266489917ULL);
+	// Include instance stride so per-vertex vs per-instance layout differences produce distinct PSOs
+	key ^= (static_cast<uintptr_t>(instanceStride) * 1640531527ULL);
 
 	auto it = pipelineCache.find(key);
 	if (it != pipelineCache.end()) {
@@ -315,7 +318,12 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
 		vd.layouts[kVertexBufferIndex].stepRate = 1;
 
 		if (hasPerInstance) {
-			vd.layouts[kVertexBufferIndex - 1].stride = vertexLayout->stride;
+			// Use the separate instance stride — the per-instance buffer (index 29)
+			// has a different stride from the per-vertex buffer (index 30).
+			// If instanceStride wasn't provided, fall back to vertexLayout->stride
+			// (old behavior) to avoid zero-stride which Metal rejects.
+			const uint32_t instStride = (instanceStride > 0) ? instanceStride : vertexLayout->stride;
+			vd.layouts[kVertexBufferIndex - 1].stride = instStride;
 			vd.layouts[kVertexBufferIndex - 1].stepFunction = MTLVertexStepFunctionPerInstance;
 			vd.layouts[kVertexBufferIndex - 1].stepRate = 1;
 		}
@@ -345,6 +353,17 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
 		LOG_L(L_ERROR, "[MTLPipeline] Failed to create PSO for %s: %s",
 		      shader->GetName().c_str(),
 		      error ? [[error localizedDescription] UTF8String] : "unknown error");
+		// Dump vertex attribute details to help diagnose format mismatches
+		if (vertexLayout && vertexLayout->attributeCount > 0) {
+			LOG_L(L_ERROR, "[MTLPipeline]   vertexStride=%u instanceStride=%u attribCount=%u",
+			      vertexLayout->stride, instanceStride, vertexLayout->attributeCount);
+			for (uint32_t i = 0; i < vertexLayout->attributeCount; ++i) {
+				const auto& a = vertexLayout->attributes[i];
+				LOG_L(L_ERROR, "[MTLPipeline]   attr[%u]: loc=%u fmt=%d offset=%u divisor=%u → bufIdx=%u",
+				      i, a.location, (int)a.format, a.offset, a.divisor,
+				      (a.divisor > 0) ? (kVertexBufferIndex - 1) : kVertexBufferIndex);
+			}
+		}
 		return nil;
 	}
 
