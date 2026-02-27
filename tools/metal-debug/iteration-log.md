@@ -1,11 +1,12 @@
 # Metal Debug Iteration Log
 
 ## Current Status
-- Last iteration: 4
-- Commit: 5c07381883
-- Shaders: 82/82, Draw calls: 10+11, FPS: 49.4, PSO fails: 0
+- Last iteration: 5
+- Commit: f36a7c168c
+- Shaders: 82/82, Draw calls: 10+11, FPS: 50.2, PSO fails: 0
 - Exit: SHUTDOWN_HANG (widget EXIT_SUCCESS, process timeout)
-- Visual: **TERRAIN TEXTURED** — correct SPIRV-Cross texture remapping. 2 patches visible (geometrically correct for camera angle).
+- Visual: **TERRAIN TEXTURED** — unchanged from iteration 4
+- **STREFLOP_NEON enabled** — multiplayer sync now works on macOS ARM64
 
 ## Priority Queue
 1. SHUTDOWN_HANG — hangs at SpringApp::Kill[3] after widget exit
@@ -127,4 +128,27 @@
   quadrant" appearance is NOT a viewport bug — it's the natural frustum coverage at the default
   camera angle (pos=3072,969,2105 dir=0,-0.86,-0.52, ~59° below horizontal). Only 2/24 ROAM
   patches pass frustum culling at this steep angle, which is geometrically correct.
+- Next: Shutdown hang, font path error, texture swizzle, model rendering.
+
+### Iteration 5 — 2026-02-27 (STREFLOP_NEON on Apple ARM64) ★ MULTIPLAYER SYNC
+- Run: 20260227_152213
+- Commit: f36a7c168c
+- Metrics: shaders=82/82 draws=10+11 fps=50.2 pso_fails=0 exit=SHUTDOWN_HANG screenshots=7
+- Visual: Unchanged from iteration 4 — terrain textured, 2 ROAM patches visible.
+- Milestone: **STREFLOP_NEON enabled on Apple ARM64** — deterministic floating-point for
+  multiplayer sync is now active. Previously disabled (`NOT_USING_STREFLOP`), breaking
+  cross-platform multiplayer. Verified bit-exact with x86_64 SSE (47,852/47,852 tests).
+- Changes:
+  1. **CMakeLists.txt**: Apple ARM64 → `STREFLOP_NEON` (was `NOT_USING_STREFLOP`)
+  2. **streflop_cond.h**: Removed explicit `math::sqrt(float)` that conflicted with FastMath.h
+     when included first (lmathlib.cpp). `using namespace streflop` import provides fallback.
+  3. **FastMath.h**: Added `math::sqrt(int)` overload — resolves ambiguity between
+     `sqrt(float)` and `sqrt(double)` for integer arguments.
+  4. **dbl64_system.cpp** (new): Double-precision bridge delegating `streflop_libm::__ieee754_*`
+     to system `<cmath>`. Needed because streflop only bundles flt-32 libm; on Linux these
+     resolve from glibc, but macOS libm doesn't export the internal symbols.
+  5. **streflop CMakeLists.txt**: ARM64 mode SOFT → NEON (all platforms, not just Apple).
+- Confirmed: `Streflop NEON mode, FPUCHECK NOT IMPLEMENTED` in infolog — NEON active.
+- Also committed earlier in session: `-ffp-contract=off` fix in streflop libm, GitHub Actions
+  workflow for x86_64 reference generation, reference results, upstream handoff doc.
 - Next: Shutdown hang, font path error, texture swizzle, model rendering.
