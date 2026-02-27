@@ -1,28 +1,52 @@
-name: STREFLOP Float Reference
+name: STREFLOP Float Sync Test
 
 on:
   workflow_dispatch:
+    inputs:
+      large_scale:
+        description: 'Run 2.6B test hash-only pass (adds ~3 min)'
+        required: false
+        default: true
+        type: boolean
 
 jobs:
-  generate-reference:
+  streflop-sync-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
       - name: Configure
-        run: cmake -B build -S tools/sync-test -DSTREFLOP_MODE=SSE
+        run: cmake -B build -S tools/sync-test -DCMAKE_BUILD_TYPE=Release -DSTREFLOP_MODE=SSE
 
       - name: Build
         run: cmake --build build --target streflop-float-test -j$(nproc)
 
-      - name: Run
-        run: ./build/streflop-float-test
+      # Step 1: Regression gate — N=10000, compare against checked-in reference
+      - name: Regression test (47K tests, compare to reference)
+        run: |
+          ./build/streflop-float-test -n 10000 streflop_regression
+          python3 tools/sync-test/compare_results.py \
+            tools/sync-test/reference/streflop_results_SSE_x86_64.bin \
+            streflop_regression.bin
+          echo ""
+          echo "--- Hash cross-check ---"
+          python3 tools/sync-test/compare_results.py --hash streflop_regression.bin
 
-      - name: Upload results
+      # Step 2: 10M inputs — 261M tests, upload binary for cross-arch comparison
+      - name: Medium scale (261M tests, ~45s)
+        run: |
+          ./build/streflop-float-test -n 10000000 streflop_10M_SSE_x86_64
+
+      # Step 3: 100M inputs — 2.6B tests, hash-only (no disk I/O)
+      - name: Large scale (2.6B tests, hash-only, ~3 min)
+        if: ${{ inputs.large_scale }}
+        run: |
+          ./build/streflop-float-test -n 100000000 --hash-only
+
+      - name: Upload 10M results
         uses: actions/upload-artifact@v4
         with:
-          name: streflop-float-reference
-          path: |
-            streflop_results_*.bin
-            streflop_results_*.txt
+          name: streflop-10M-SSE-x86_64
+          path: streflop_10M_SSE_x86_64.bin
           retention-days: 90
