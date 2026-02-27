@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Override with -DSTREFLOP_MODE=SSE|NEON|SOFT (default: auto-detect)
 if(NOT DEFINED STREFLOP_MODE)
 	if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|armv8")
-		set(STREFLOP_MODE "SOFT")
+		set(STREFLOP_MODE "NEON")
 	else()
 		set(STREFLOP_MODE "SSE")
 	endif()
@@ -72,9 +72,39 @@ if(STREFLOP_MODE STREQUAL "SOFT")
 endif()
 
 # --- Compiler flags ---
-# Prevent FMA fusion — critical for cross-arch reproducibility
+# Match the engine's compiler flags (from root CMakeLists.txt + TestCXXFlags.cmake)
+# to ensure STREFLOP results are identical to in-engine behavior.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+	# FMA fusion prevention — critical for cross-arch reproducibility
 	add_compile_options(-ffp-contract=off)
+	# Strict aliasing and IEEE compliance
+	add_compile_options(-fno-strict-aliasing)
+
+	if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|armv8")
+		add_compile_options(-march=armv8-a+simd)
+	else()
+		# x86: SSE math, restrict to SSE1 baseline (match engine fallback)
+		add_compile_options(-msse -mfpmath=sse)
+		add_compile_options(-mno-sse3 -mno-ssse3 -mno-sse4.1 -mno-sse4.2 -mno-sse4 -mno-sse4a)
+		add_compile_options(-mno-avx -mno-fma -mno-fma4 -mno-xop -mno-lwp -mno-avx2)
+	endif()
+
+	if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+		# GCC-specific flags the engine uses
+		add_compile_options(-fsingle-precision-constant -frounding-math)
+		include(CheckCXXCompilerFlag)
+		check_cxx_compiler_flag("-mieee-fp" HAS_IEEE_FP)
+		if(HAS_IEEE_FP)
+			add_compile_options(-mieee-fp)
+		endif()
+	elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang")
+		# Clang: -frounding-math if supported
+		include(CheckCXXCompilerFlag)
+		check_cxx_compiler_flag("-frounding-math" HAS_FROUNDING_MATH)
+		if(HAS_FROUNDING_MATH)
+			add_compile_options(-frounding-math)
+		endif()
+	endif()
 endif()
 
 # --- Test binary ---
