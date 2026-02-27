@@ -63,6 +63,12 @@ target_link_libraries(GameHeadless PRIVATE
 add_executable(engine-headless ${engineSources} ${ENGINE_ICON})
 target_link_libraries(engine-headless no-sound ${engineHeadlessLibraries} GameHeadless no-sound)
 
+# Suppress "ignoring duplicate libraries" linker warning on macOS.
+# Static library transitive deps cause benign duplicates in the link line.
+if(APPLE)
+	target_link_options(engine-headless PRIVATE "LINKER:-no_warn_duplicate_libraries")
+endif()
+
 if    (MINGW)
 	# To enable console output/force a console window to open
 	set_target_properties(engine-headless PROPERTIES LINK_FLAGS "-Wl,-subsystem,console")

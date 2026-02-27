@@ -83,6 +83,13 @@ include_directories(${engineIncludes})
 add_executable(engine-legacy ${EXE_FLAGS} ${engineSources} ${engineMetalSources} ${engineShaderCompilerSources} ${ENGINE_ICON} ${engineHeaders})
 target_link_libraries(engine-legacy ${engineLibraries} ${engineMetalFrameworks} Game)
 
+# Suppress "ignoring duplicate libraries" linker warning on macOS.
+# Static library transitive deps (engineSim, pr-downloader, sound, etc.) propagate
+# dependencies that are already in engineLibraries, causing benign duplicates.
+if(APPLE)
+	target_link_options(engine-legacy PRIVATE "LINKER:-no_warn_duplicate_libraries")
+endif()
+
 # Shader compiler (GLSL->MSL pipeline) — needs glslang + SPIRV-Cross
 if(engineShaderCompilerSources)
 	target_include_directories(engine-legacy PRIVATE ${engineShaderCompilerIncludes})
