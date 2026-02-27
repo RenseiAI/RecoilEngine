@@ -104,6 +104,19 @@ public:
 	void BindUniforms(id<MTLRenderCommandEncoder> encoder);
 #endif
 
+	/// Texture unit remapping: maps GL texture unit → Metal [[texture(N)]] index.
+	/// Returns -1 if no remapping exists (use identity mapping).
+	/// Called by MTLContext::BindCurrentResources() to place textures at the
+	/// correct Metal indices that SPIRV-Cross assigned.
+	static constexpr int kMaxTextureUnits = 32;
+	int GetVSTextureIndex(int glUnit) const {
+		return (glUnit >= 0 && glUnit < kMaxTextureUnits) ? vsTextureRemap[glUnit] : -1;
+	}
+	int GetFSTextureIndex(int glUnit) const {
+		return (glUnit >= 0 && glUnit < kMaxTextureUnits) ? fsTextureRemap[glUnit] : -1;
+	}
+	bool HasTextureRemapping() const { return hasTextureRemap; }
+
 private:
 	struct UniformInfo {
 		size_t offset;       // position in uniformData
@@ -159,6 +172,26 @@ private:
 	// Attribute bindings (requested before Link)
 	std::unordered_map<std::string, uint32_t> attribLocations;
 	std::unordered_map<std::string, uint32_t> outputLocations;
+
+	// Sampler texture remapping: SPIRV-Cross assigns [[texture(N)]] indices
+	// that may differ from the GL texture unit the engine uses. When the
+	// engine calls SetUniform1i("samplerName", glUnit), we look up the
+	// sampler's Metal texture index from reflection and record the mapping.
+	struct SamplerInfo {
+		int vsMetalTextureIndex = -1;
+		int fsMetalTextureIndex = -1;
+		int vsMetalSamplerIndex = -1;
+		int fsMetalSamplerIndex = -1;
+	};
+	std::unordered_map<std::string, SamplerInfo> samplerInfoMap;
+
+	// GL texture unit → Metal texture index per stage (-1 = identity/unmapped)
+	int vsTextureRemap[kMaxTextureUnits];
+	int fsTextureRemap[kMaxTextureUnits];
+	// Also remap sampler indices (they track texture indices in SPIRV-Cross)
+	int vsSamplerRemap[kMaxTextureUnits];
+	int fsSamplerRemap[kMaxTextureUnits];
+	bool hasTextureRemap = false;
 
 	// Shared shader compiler
 	static std::unique_ptr<ShaderCompiler> shaderCompiler;

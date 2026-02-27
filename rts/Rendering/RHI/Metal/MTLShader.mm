@@ -194,6 +194,12 @@ MTLShader::MTLShader(MTLDevice* device, const std::string& name)
 
 	// Reserve some space for uniforms (will grow as needed)
 	uniformData.reserve(1024);
+
+	// Initialize texture remap arrays to -1 (identity mapping)
+	std::fill(std::begin(vsTextureRemap), std::end(vsTextureRemap), -1);
+	std::fill(std::begin(fsTextureRemap), std::end(fsTextureRemap), -1);
+	std::fill(std::begin(vsSamplerRemap), std::end(vsSamplerRemap), -1);
+	std::fill(std::begin(fsSamplerRemap), std::end(fsSamplerRemap), -1);
 }
 
 MTLShader::~MTLShader() {
@@ -442,6 +448,41 @@ void MTLShader::Link() {
 		    uInfo.offset, uInfo.size);
 	}
 
+	// Extract sampler reflection data for texture unit remapping.
+	// SPIRV-Cross assigns [[texture(N)]] indices independently of GL texture units.
+	// When the engine later calls SetUniform1i("samplerName", glUnit), we use
+	// this mapping to translate GL unit → Metal texture index.
+	samplerInfoMap.clear();
+	std::fill(std::begin(vsTextureRemap), std::end(vsTextureRemap), -1);
+	std::fill(std::begin(fsTextureRemap), std::end(fsTextureRemap), -1);
+	std::fill(std::begin(vsSamplerRemap), std::end(vsSamplerRemap), -1);
+	std::fill(std::begin(fsSamplerRemap), std::end(fsSamplerRemap), -1);
+	hasTextureRemap = false;
+
+	auto populateSamplers = [&](const ShaderReflection* refl, bool isVertex) {
+		if (!refl)
+			return;
+		for (const auto& s : refl->samplers) {
+			auto& info = samplerInfoMap[s.name];
+			if (isVertex) {
+				info.vsMetalTextureIndex = s.metalTextureIndex;
+				info.vsMetalSamplerIndex = s.metalSamplerIndex;
+			} else {
+				info.fsMetalTextureIndex = s.metalTextureIndex;
+				info.fsMetalSamplerIndex = s.metalSamplerIndex;
+			}
+		}
+	};
+	populateSamplers(vsRefl, true);
+	populateSamplers(fsRefl, false);
+
+	for (const auto& [sName, sInfo] : samplerInfoMap) {
+		LOG("[MTLShader] %s:   sampler '%s' vsTexIdx=%d fsTexIdx=%d vsSmpIdx=%d fsSmpIdx=%d",
+		    shaderName.c_str(), sName.c_str(),
+		    sInfo.vsMetalTextureIndex, sInfo.fsMetalTextureIndex,
+		    sInfo.vsMetalSamplerIndex, sInfo.fsMetalSamplerIndex);
+	}
+
 	// Pre-compute per-stage buffer upload ranges
 	RebuildBufferRanges();
 }
@@ -515,6 +556,36 @@ void MTLShader::SetUniformData(const char* name, const void* data, size_t size) 
 // --- Uniform setters (int) ---
 
 void MTLShader::SetUniform1i(const char* name, int v0) {
+	// Check if this is a sampler uniform (e.g., "diffuseTex", value = GL texture unit).
+	// On OpenGL, glUniform1i(loc, N) tells the shader to sample from texture unit N.
+	// On Metal, we need to map this GL unit to the [[texture(N)]] index that
+	// SPIRV-Cross assigned during compilation.
+	auto samplerIt = samplerInfoMap.find(name);
+	if (samplerIt != samplerInfoMap.end() && v0 >= 0 && v0 < kMaxTextureUnits) {
+		const auto& info = samplerIt->second;
+		if (info.vsMetalTextureIndex >= 0) {
+			vsTextureRemap[v0] = info.vsMetalTextureIndex;
+			vsSamplerRemap[v0] = (info.vsMetalSamplerIndex >= 0)
+				? info.vsMetalSamplerIndex : info.vsMetalTextureIndex;
+			hasTextureRemap = true;
+		}
+		if (info.fsMetalTextureIndex >= 0) {
+			fsTextureRemap[v0] = info.fsMetalTextureIndex;
+			fsSamplerRemap[v0] = (info.fsMetalSamplerIndex >= 0)
+				? info.fsMetalSamplerIndex : info.fsMetalTextureIndex;
+			hasTextureRemap = true;
+		}
+		static int remapLogCount = 0;
+		if (remapLogCount++ < 50) {
+			LOG("[MTLShader] %s: sampler '%s' glUnit=%d → vsTexIdx=%d fsTexIdx=%d",
+			    shaderName.c_str(), name, v0,
+			    info.vsMetalTextureIndex, info.fsMetalTextureIndex);
+		}
+		// Don't store sampler uniforms in the uniform buffer — Metal
+		// doesn't use sampler uniforms, textures are bound directly.
+		return;
+	}
+
 	SetUniformData(name, &v0, sizeof(int));
 }
 

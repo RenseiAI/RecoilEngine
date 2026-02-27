@@ -117,12 +117,18 @@ bool MTLDevice::SetupMetalLayer(SDL_Window* window) {
 		metalLayer.displaySyncEnabled = YES;
 	}
 
-	// Get window size for layer
+	// Force contentsScale to 1.0 to avoid Retina mismatch with engine's logical pixel viewport
+	metalLayer.contentsScale = 1.0;
+
+	// Get window size for layer — use SDL_Metal_GetDrawableSize for actual backing pixels
 	int width, height;
-	SDL_GetWindowSize(window, &width, &height);
+	SDL_Metal_GetDrawableSize(window, &width, &height);
 	metalLayer.drawableSize = CGSizeMake(width, height);
 
-	LOG("[MTLDevice] Metal layer configured: %dx%d", width, height);
+	int logW, logH;
+	SDL_GetWindowSize(window, &logW, &logH);
+	LOG("[MTLDevice] Metal layer configured: drawable=%dx%d window=%dx%d contentsScale=%.1f",
+	    width, height, logW, logH, metalLayer.contentsScale);
 	return true;
 }
 

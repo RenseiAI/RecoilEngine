@@ -598,43 +598,68 @@ void MTLContext::BindCurrentResources() {
 		defaultSampler = [device->GetMTLDevice() newSamplerStateWithDescriptor:sampDesc];
 	}
 
-	// Bind textures and ensure every sampler slot has a valid binding.
+	// Bind textures with SPIRV-Cross texture index remapping.
+	//
+	// GLSL shaders without explicit layout(binding=N) get SPIRV-Cross-assigned
+	// [[texture(N)]] indices that may differ from the GL texture unit the engine
+	// uses. The shader maintains a remap table (GL unit → Metal index) built
+	// from sampler reflection + SetUniform1i("samplerName", glUnit) calls.
+	//
 	// Metal supports up to 31 textures per stage but only 16 samplers.
-	// Shaders compiled from GLSL via SPIRV-Cross expect sampler bindings at
-	// every texture index referenced in the shader. If the caller only binds
-	// textures via OpenGL calls (not RHI), the sampler slot would be empty,
-	// causing a Metal validation failure or SIGSEGV.
 	static constexpr uint32_t MaxMetalSamplers = 16;
 	int texCount = 0;
-	for (uint32_t i = 0; i < MaxTextureUnits; i++) {
-		if (boundTextures[i]) {
-			id<MTLTexture> tex = boundTextures[i]->GetMTLTexture();
+	const bool doRemap = currentShader && currentShader->HasTextureRemapping();
 
-			if (tex) {
-				[renderEncoder setFragmentTexture:tex atIndex:i];
-				[renderEncoder setVertexTexture:tex atIndex:i];
-				texCount++;
-			}
-			// Bind sampler only for slots within Metal's 16-sampler limit
-			if (i < MaxMetalSamplers) {
-				id<MTLSamplerState> sampler = boundTextures[i]->GetSamplerState();
-				id<MTLSamplerState> effectiveSampler = sampler ? sampler : defaultSampler;
-				[renderEncoder setFragmentSamplerState:effectiveSampler atIndex:i];
-				[renderEncoder setVertexSamplerState:effectiveSampler atIndex:i];
-			}
-		} else if (i < MaxMetalSamplers) {
-			// Bind default sampler for empty slots within the 16-sampler limit —
-			// the shader may reference a sampler at this index
-			[renderEncoder setFragmentSamplerState:defaultSampler atIndex:i];
-			[renderEncoder setVertexSamplerState:defaultSampler atIndex:i];
+	// Pass 1: Set default sampler for all 16 sampler slots (both stages).
+	// Shaders may reference sampler indices that no texture is bound to.
+	for (uint32_t i = 0; i < MaxMetalSamplers; i++) {
+		[renderEncoder setFragmentSamplerState:defaultSampler atIndex:i];
+		[renderEncoder setVertexSamplerState:defaultSampler atIndex:i];
+	}
+
+	// Pass 2: Bind textures (and their samplers) at the remapped Metal indices.
+	for (uint32_t i = 0; i < MaxTextureUnits; i++) {
+		if (!boundTextures[i]) continue;
+
+		id<MTLTexture> tex = boundTextures[i]->GetMTLTexture();
+		if (!tex) continue;
+
+		// Determine Metal texture index per stage.
+		int vsTexIdx = doRemap ? currentShader->GetVSTextureIndex(i) : -1;
+		int fsTexIdx = doRemap ? currentShader->GetFSTextureIndex(i) : -1;
+
+		// When remapping is active, only bind to stages that have an explicit
+		// mapping for this GL unit. Identity fallback (-1) would place textures
+		// at arbitrary Metal indices, potentially overwriting correctly-remapped
+		// bindings from other GL units. When remapping is NOT active (no sampler
+		// reflection), use identity (GL unit = Metal index) for compatibility.
+		if (!doRemap) {
+			vsTexIdx = static_cast<int>(i);
+			fsTexIdx = static_cast<int>(i);
 		}
+
+		id<MTLSamplerState> sampler = boundTextures[i]->GetSamplerState();
+		id<MTLSamplerState> effectiveSampler = sampler ? sampler : defaultSampler;
+
+		if (vsTexIdx >= 0) {
+			[renderEncoder setVertexTexture:tex atIndex:static_cast<uint32_t>(vsTexIdx)];
+			if (static_cast<uint32_t>(vsTexIdx) < MaxMetalSamplers)
+				[renderEncoder setVertexSamplerState:effectiveSampler atIndex:static_cast<uint32_t>(vsTexIdx)];
+		}
+		if (fsTexIdx >= 0) {
+			[renderEncoder setFragmentTexture:tex atIndex:static_cast<uint32_t>(fsTexIdx)];
+			if (static_cast<uint32_t>(fsTexIdx) < MaxMetalSamplers)
+				[renderEncoder setFragmentSamplerState:effectiveSampler atIndex:static_cast<uint32_t>(fsTexIdx)];
+		}
+		if (vsTexIdx >= 0 || fsTexIdx >= 0)
+			texCount++;
 	}
 
 	// Periodic texture binding diagnostics
 	static int texLogCount = 0;
 	if (texLogCount++ % 5000 == 0 && currentShader) {
-		LOG("[MTL-Tex] shader='%s' boundTextures=%d vbo=%p",
-		    currentShader->GetName().c_str(), texCount,
+		LOG("[MTL-Tex] shader='%s' boundTextures=%d remap=%d vbo=%p",
+		    currentShader->GetName().c_str(), texCount, doRemap ? 1 : 0,
 		    currentVertexBuffer ? (void*)currentVertexBuffer->GetMTLBuffer() : nullptr);
 	}
 }
