@@ -676,6 +676,15 @@ namespace Impl {
 				if (spring::regex_match(StoreUTF8AsString(entryPathFnStr), regexPattern)) {
 					auto entryPathStr = entry.path().generic_u8string();
 
+					// Strip dataDir prefix to return VFS-relative paths
+					// (matching legacy FindFiles behavior which pushed dir+filename, not dataDir+dir+filename)
+					if (!dataDir.empty()) {
+						const auto dataDirU8 = Recoil::filesystem::u8path(dataDir).generic_u8string();
+						if (entryPathStr.substr(0, dataDirU8.size()) == dataDirU8) {
+							entryPathStr.erase(0, dataDirU8.size());
+						}
+					}
+
 					// the previous convention to add a trailing slash
 					if (isDir && !entryPathStr.empty() && entryPathStr.back() != u8'/') {
 						entryPathStr += u8'/';

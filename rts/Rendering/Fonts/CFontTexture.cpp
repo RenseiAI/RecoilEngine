@@ -27,6 +27,7 @@
 #include "System/EventHandler.h"
 #include "System/Log/ILog.h"
 #include "System/FileSystem/FileHandler.h"
+#include "System/FileSystem/FileSystem.h"
 #include "System/Threading/ThreadPool.h"
 #ifdef _DEBUG
 	#include "System/Platform/Threading.h"
@@ -388,8 +389,8 @@ static std::shared_ptr<FontFace> LoadFontFace(const std::string& fontfile)
 	CFileHandler f(fontPath);
 
 	if (!f.FileExists()) {
-		// check in 'fonts/', too
-		if (fontPath.substr(0, 6) != "fonts/") {
+		// check in 'fonts/', too (but not for absolute paths — prepending would mangle them)
+		if (fontPath.substr(0, 6) != "fonts/" && !FileSystem::IsAbsolutePath(fontPath)) {
 			f.Close();
 			f.Open(fontPath = "fonts/" + fontPath);
 		}

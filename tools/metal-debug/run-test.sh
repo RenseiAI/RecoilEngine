@@ -74,8 +74,8 @@ fi
 
 # Write test settings to cont/springsettings.cfg (isolation mode config)
 cat > "$SETTINGS" <<EOF
-FontFile = $CONT_DIR/fonts/FreeSansBold.otf
-SmallFontFile = $CONT_DIR/fonts/FreeSansBold.otf
+FontFile = fonts/FreeSansBold.otf
+SmallFontFile = fonts/FreeSansBold.otf
 Fullscreen = $FULLSCREEN
 XResolution = $RES_W
 YResolution = $RES_H
