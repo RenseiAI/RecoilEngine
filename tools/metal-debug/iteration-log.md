@@ -8,11 +8,19 @@
 - Visual: **TERRAIN VISIBLE** — textured terrain, sky, horizon. Rendering in upper-left quadrant.
 
 ## Priority Queue
-1. VIEWPORT/QUADRANT — rendering appears confined to upper-left ~50% of screen. May be Metal Y-axis flip or viewport/scissor issue.
+1. RENDERING COVERAGE — only 2 ROAM terrain patches draw per frame. Investigate why more patches aren't visible (LOD, frustum, camera).
 2. SHUTDOWN_HANG — hangs at SpringApp::Kill[3] after widget exit
 3. Font path error — doubled path in font loading
 4. Texture swizzle warnings — incorrect texture format handling
 5. ModernSky disabled — falls back to NullSky
+
+## Confirmed Working (Post-Phase 32)
+- Viewport: 800x600 full screen, correct coordinates, no Retina scaling issue
+- Terrain shader: SMFShaderGLSL-Forward-Adv with correct uniforms, textures, PSO
+- Drawable: 800x600 matches viewport, present works correctly
+- Clear(): mid-pass clears properly handled via fullscreen quad
+- Screenshots: ReadPixels with Y-flip works correctly
+- Loading screen: "Loading..." text renders with fonts
 
 ## Iteration History
 
