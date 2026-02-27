@@ -22,6 +22,14 @@
 
 using streflop::Double;
 
+// On GCC/Linux, <cmath> puts classification functions (signbit, fpclassify,
+// isnan, isinf) in std:: only. On macOS/clang they're macros in the global
+// namespace. Use std:: versions unconditionally since <cmath> is included.
+using std::signbit;
+using std::fpclassify;
+using std::isnan;
+using std::isinf;
+
 namespace streflop_libm {
 
 // Square root, cube root, hypotenuse
