@@ -6,6 +6,7 @@
 #import <Metal/Metal.h>
 #include <algorithm>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <cstring>
 
@@ -15,6 +16,150 @@
 #include "System/FileSystem/FileHandler.h"
 
 namespace RHI {
+
+/// Fix gl_PerVertex output location qualifiers in vertex MSL.
+///
+/// SPIRV-Cross assigns [[user(locnN)]] to gl_PerVertex compatibility builtins
+/// (gl_Color, gl_TexCoord, gl_FogFragCoord, gl_SecondaryColor) in fragment
+/// inputs but NOT in vertex outputs. Metal requires matching location qualifiers
+/// on both sides for PSO creation. This function parses the fragment's input
+/// struct locations and applies them to matching vertex output struct members.
+///
+/// Name mapping (vertex → fragment):
+///   gl_FrontColor         → gl_Color
+///   gl_FrontSecondaryColor → gl_SecondaryColor
+///   gl_TexCoord_N         → gl_TexCoord_N  (identical)
+///   gl_FogFragCoord       → gl_FogFragCoord (identical)
+///   gl_ClipVertex         → (no fragment counterpart, skip)
+///   gl_BackColor          → (no fragment counterpart, skip)
+///   gl_BackSecondaryColor → (no fragment counterpart, skip)
+static void FixGlPerVertexOutputLocations(std::string& vertexMSL, const std::string& fragmentMSL) {
+	const std::string FIXUP_GL = "_RESERVED_IDENTIFIER_FIXUP_gl_";
+
+	// Step 1: Parse fragmentMain_in struct for gl_PerVertex member locations.
+	// Pattern: "TYPE m_NN_RESERVED_IDENTIFIER_FIXUP_gl_MEMBER [[user(locnN)]];"
+	size_t fragStructPos = fragmentMSL.find("struct fragmentMain_in");
+	if (fragStructPos == std::string::npos) return;
+	size_t fragStructEnd = fragmentMSL.find("};", fragStructPos);
+	if (fragStructEnd == std::string::npos) return;
+
+	// Map: fragment gl_ member name (e.g. "gl_Color") → location number
+	std::map<std::string, uint32_t> fragNameToLocn;
+
+	size_t searchPos = fragStructPos;
+	while ((searchPos = fragmentMSL.find(FIXUP_GL, searchPos)) != std::string::npos
+	       && searchPos < fragStructEnd)
+	{
+		// Extract the gl_MEMBER suffix
+		size_t nameStart = searchPos + FIXUP_GL.size();
+		size_t nameEnd = nameStart;
+		while (nameEnd < fragmentMSL.size()
+		       && (std::isalnum(fragmentMSL[nameEnd]) || fragmentMSL[nameEnd] == '_'))
+			nameEnd++;
+		std::string memberSuffix = fragmentMSL.substr(nameStart, nameEnd - nameStart);
+		std::string glName = "gl_" + memberSuffix;
+
+		// Find [[user(locnN)]] on the same line
+		size_t lineEnd = fragmentMSL.find('\n', searchPos);
+		if (lineEnd == std::string::npos) lineEnd = fragmentMSL.size();
+		std::string line = fragmentMSL.substr(searchPos, lineEnd - searchPos);
+		size_t locnPos = line.find("[[user(locn");
+		if (locnPos != std::string::npos) {
+			size_t numStart = locnPos + 11; // strlen("[[user(locn")
+			size_t numEnd = line.find(")", numStart);
+			if (numEnd != std::string::npos) {
+				try {
+					uint32_t locn = static_cast<uint32_t>(std::stoul(line.substr(numStart, numEnd - numStart)));
+					fragNameToLocn[glName] = locn;
+				} catch (...) {}
+			}
+		}
+
+		searchPos = nameEnd;
+	}
+
+	if (fragNameToLocn.empty()) return;
+
+	// Step 2: Build vertex member name → location mapping.
+	// Map fragment names to their vertex-side equivalents.
+	std::map<std::string, uint32_t> vertNameToLocn;
+	for (const auto& [fragName, locn] : fragNameToLocn) {
+		// gl_Color → gl_FrontColor
+		if (fragName == "gl_Color") {
+			vertNameToLocn["gl_FrontColor"] = locn;
+		}
+		// gl_SecondaryColor → gl_FrontSecondaryColor
+		else if (fragName == "gl_SecondaryColor") {
+			vertNameToLocn["gl_FrontSecondaryColor"] = locn;
+		}
+		// All others keep their name (gl_TexCoord_N, gl_FogFragCoord)
+		else {
+			vertNameToLocn[fragName] = locn;
+		}
+	}
+
+	// Step 3: In vertexMain_out struct, add [[user(locnN)]] to matching members.
+	size_t vtxStructPos = vertexMSL.find("struct vertexMain_out");
+	if (vtxStructPos == std::string::npos) return;
+	size_t vtxStructEnd = vertexMSL.find("};", vtxStructPos);
+	if (vtxStructEnd == std::string::npos) return;
+
+	// Collect insertion points (position before ';' → qualifier text)
+	// Process in reverse order so earlier insertions don't shift later positions.
+	std::vector<std::pair<size_t, std::string>> insertions;
+
+	searchPos = vtxStructPos;
+	while ((searchPos = vertexMSL.find(FIXUP_GL, searchPos)) != std::string::npos
+	       && searchPos < vtxStructEnd)
+	{
+		// Extract the gl_MEMBER suffix
+		size_t nameStart = searchPos + FIXUP_GL.size();
+		size_t nameEnd = nameStart;
+		while (nameEnd < vertexMSL.size()
+		       && (std::isalnum(vertexMSL[nameEnd]) || vertexMSL[nameEnd] == '_'))
+			nameEnd++;
+		std::string memberSuffix = vertexMSL.substr(nameStart, nameEnd - nameStart);
+		std::string glName = "gl_" + memberSuffix;
+
+		// Check: already has [[user(locn...]]) on this line?
+		size_t lineEnd = vertexMSL.find('\n', searchPos);
+		if (lineEnd == std::string::npos) lineEnd = vertexMSL.size();
+		std::string line = vertexMSL.substr(searchPos, lineEnd - searchPos);
+		if (line.find("[[user(locn") != std::string::npos
+		    || line.find("[[position]]") != std::string::npos
+		    || line.find("[[point_size]]") != std::string::npos) {
+			searchPos = nameEnd;
+			continue;
+		}
+
+		// Look up in our mapping
+		auto it = vertNameToLocn.find(glName);
+		if (it != vertNameToLocn.end()) {
+			// Find the ';' that ends this struct member declaration
+			size_t semiPos = vertexMSL.find(';', nameEnd);
+			if (semiPos != std::string::npos && semiPos < vtxStructEnd) {
+				std::string qualifier = " [[user(locn" + std::to_string(it->second) + ")]]";
+				insertions.push_back({semiPos, qualifier});
+				LOG("[MTLShader] Added [[user(locn%u)]] to vertex output %s (matches fragment %s)",
+				    it->second, glName.c_str(),
+				    (glName.find("Front") != std::string::npos)
+				        ? glName.substr(glName.find("Front") + 5).c_str()
+				        : glName.c_str());
+			}
+		}
+
+		searchPos = nameEnd;
+	}
+
+	if (insertions.empty()) return;
+
+	// Apply insertions in reverse position order
+	std::sort(insertions.begin(), insertions.end(),
+	          [](const auto& a, const auto& b) { return a.first > b.first; });
+	for (const auto& [pos, text] : insertions) {
+		vertexMSL.insert(pos, text);
+	}
+}
 
 static size_t ShaderDataTypeSize(ShaderDataType type) {
 	switch (type) {
@@ -135,6 +280,13 @@ void MTLShader::Link() {
 			      shaderName.c_str(), shaderCompiler->GetLastError().c_str());
 			return;
 		}
+	}
+
+	// Fix gl_PerVertex output locations: SPIRV-Cross generates [[user(locnN)]]
+	// for fragment input builtins but not vertex output builtins. Parse the
+	// fragment's locations and apply them to the matching vertex output members.
+	if (!vertexMSL.empty() && !fragmentMSL.empty()) {
+		FixGlPerVertexOutputLocations(vertexMSL, fragmentMSL);
 	}
 
 	// Log the generated MSL for debugging pipeline creation issues
