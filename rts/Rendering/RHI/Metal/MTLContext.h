@@ -186,6 +186,13 @@ private:
 	id<MTLSamplerState>         blitSamplerLinear = nil;
 	id<MTLSamplerState>         blitSamplerNearest = nil;
 
+	// Clear quad pipeline (for mid-pass clears that can't restart the render pass)
+	id<MTLRenderPipelineState>  clearQuadPSO = nil;
+	id<MTLDepthStencilState>    clearQuadDepthStencil = nil;
+	MTLPixelFormat              clearQuadPSOFormat = MTLPixelFormatInvalid;
+	void EnsureClearQuadPipeline(MTLPixelFormat colorFormat, MTLPixelFormat depthFormat);
+	void DrawClearQuad(bool color, bool depth);
+
 	// Triple buffering semaphore
 	dispatch_semaphore_t frameSemaphore;
 	static constexpr int MaxFramesInFlight = 3;

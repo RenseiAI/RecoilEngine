@@ -188,6 +188,14 @@ void MTLContext::BeginRenderPass(IRHIFramebuffer* framebuffer, const RenderPassD
 }
 
 void MTLContext::BeginDefaultRenderPass(const RenderPassDesc& desc) {
+	static int passCount = 0;
+	if (passCount < 50 || passCount % 500 == 0) {
+		LOG("[MTL-RPass] BeginDefault #%d inRender=%d pendClear=%d descClear=%d",
+		    passCount, (int)inRenderPass, (int)pendingColorClear,
+		    (desc.colorAttachmentCount > 0) ? (int)desc.colorAttachments[0].loadAction : -1);
+	}
+	passCount++;
+
 	if (inRenderPass) {
 		EndRenderPass();
 	}
@@ -224,6 +232,7 @@ void MTLContext::BeginDefaultRenderPass(const RenderPassDesc& desc) {
 					desc.colorAttachments[0].clearColor.b,
 					desc.colorAttachments[0].clearColor.a
 				);
+				pendingColorClear = false;  // consumed — don't re-clear on next pass restart
 				break;
 			case LoadAction::DontCare:
 				rpDesc.colorAttachments[0].loadAction = MTLLoadActionDontCare;
@@ -642,9 +651,10 @@ void MTLContext::Draw(PrimitiveType primitive, uint32_t vertexCount, uint32_t fi
 	frameDrawCount++;
 	static int drawLogCount = 0;
 	if (drawLogCount < 10 || drawLogCount % 5000 == 0) {
-		LOG("[MTL-Draw] verts=%u shader=%s",
+		LOG("[MTL-Draw] verts=%u shader=%s vbuf=%p",
 		    vertexCount,
-		    currentShader ? currentShader->GetName().c_str() : "null");
+		    currentShader ? currentShader->GetName().c_str() : "null",
+		    (void*)(currentVertexBuffer ? currentVertexBuffer->GetMTLBuffer() : nil));
 	}
 	drawLogCount++;
 	EnsureRenderEncoder();
@@ -668,11 +678,14 @@ void MTLContext::DrawIndexed(PrimitiveType primitive, uint32_t indexCount, uint3
 	frameDrawIdxCount++;
 	static int drawIdxLogCount = 0;
 	if (drawIdxLogCount < 10 || drawIdxLogCount % 5000 == 0) {
-		LOG("[MTL-DrawIdx] indices=%u shader=%s",
+		LOG("[MTL-DrawIdx] indices=%u shader=%s vbuf=%p ibuf=%p",
 		    indexCount,
-		    currentShader ? currentShader->GetName().c_str() : "null");
+		    currentShader ? currentShader->GetName().c_str() : "null",
+		    (void*)(currentVertexBuffer ? currentVertexBuffer->GetMTLBuffer() : nil),
+		    (void*)(currentIndexBuffer ? currentIndexBuffer->GetMTLBuffer() : nil));
 	}
 	drawIdxLogCount++;
+
 	EnsureRenderEncoder();
 	if (!renderEncoder || !currentIndexBuffer) return;
 
@@ -905,43 +918,57 @@ void MTLContext::ClearColor(float r, float g, float b, float a) {
 	clearColor.g = g;
 	clearColor.b = b;
 	clearColor.a = a;
-	pendingColorClear = true;
+	// Don't set pendingColorClear — ClearColor only stores the color value.
+	// The actual clear is triggered by Clear(color=true, ...).
+	// This matches OpenGL's glClearColor (set value) vs glClear (perform clear).
 }
 
 void MTLContext::ClearDepth(float depth) {
 	clearDepthValue = depth;
-	pendingDepthClear = true;
+	// Don't set pendingDepthClear — ClearDepth only stores the depth value.
+	// The actual clear is triggered by Clear(depth=true, ...).
 }
 
 void MTLContext::ClearStencil(uint32_t value) {
 	clearStencilValue = value;
-	pendingStencilClear = true;
+	// Don't set pendingStencilClear — ClearStencil only stores the stencil value.
+	// The actual clear is triggered by Clear(stencil=true, ...).
 }
 
 void MTLContext::Clear(bool color, bool depth, bool stencil) {
-	// In Metal, clears happen via render pass load actions.
-	// If we're in a render pass, we need to end it and start a new one with clear.
+
+	// In Metal, clears happen via render pass load actions (at pass start only).
+	// If we're in a render pass, we can't restart it — that would wipe all
+	// previously drawn content. Instead, draw a fullscreen quad with the clear
+	// color, which respects the current scissor rect (matching GL behavior).
 	if (inRenderPass) {
-		EndRenderPass();
+		// Mid-pass clear: draw a fullscreen quad instead of restarting pass.
+		// Color-only mid-pass clears are common (Lua widgets, minimap, etc.)
+		// and in GL they only clear within the current scissor rect.
+		bool needDepthRestart = depth && !color;
+		if (needDepthRestart) {
+			// Depth-only clear without color: must restart pass (rare case).
+			auto* savedFramebuffer = currentFramebuffer;
+			EndRenderPass();
 
-		// Modify pass descriptor to include clears
-		RenderPassDesc clearDesc = currentPassDesc;
+			RenderPassDesc clearDesc = currentPassDesc;
+			if (depth && clearDesc.hasDepth) {
+				clearDesc.depthAttachment.loadAction = LoadAction::Clear;
+				clearDesc.depthAttachment.clearDepth = clearDepthValue;
+			}
+			// Use LoadAction::Load for color to preserve existing content
+			if (clearDesc.colorAttachmentCount > 0) {
+				clearDesc.colorAttachments[0].loadAction = LoadAction::Load;
+			}
 
-		if (color && clearDesc.colorAttachmentCount > 0) {
-			clearDesc.colorAttachments[0].loadAction = LoadAction::Clear;
-			clearDesc.colorAttachments[0].clearColor = clearColor;
-		}
-
-		if (depth && clearDesc.hasDepth) {
-			clearDesc.depthAttachment.loadAction = LoadAction::Clear;
-			clearDesc.depthAttachment.clearDepth = clearDepthValue;
-		}
-
-		// Re-begin the render pass with clear actions
-		if (currentFramebuffer) {
-			BeginRenderPass(currentFramebuffer, clearDesc);
+			if (savedFramebuffer) {
+				BeginRenderPass(savedFramebuffer, clearDesc);
+			} else {
+				BeginDefaultRenderPass(clearDesc);
+			}
 		} else {
-			BeginDefaultRenderPass(clearDesc);
+			// Color clear (possibly with depth): draw clear quad
+			DrawClearQuad(color, depth);
 		}
 	} else {
 		// Set pending clear flags for next BeginRenderPass
@@ -950,6 +977,34 @@ void MTLContext::Clear(bool color, bool depth, bool stencil) {
 		pendingStencilClear = stencil;
 	}
 }
+
+// MSL source for the clear quad shader — used for mid-pass clears.
+// In OpenGL, glClear respects the scissor rect and can be called at any point.
+// In Metal, load-action clears restart the render pass and wipe ALL content.
+// This shader draws a fullscreen triangle with a constant clear color, respecting
+// the current scissor rect, allowing mid-pass clears without restarting the pass.
+static NSString* const kClearShaderSource = @R"msl(
+#include <metal_stdlib>
+using namespace metal;
+
+struct ClearVaryings {
+    float4 position [[position]];
+};
+
+vertex ClearVaryings rhi_clearVS(uint vid [[vertex_id]]) {
+    float2 pos;
+    pos.x = (vid == 1) ? 3.0 : -1.0;
+    pos.y = (vid == 2) ? -3.0 : 1.0;
+    ClearVaryings out;
+    out.position = float4(pos, 0.0, 1.0);
+    return out;
+}
+
+fragment float4 rhi_clearFS(ClearVaryings in [[stage_in]],
+                             constant float4& clearColor [[buffer(0)]]) {
+    return clearColor;
+}
+)msl";
 
 // MSL source for the blit shader (compiled lazily on first use)
 static NSString* const kBlitShaderSource = @R"msl(
@@ -1034,6 +1089,99 @@ void MTLContext::EnsureBlitPipeline(MTLPixelFormat destFormat) {
 		sampDesc.magFilter = MTLSamplerMinMagFilterNearest;
 		blitSamplerNearest = [device->GetMTLDevice() newSamplerStateWithDescriptor:sampDesc];
 	}
+}
+
+void MTLContext::EnsureClearQuadPipeline(MTLPixelFormat colorFormat, MTLPixelFormat depthFormat) {
+	// Compile clear shader library (reuse blitLibrary slot? no, use separate)
+	static id<MTLLibrary> clearLibrary = nil;
+	if (!clearLibrary) {
+		NSError* error = nil;
+		clearLibrary = [device->GetMTLDevice() newLibraryWithSource:kClearShaderSource
+		                                                    options:nil
+		                                                      error:&error];
+		if (!clearLibrary) {
+			LOG_L(L_ERROR, "[MTLContext] Failed to compile clear shader: %s",
+			      error ? [[error description] UTF8String] : "unknown error");
+			return;
+		}
+	}
+
+	if (!clearQuadPSO || clearQuadPSOFormat != colorFormat) {
+		id<MTLFunction> vertexFunc = [clearLibrary newFunctionWithName:@"rhi_clearVS"];
+		id<MTLFunction> fragmentFunc = [clearLibrary newFunctionWithName:@"rhi_clearFS"];
+
+		if (!vertexFunc || !fragmentFunc) {
+			LOG_L(L_ERROR, "[MTLContext] Failed to find clear shader functions");
+			return;
+		}
+
+		MTLRenderPipelineDescriptor* desc = [[MTLRenderPipelineDescriptor alloc] init];
+		desc.label = @"RHI Clear Quad Pipeline";
+		desc.vertexFunction = vertexFunc;
+		desc.fragmentFunction = fragmentFunc;
+		desc.colorAttachments[0].pixelFormat = colorFormat;
+		// Disable blending — overwrite destination completely
+		desc.colorAttachments[0].blendingEnabled = NO;
+		if (depthFormat != MTLPixelFormatInvalid) {
+			desc.depthAttachmentPixelFormat = depthFormat;
+		}
+
+		NSError* error = nil;
+		clearQuadPSO = [device->GetMTLDevice() newRenderPipelineStateWithDescriptor:desc error:&error];
+		if (!clearQuadPSO) {
+			LOG_L(L_ERROR, "[MTLContext] Failed to create clear quad pipeline: %s",
+			      error ? [[error description] UTF8String] : "unknown error");
+			return;
+		}
+		clearQuadPSOFormat = colorFormat;
+	}
+
+	if (!clearQuadDepthStencil) {
+		MTLDepthStencilDescriptor* dsDesc = [[MTLDepthStencilDescriptor alloc] init];
+		dsDesc.depthCompareFunction = MTLCompareFunctionAlways;
+		dsDesc.depthWriteEnabled = YES;
+		clearQuadDepthStencil = [device->GetMTLDevice() newDepthStencilStateWithDescriptor:dsDesc];
+	}
+}
+
+void MTLContext::DrawClearQuad(bool color, bool depth) {
+	if (!renderEncoder) return;
+
+	// Determine pixel formats from current render target
+	MTLPixelFormat colorFmt = MTLPixelFormatBGRA8Unorm; // default screen format
+	MTLPixelFormat depthFmt = MTLPixelFormatDepth32Float;
+	if (currentFramebuffer) {
+		colorFmt = currentFramebuffer->GetColorPixelFormat();
+		depthFmt = currentFramebuffer->GetDepthPixelFormat();
+	}
+
+	EnsureClearQuadPipeline(colorFmt, depthFmt);
+	if (!clearQuadPSO) return;
+
+	// Save current encoder state — we'll override pipeline/depth for the clear
+	[renderEncoder setRenderPipelineState:clearQuadPSO];
+
+	if (depth && clearQuadDepthStencil) {
+		[renderEncoder setDepthStencilState:clearQuadDepthStencil];
+	} else {
+		// Depth test off, depth write off — only clear color
+		MTLDepthStencilDescriptor* dsDesc = [[MTLDepthStencilDescriptor alloc] init];
+		dsDesc.depthCompareFunction = MTLCompareFunctionAlways;
+		dsDesc.depthWriteEnabled = depth ? YES : NO;
+		id<MTLDepthStencilState> noDepth = [device->GetMTLDevice() newDepthStencilStateWithDescriptor:dsDesc];
+		[renderEncoder setDepthStencilState:noDepth];
+	}
+
+	// Pass clear color to fragment shader via buffer(0)
+	float clearColorVec[4] = { (float)clearColor.r, (float)clearColor.g,
+	                            (float)clearColor.b, (float)clearColor.a };
+	[renderEncoder setFragmentBytes:clearColorVec length:sizeof(clearColorVec) atIndex:0];
+
+	// Draw fullscreen triangle (3 vertices, no vertex buffer needed)
+	[renderEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+
+	// Note: next Draw/DrawIndexed call will call ApplyPipelineState() which
+	// unconditionally sets the correct render pipeline. No dirty flag needed.
 }
 
 void MTLContext::BlitViaRenderPass(id<MTLTexture> srcTex, id<MTLTexture> dstTex,
