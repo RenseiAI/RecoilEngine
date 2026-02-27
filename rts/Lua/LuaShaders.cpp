@@ -45,6 +45,7 @@
 #include "Rendering/GlobalRendering.h"
 #include "Rendering/RHI/RHIFactory.h"
 #include "Rendering/RHI/RHIDevice.h"
+#include "Rendering/RHI/RHIContext.h"
 #include "Rendering/Models/ModelsMemStorage.h"
 #include "Rendering/Models/ModelsMemStorageDefs.h"
 #include "Rendering/UniformConstants.h"
@@ -1070,8 +1071,11 @@ int LuaShaders::UseShader(lua_State* L)
 	const int progIdx = luaL_checkint(L, 1);
 	if (progIdx == 0) {
 		if (RHI::IsMetalBackend()) {
-			if (activeProgram && activeProgram->rhiShader)
+			if (activeProgram && activeProgram->rhiShader) {
 				activeProgram->rhiShader->Unbind();
+				auto* device = RHI::GetDevice();
+				if (device) device->GetContext()->BindShader(nullptr);
+			}
 		} else {
 			glUseProgram(0);
 		}
@@ -1089,7 +1093,11 @@ int LuaShaders::UseShader(lua_State* L)
 	} else {
 		activeProgram = prog;
 		if (RHI::IsMetalBackend()) {
-			if (prog->rhiShader) prog->rhiShader->Bind();
+			if (prog->rhiShader) {
+				prog->rhiShader->Bind();
+				auto* device = RHI::GetDevice();
+				if (device) device->GetContext()->BindShader(prog->rhiShader.get());
+			}
 		} else {
 			glUseProgram(prog->id);
 		}
@@ -1125,14 +1133,19 @@ int LuaShaders::ActiveShader(lua_State* L)
 	}
 
 	if (RHI::IsMetalBackend()) {
+		auto* device = RHI::GetDevice();
+		auto* ctx = device ? device->GetContext() : nullptr;
+
 		// Save previous shader state
 		Program* savedActiveProgram = activeProgram;
 		RHI::IRHIShader* prevShader = (activeProgram && activeProgram->rhiShader)
 			? activeProgram->rhiShader.get() : nullptr;
 
 		// Bind new shader
-		if (prog && prog->rhiShader)
+		if (prog && prog->rhiShader) {
 			prog->rhiShader->Bind();
+			if (ctx) ctx->BindShader(prog->rhiShader.get());
+		}
 
 		activeProgram = prog;
 		activeShaderDepth++;
@@ -1143,8 +1156,10 @@ int LuaShaders::ActiveShader(lua_State* L)
 		// Restore previous shader
 		if (prevShader) {
 			prevShader->Bind();
+			if (ctx) ctx->BindShader(prevShader);
 		} else if (prog && prog->rhiShader) {
 			prog->rhiShader->Unbind();
+			if (ctx) ctx->BindShader(nullptr);
 		}
 
 		if (error != 0) {
