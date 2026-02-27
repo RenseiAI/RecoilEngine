@@ -18,6 +18,7 @@ fi
 # Resolve symlink
 RUN_DIR="$(cd "$RUN_DIR" && pwd)"
 LOG="$RUN_DIR/infolog.txt"
+STDOUT_LOG="$RUN_DIR/stdout.log"
 
 if [[ ! -f "$LOG" ]]; then
     echo "ERROR: No infolog.txt in $RUN_DIR"
@@ -67,6 +68,18 @@ grep '\[MTL-PSO-Detail\]' "$LOG" 2>/dev/null | head -20 || echo "(none)"
 echo ""
 echo "### PSO Failures"
 grep 'GetRenderPipelineState returned nil\|Failed to create' "$LOG" 2>/dev/null | head -10 || echo "(none)"
+
+# 6b. Shader Validation errors (from MTL_SHADER_VALIDATION, written to stderr -> stdout.log)
+echo ""
+echo "## Shader Validation Errors"
+if [[ -f "$STDOUT_LOG" ]]; then
+    SV_ERRORS=$(grep -c 'MTLShaderValidation\|Shader Validation Error\|Invalid .* access\|out of bounds\|non-resident\|nil texture' "$STDOUT_LOG" 2>/dev/null) || SV_ERRORS=0
+    echo "Count: $SV_ERRORS"
+    grep -A3 'MTLShaderValidation\|Shader Validation Error\|Invalid .* access\|out of bounds\|non-resident\|nil texture' "$STDOUT_LOG" 2>/dev/null | head -30 || echo "(none — was shader validation enabled?)"
+else
+    SV_ERRORS=0
+    echo "(no stdout.log — was run-test.sh used?)"
+fi
 
 # 7. Texture binding
 echo ""
@@ -123,6 +136,11 @@ CRASHES=$(grep -c 'SIGSEGV\|SIGABRT\|SIGBUS\|SIGFPE\|SIGILL\|EXC_BAD_ACCESS\|std
 SHADER_OK=$(grep -c 'Linked successfully' "$LOG" 2>/dev/null) || SHADER_OK=0
 SHADER_FAILS=$(grep -c 'Failed to compile\|Failed to link\|failed to link\|glslang parse failed' "$LOG" 2>/dev/null) || SHADER_FAILS=0
 PSO_FAILS=$(grep -c 'GetRenderPipelineState returned nil\|Failed to create' "$LOG" 2>/dev/null) || PSO_FAILS=0
+if [[ -f "$STDOUT_LOG" ]]; then
+    SV_ERRORS_STATUS=$(grep -c 'MTLShaderValidation\|Shader Validation Error\|Invalid .* access\|out of bounds\|non-resident\|nil texture' "$STDOUT_LOG" 2>/dev/null) || SV_ERRORS_STATUS=0
+else
+    SV_ERRORS_STATUS=0
+fi
 DRAW_COUNT=$(grep -c '\[MTL-Draw\]' "$LOG" 2>/dev/null) || DRAW_COUNT=0
 DRAWIDX_COUNT=$(grep -c '\[MTL-DrawIdx\]' "$LOG" 2>/dev/null) || DRAWIDX_COUNT=0
 DRAW_CALLS=$((DRAW_COUNT + DRAWIDX_COUNT))
@@ -188,6 +206,7 @@ echo "CRASHES=$CRASHES"
 echo "SHADER_OK=$SHADER_OK"
 echo "SHADER_FAILS=$SHADER_FAILS"
 echo "PSO_FAILS=$PSO_FAILS"
+echo "SV_ERRORS=$SV_ERRORS_STATUS"
 echo "DRAW_CALLS=$DRAW_CALLS"
 echo "WIDGET_EXIT=$WIDGET_EXIT"
 echo "FPS=$FPS"

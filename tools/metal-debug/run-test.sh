@@ -3,6 +3,7 @@
 #
 # Usage:
 #   tools/metal-debug/run-test.sh [--timeout SECS] [--frames N] [--resolution WxH]
+#                                 [--shader-validation|--sv] [--debug-layer]
 #
 # Runs the engine windowed in a small window, captures infolog.txt and screenshots,
 # then produces a structured summary for analysis.
@@ -27,6 +28,8 @@ RESOLUTION="800x600"
 RUN_DIR="$SCRIPT_DIR/runs"
 FULLSCREEN=0
 NO_GAME=0
+SHADER_VALIDATION=0
+DEBUG_LAYER=0
 
 # Parse args
 while [[ $# -gt 0 ]]; do
@@ -36,6 +39,8 @@ while [[ $# -gt 0 ]]; do
         --resolution) RESOLUTION="$2"; shift 2 ;;
         --fullscreen) FULLSCREEN=1; shift ;;
         --no-game)  NO_GAME=1; shift ;;
+        --shader-validation|--sv) SHADER_VALIDATION=1; shift ;;
+        --debug-layer) DEBUG_LAYER=1; shift ;;
         *) echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
@@ -132,7 +137,26 @@ trap cleanup EXIT
 
 # Use --isolation-dir to point engine at cont/ for all data (read + write).
 # This makes the engine find gamedata/parse_tdf.lua, base archives, etc.
-# export MTL_DEBUG_LAYER=1  # Enable for detailed Metal validation
+
+# Metal debug layer — catches API misuse (wrong encoder state, missing resources)
+if [[ "$DEBUG_LAYER" -eq 1 ]]; then
+    export MTL_DEBUG_LAYER=1
+    echo "  Debug Layer:        ENABLED (MTL_DEBUG_LAYER=1)"
+fi
+
+# Metal shader validation — GPU-side address sanitizer for shaders
+# Catches OOB buffer access, nil textures, non-resident resources, type mismatches.
+# Must be set BEFORE Metal device creation (satisfied by exporting before engine launch).
+# High perf/memory overhead — use for targeted debugging, not routine testing.
+if [[ "$SHADER_VALIDATION" -eq 1 ]]; then
+    export MTL_SHADER_VALIDATION=1
+    export MTL_SHADER_VALIDATION_REPORT_TO_STDERR=1
+    export MTL_SHADER_VALIDATION_FAIL_MODE=zerofill
+    export MTL_SHADER_VALIDATION_GLOBAL_MEMORY=1
+    export MTL_SHADER_VALIDATION_TEXTURE_USAGE=1
+    export MTL_SHADER_VALIDATION_RESOURCE_USAGE=1
+    echo "  Shader Validation:  ENABLED"
+fi
 if [[ "$NO_GAME" -eq 1 ]]; then
     LAUNCH_CMD="$BINARY --metal-backend --isolation-dir $CONT_DIR"
 else

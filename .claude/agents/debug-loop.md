@@ -34,6 +34,12 @@ bash tools/metal-debug/run-test.sh --timeout 120 --frames 300
 
 This launches the engine with `--metal-backend`, captures logs and screenshots, and writes results to `tools/metal-debug/runs/latest/`.
 
+After a standard run produces no crashes or PSO failures, re-run with shader validation to catch GPU-side issues:
+```bash
+bash tools/metal-debug/run-test.sh --timeout 120 --frames 300 --shader-validation
+```
+Note: Shader validation has significant perf/memory overhead. Only use it as a secondary diagnostic, not for every run.
+
 ## Phase 2 — Analyze
 
 ```bash
@@ -51,10 +57,11 @@ From the analysis output, identify issues by priority:
 1. **Crashes** (SIGSEGV, SIGABRT, hang/timeout) — engine can't run at all
 2. **Shader compilation failures** — shaders can't be used
 3. **PSO creation failures** — draws are silently skipped
-4. **Missing draw calls** (count = 0) — nothing renders
-5. **Black screen** (screenshots all-black) — transforms or state wrong
-6. **Visual artifacts** — rendering works but looks wrong
-7. **Warnings** — defer unless causing issues above
+4. **Shader validation errors** (SV_ERRORS > 0) — OOB access, nil textures, binding mismatches inside shaders
+5. **Missing draw calls** (count = 0) — nothing renders
+6. **Black screen** (screenshots all-black) — transforms or state wrong
+7. **Visual artifacts** — rendering works but looks wrong
+8. **Warnings** — defer unless causing issues above
 
 Pick the **SINGLE highest-priority item**. If the issue description has a `FOCUS_HINT`, prefer that area unless a higher-priority issue exists.
 

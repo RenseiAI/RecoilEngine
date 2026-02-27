@@ -26,6 +26,15 @@ The Metal backend lives at `rts/Rendering/RHI/Metal/` and implements the RHI int
 - Metal shader functions come from `.metallib` files compiled from MSL
 - Shader translation pipeline: GLSL -> glslang -> SPIR-V -> SPIRV-Cross -> MSL
 
+## Debugging Tools
+- **Metal API Validation**: `MTL_DEBUG_LAYER=1` — catches API misuse (wrong encoder state, missing resources)
+- **Metal Shader Validation**: `MTL_SHADER_VALIDATION=1` — catches in-shader bugs (OOB access, nil textures, residency)
+  - Route to stderr: `MTL_SHADER_VALIDATION_REPORT_TO_STDERR=1`
+  - Safe mode: `MTL_SHADER_VALIDATION_FAIL_MODE=zerofill` (returns 0 for bad reads instead of crashing)
+  - High perf overhead — use for debugging, not routine testing
+- **Pipeline UIDs**: `MTL_SHADER_VALIDATION_DUMP_PIPELINES=1` to get pipeline identifiers for targeted validation
+- Run via: `tools/metal-debug/run-test.sh --shader-validation` and/or `--debug-layer`
+
 ## Rules
 1. All Metal API calls must be in `.mm` files
 2. Headers (`.h`) must be pure C++ — no `@` syntax, no `id<MTLDevice>` in public interfaces

@@ -86,6 +86,15 @@ When the GL RHI backend introduces new GLAD symbols, you must also add them to `
 - DevIL `IL_INCLUDE_DIR` points to `/include/IL` but code uses `#include <IL/il.h>`
 - Fix: Add parent directories to include paths
 
+### Metal debugging environment variables
+- `MTL_DEBUG_LAYER=1` — API validation (catches encoder misuse, resource hazards)
+- `MTL_SHADER_VALIDATION=1` — GPU shader validation (catches OOB access, nil textures, residency)
+- `MTL_SHADER_VALIDATION_REPORT_TO_STDERR=1` — Required to capture in our log pipeline
+- `MTL_SHADER_VALIDATION_FAIL_MODE=zerofill` — Safe default (returns 0 for bad reads)
+- Must be set BEFORE Metal device creation (i.e., as env vars before process launch)
+- High overhead — use `--shader-validation` / `--debug-layer` flags in `run-test.sh`, not by default
+- Per-pipeline targeting: `MTL_SHADER_VALIDATION_DUMP_PIPELINES=1` then `MTL_SHADER_VALIDATION_ENABLE_PIPELINES=<uid>`
+
 ## Migration Status (Audited 2026-02-12)
 
 ### Completed (Tiers 1-3 + Infrastructure)
