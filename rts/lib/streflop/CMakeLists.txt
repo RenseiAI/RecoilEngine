@@ -70,7 +70,7 @@ SET(libm_flt32_source
 
 SET(cxxflags "-I\"${CMAKE_CURRENT_SOURCE_DIR}/libm/headers\"")
 if   (NOT MSVC)
-	SET(cxxflags "${cxxflags} -w -O3")
+	SET(cxxflags "${cxxflags} -w -O3 -ffp-contract=off")
 	if (NOT $ENV{CXX} MATCHES "icpc")
 		if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|armv8")
 			SET(cxxflags "${cxxflags} -march=armv8-a+simd")
