@@ -1,14 +1,14 @@
 # Metal Debug Iteration Log
 
 ## Current Status
-- Last iteration: 2
-- Commit: (pending)
-- Shaders: 82/82, Draw calls: 21, FPS: 49.2, PSO fails: 0
+- Last iteration: 3
+- Commit: 95dbbff551
+- Shaders: 82/82, Draw calls: 5+17-21, FPS: 49.8, PSO fails: 0
 - Exit: SHUTDOWN_HANG (widget EXIT_SUCCESS, process timeout)
-- Visual: Black screen + sky gradient upper-right (unchanged visually)
+- Visual: **TERRAIN VISIBLE** — textured terrain, sky, horizon. Rendering in upper-left quadrant.
 
 ## Priority Queue
-1. BLACK SCREEN — 21 draw calls succeed (0 PSO failures) but framebuffer content not visible. Sky gradient in upper-right suggests viewport/scissor or framebuffer presentation issue. Investigate BeginDefaultRenderPass, present logic, viewport setup.
+1. VIEWPORT/QUADRANT — rendering appears confined to upper-left ~50% of screen. May be Metal Y-axis flip or viewport/scissor issue.
 2. SHUTDOWN_HANG — hangs at SpringApp::Kill[3] after widget exit
 3. Font path error — doubled path in font loading
 4. Texture swizzle warnings — incorrect texture format handling
@@ -46,7 +46,7 @@
 
 ### Iteration 2 — 2026-02-27 (gl_PerVertex output location fix)
 - Run: 20260227_112255
-- Commit: (pending)
+- Commit: c5c2610204
 - Metrics: shaders=82/82 draws=21 fps=49.2 pso_fails=0 exit=SHUTDOWN_HANG screenshots=7(7 game)
 - Visual: Unchanged (black + sky gradient) — PSO failures resolved, draws succeed
 - Fix: Added `FixGlPerVertexOutputLocations()` in MTLShader.mm. SPIRV-Cross generates
@@ -65,3 +65,31 @@
   Black screen persists — next priority is framebuffer/viewport investigation.
 - Next: Investigate why 21 successful draw calls produce black screen. Check
   BeginDefaultRenderPass, drawable acquisition, viewport/scissor state, present logic.
+
+### Iteration 3 — 2026-02-27 (Clear() mid-pass wipe fix) ★ BREAKTHROUGH
+- Run: 20260227_173458
+- Commit: 95dbbff551
+- Metrics: shaders=82/82 draws=5+17-21 fps=49.8 pso_fails=0 exit=SHUTDOWN_HANG screenshots=7(1 load+6 game)
+- Visual: **TERRAIN VISIBLE** — textured terrain with surface detail, sky gradient, horizon line.
+  Rendering appears confined to upper-left quadrant of screen.
+- Root cause: Metal Clear() implementation restarted the render pass with LoadAction::Clear,
+  wiping ALL previously drawn content. In OpenGL, glClear() is cheap and respects the scissor
+  rect; the engine calls it ~700+ times per test run (Lua widgets, minimap, etc.). With the old
+  Metal impl, each Clear() ended and restarted the render pass, wiping terrain, sky, and all draws.
+- Fix: Four related issues fixed in MTLContext.mm:
+  1. **Mid-pass color clears**: Draw a fullscreen triangle with clear color instead of restarting
+     the render pass. Uses a dedicated clear shader + PSO. Respects scissor rect, preserves all
+     previous draw content. (This was the main visual fix.)
+  2. **Clear() FBO pointer loss**: EndRenderPass() cleared currentFramebuffer, so Clear() always
+     fell through to BeginDefaultRenderPass (screen clear) even when clearing an FBO. Fixed by
+     saving currentFramebuffer before EndRenderPass.
+  3. **ClearColor/ClearDepth/ClearStencil**: These were incorrectly setting pending*Clear flags.
+     They should only store values (like GL's glClearColor), not trigger clears. Actual clear
+     triggered by Clear(color=true, ...).
+  4. **pendingColorClear not consumed**: In BeginDefaultRenderPass, the Clear loadAction case
+     didn't reset pendingColorClear, so every subsequent pass re-cleared.
+- Result: Black screen → textured terrain visible! Screenshot sizes: 4KB → 280KB.
+  Terrain texture detail, sky gradient, and horizon line all rendering correctly.
+  Rendering confined to upper-left quadrant — likely viewport/Y-axis issue to investigate next.
+- Next: Investigate viewport/quadrant issue — rendering appears in upper-left ~50% of screen.
+  May be Metal Y-axis coordinate system difference or viewport setup.
