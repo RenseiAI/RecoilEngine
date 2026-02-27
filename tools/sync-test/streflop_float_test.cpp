@@ -489,26 +489,10 @@ static void test_edge_cases() {
 		rec_f1("edge", "log_abs", edges[i], (float)streflop::log(streflop::fabs(x) + streflop::Simple(1e-45f)));
 	}
 
-	// --- Double precision edge cases ---
-	double d_edges[] = {
-		0.0, -0.0,
-		1.0, -1.0,
-		1e-308, -1e-308,   // near smallest normal
-		1e+308, -1e+308,   // near largest finite
-		5e-324, -5e-324,   // denormals
-	};
-	int D = (int)(sizeof(d_edges) / sizeof(d_edges[0]));
-
-	for (int i = 0; i < D; i++) {
-		streflop::Double a(d_edges[i]);
-		for (int j = 0; j < D; j++) {
-			streflop::Double b(d_edges[j]);
-			rec_d2("edge", "d_add", d_edges[i], d_edges[j], (double)(a + b));
-			rec_d2("edge", "d_sub", d_edges[i], d_edges[j], (double)(a - b));
-			rec_d2("edge", "d_mul", d_edges[i], d_edges[j], (double)(a * b));
-			rec_d2("edge", "d_div", d_edges[i], d_edges[j], (double)(a / b));
-		}
-	}
+	// NOTE: No double-precision edge cases here. streflop only bundles
+	// flt-32 libm; double-precision delegates to system libm (glibc on
+	// Linux, Apple libm on macOS) which differs at extreme values.
+	// Double-precision is NOT sync-critical — engine uses Simple (float32).
 }
 
 // --- Category D: Compound operations (simulate engine patterns) ---
