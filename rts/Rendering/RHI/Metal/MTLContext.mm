@@ -188,14 +188,6 @@ void MTLContext::BeginRenderPass(IRHIFramebuffer* framebuffer, const RenderPassD
 }
 
 void MTLContext::BeginDefaultRenderPass(const RenderPassDesc& desc) {
-	static int passCount = 0;
-	if (passCount < 50 || passCount % 500 == 0) {
-		LOG("[MTL-RPass] BeginDefault #%d inRender=%d pendClear=%d descClear=%d",
-		    passCount, (int)inRenderPass, (int)pendingColorClear,
-		    (desc.colorAttachmentCount > 0) ? (int)desc.colorAttachments[0].loadAction : -1);
-	}
-	passCount++;
-
 	if (inRenderPass) {
 		EndRenderPass();
 	}
@@ -678,11 +670,12 @@ void MTLContext::DrawIndexed(PrimitiveType primitive, uint32_t indexCount, uint3
 	frameDrawIdxCount++;
 	static int drawIdxLogCount = 0;
 	if (drawIdxLogCount < 10 || drawIdxLogCount % 5000 == 0) {
-		LOG("[MTL-DrawIdx] indices=%u shader=%s vbuf=%p ibuf=%p",
+		LOG("[MTL-DrawIdx] indices=%u shader=%s vbuf=%p ibuf=%p vp=%.0fx%.0f",
 		    indexCount,
 		    currentShader ? currentShader->GetName().c_str() : "null",
 		    (void*)(currentVertexBuffer ? currentVertexBuffer->GetMTLBuffer() : nil),
-		    (void*)(currentIndexBuffer ? currentIndexBuffer->GetMTLBuffer() : nil));
+		    (void*)(currentIndexBuffer ? currentIndexBuffer->GetMTLBuffer() : nil),
+		    currentViewport.width, currentViewport.height);
 	}
 	drawIdxLogCount++;
 
@@ -1437,6 +1430,16 @@ void MTLContext::ReadPixels(int x, int y, int width, int height,
 		memcpy(rowBuffer.data(), top, bytesPerRow);
 		memcpy(top, bot, bytesPerRow);
 		memcpy(bot, rowBuffer.data(), bytesPerRow);
+	}
+
+	// Metal drawable is BGRA8Unorm but callers (Screenshot.cpp) request GL_RGBA (0x1908).
+	// Swizzle B↔R when the source texture is BGRA and the caller wants RGBA.
+	constexpr uint32_t kGL_RGBA = 0x1908;
+	if (tex.pixelFormat == MTLPixelFormatBGRA8Unorm && format == kGL_RGBA) {
+		const int totalPixels = width * height;
+		for (int i = 0; i < totalPixels; ++i) {
+			std::swap(pixels[i * 4 + 0], pixels[i * 4 + 2]);
+		}
 	}
 }
 
