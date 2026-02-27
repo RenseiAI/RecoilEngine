@@ -24,7 +24,7 @@ void good_fpu_init() { LOG_L(L_WARNING, "[%s] streflop is disabled", __func__); 
 #elif STREFLOP_NEON
 #elif STREFLOP_X87
 #else
-	#error "streflop FP-math mode must be either SSE or X87"
+	#error "streflop FP-math mode must be SSE, NEON, or X87"
 #endif
 
 
@@ -76,7 +76,11 @@ MaskRsvd:    0    0    0  1  1  1  1  1|   0    0   1  1  1  1  1  1 = 0x1F3F
 
 	Source: Intel Architecture Software Development Manual, Volume 1, Basic Architecture
 
-TODO: NEON VERSION
+For reference, the layout of the ARM64 FPCR register:
+            FZ:RMode: (bits 24, 23:22)
+Recoil:      0  0  0  = round-to-nearest, no flush-to-zero = 0x000000
+MaskRMode:             = 0xC00000  (bits 23:22)
+MaskFZ:                = 0x1000000 (bit 24)
 */
 
 void good_fpu_control_registers(const char* text)
@@ -114,6 +118,36 @@ void good_fpu_control_registers(const char* text)
 		LOG_L(L_WARNING, "[%s] Sync warning: (env.x87_mode) FPUCW 0x%04X instead of 0x%04X or 0x%04X (\"%s\")", __func__, x87_flag, x87_a, x87_b, text);
 
 		// Set single precision floating point math.
+		streflop::streflop_init<streflop::Simple>();
+		#if defined(__SUPPORT_SNAN__)
+		streflop::feraiseexcept(streflop::FPU_Exceptions(streflop::FE_INVALID | streflop::FE_DIVBYZERO | streflop::FE_OVERFLOW));
+		#endif
+	}
+
+	#elif defined(STREFLOP_NEON)
+	// ARM64 FPCR layout:
+	//   Bits 23:22 = RMode (rounding mode)
+	//   Bit 24     = FZ (flush-to-zero)
+	// Expected after streflop_init<Simple>(): RMode=round-to-nearest(0), FZ per STREFLOP_NO_DENORMALS
+	// Use literal constants to avoid macro conflicts with system <fenv.h>
+	constexpr uint64_t neon_round_mask = 0x3u << 22; // FPCR bits 23:22
+	constexpr uint64_t neon_ftz_bit    = 0x1u << 24; // FPCR bit 24
+	constexpr uint64_t neon_rtn        = 0x0u << 22; // round-to-nearest
+
+	const uint64_t fpcr_rounding = fenv.fpcr & neon_round_mask;
+	const bool fpcr_ftz = (fenv.fpcr & neon_ftz_bit) != 0;
+
+	#if defined(STREFLOP_NO_DENORMALS)
+	const bool ret = (fpcr_rounding == neon_rtn) && fpcr_ftz;
+	#else
+	const bool ret = (fpcr_rounding == neon_rtn) && !fpcr_ftz;
+	#endif
+
+	if (!ret) {
+		LOG_L(L_WARNING, "[%s] Sync warning: FPCR 0x%08llX rounding=0x%llX ftz=%d (\"%s\")",
+			__func__, (unsigned long long)fenv.fpcr, (unsigned long long)fpcr_rounding, (int)fpcr_ftz, text);
+
+		// Re-init single precision floating point math.
 		streflop::streflop_init<streflop::Simple>();
 		#if defined(__SUPPORT_SNAN__)
 		streflop::feraiseexcept(streflop::FPU_Exceptions(streflop::FE_INVALID | streflop::FE_DIVBYZERO | streflop::FE_OVERFLOW));
@@ -162,7 +196,7 @@ void good_fpu_init()
 	if (sseFlag == 0)
 		throw unsupported_error("CPU is missing SSE 1.0 instruction support");
 	#elif (defined(STREFLOP_NEON))
-	LOG_L(L_WARNING, "\tStreflop NEON mode, FPUCHECK NOT IMPLEMENTED. glhf");
+	LOG("\tStreflop NEON mode, FPCR verification active");
 	#elif (defined(STREFLOP_X87))
 	LOG_L(L_WARNING, "\tStreflop floating-point math is set to X87 mode");
 	LOG_L(L_WARNING, "\tThis may cause desyncs during multi-player games");
