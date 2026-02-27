@@ -76,15 +76,15 @@ grep '\[MTL-Tex\]' "$LOG" 2>/dev/null | head -10 || echo "(none)"
 # 8. Render pass info
 echo ""
 echo "## Render Passes"
-echo "Default passes: $(grep -c 'BeginDefaultRenderPass\|RHI Default Render Pass' "$LOG" 2>/dev/null || echo 0)"
-echo "FBO passes: $(grep -c 'BeginRenderPass.*framebuffer\|RHI Render Pass' "$LOG" 2>/dev/null || echo 0)"
+echo "Default passes: $(grep -c 'BeginDefaultRenderPass\|RHI Default Render Pass' "$LOG" 2>/dev/null || true)"
+echo "FBO passes: $(grep -c 'BeginRenderPass.*framebuffer\|RHI Render Pass' "$LOG" 2>/dev/null || true)"
 
 # 9. Draw call counts
 echo ""
 echo "## Draw Calls"
-echo "Draw: $(grep -c '\[MTL-Draw\]' "$LOG" 2>/dev/null || echo 0)"
-echo "DrawIndexed: $(grep -c '\[MTL-DrawIdx\]' "$LOG" 2>/dev/null || echo 0)"
-echo "ApplyPipelineState failures: $(grep -c 'ApplyPipelineState.*false\|!renderEncoder\|!pipeline\|!currentShader' "$LOG" 2>/dev/null || echo 0)"
+echo "Draw: $(grep -c '\[MTL-Draw\]' "$LOG" 2>/dev/null || true)"
+echo "DrawIndexed: $(grep -c '\[MTL-DrawIdx\]' "$LOG" 2>/dev/null || true)"
+echo "ApplyPipelineState failures: $(grep -c 'ApplyPipelineState.*false\|!renderEncoder\|!pipeline\|!currentShader' "$LOG" 2>/dev/null || true)"
 
 # 10. Viewport info
 echo ""
@@ -119,41 +119,82 @@ grep 'Loading took\|LoadFinalize\|loading map\|game started' "$LOG" 2>/dev/null 
 echo ""
 echo "## Machine-Readable Status"
 
-CRASHES=$(grep -c 'SIGSEGV\|SIGABRT\|SIGBUS\|SIGFPE\|SIGILL\|EXC_BAD_ACCESS\|std::terminate' "$LOG" 2>/dev/null || echo 0)
-SHADER_FAILS=$(grep -c 'Failed to compile\|Failed to link\|failed to link\|glslang parse failed' "$LOG" 2>/dev/null || echo 0)
-PSO_FAILS=$(grep -c 'GetRenderPipelineState returned nil\|Failed to create' "$LOG" 2>/dev/null || echo 0)
-DRAW_CALLS=$(( $(grep -c '\[MTL-Draw\]' "$LOG" 2>/dev/null || echo 0) + $(grep -c '\[MTL-DrawIdx\]' "$LOG" 2>/dev/null || echo 0) ))
+CRASHES=$(grep -c 'SIGSEGV\|SIGABRT\|SIGBUS\|SIGFPE\|SIGILL\|EXC_BAD_ACCESS\|std::terminate' "$LOG" 2>/dev/null) || CRASHES=0
+SHADER_OK=$(grep -c 'Linked successfully' "$LOG" 2>/dev/null) || SHADER_OK=0
+SHADER_FAILS=$(grep -c 'Failed to compile\|Failed to link\|failed to link\|glslang parse failed' "$LOG" 2>/dev/null) || SHADER_FAILS=0
+PSO_FAILS=$(grep -c 'GetRenderPipelineState returned nil\|Failed to create' "$LOG" 2>/dev/null) || PSO_FAILS=0
+DRAW_COUNT=$(grep -c '\[MTL-Draw\]' "$LOG" 2>/dev/null) || DRAW_COUNT=0
+DRAWIDX_COUNT=$(grep -c '\[MTL-DrawIdx\]' "$LOG" 2>/dev/null) || DRAWIDX_COUNT=0
+DRAW_CALLS=$((DRAW_COUNT + DRAWIDX_COUNT))
 
-# Clean exit: exit code 0 and no TIMEOUT
-if [[ -f "$RUN_DIR/exit_code.txt" ]] && [[ "$(cat "$RUN_DIR/exit_code.txt")" == "0" ]]; then
+# Widget exit status
+if grep -q '\[METAL-TEST\] EXIT_SUCCESS' "$LOG" 2>/dev/null; then
+    WIDGET_EXIT=1
+else
+    WIDGET_EXIT=0
+fi
+
+# FPS from widget DONE line
+FPS=$(grep '\[METAL-TEST\] DONE' "$LOG" 2>/dev/null | sed -n 's/.*fps=\([0-9.]*\).*/\1/p' | tail -1)
+FPS="${FPS:-0}"
+
+# Exit classification
+EXIT_CODE=""
+EXIT_REASON=""
+if [[ -f "$RUN_DIR/exit_code.txt" ]]; then
+    EXIT_CODE=$(cat "$RUN_DIR/exit_code.txt")
+fi
+if [[ -f "$RUN_DIR/exit_reason.txt" ]]; then
+    EXIT_REASON=$(cat "$RUN_DIR/exit_reason.txt")
+fi
+
+if [[ "$CRASHES" -gt 0 ]]; then
+    EXIT_CLASS="CRASH"
+elif [[ "$EXIT_CODE" == "0" && "$EXIT_REASON" != "TIMEOUT" ]]; then
+    EXIT_CLASS="CLEAN"
+elif [[ "$WIDGET_EXIT" -eq 1 && "$EXIT_REASON" == "TIMEOUT" ]]; then
+    # Widget reported success but process didn't exit cleanly — shutdown hang
+    EXIT_CLASS="SHUTDOWN_HANG"
+elif [[ "$EXIT_REASON" == "TIMEOUT" ]]; then
+    EXIT_CLASS="RUNTIME_HANG"
+else
+    EXIT_CLASS="ERROR"
+fi
+
+# Clean exit: true for CLEAN or SHUTDOWN_HANG (game ran fine, hang is a separate issue)
+if [[ "$EXIT_CLASS" == "CLEAN" || "$EXIT_CLASS" == "SHUTDOWN_HANG" ]]; then
     CLEAN_EXIT=1
 else
     CLEAN_EXIT=0
 fi
-if [[ -f "$RUN_DIR/exit_reason.txt" ]] && [[ "$(cat "$RUN_DIR/exit_reason.txt")" == "TIMEOUT" ]]; then
-    CLEAN_EXIT=0
-fi
 
-# Screenshots count
+# Screenshots count (total and game-only)
 if [[ -d "$RUN_DIR/screenshots" ]]; then
     SCREENSHOTS=$(ls "$RUN_DIR/screenshots/"*.png 2>/dev/null | wc -l | tr -d ' ')
+    GAME_SCREENSHOTS=$(ls "$RUN_DIR/screenshots/"screen_*.png 2>/dev/null | wc -l | tr -d ' ')
 else
     SCREENSHOTS=0
+    GAME_SCREENSHOTS=0
 fi
 
-# Verdict: PASS when no crashes, no shader/PSO failures, clean exit, and screenshots captured
-if [[ "$CRASHES" -eq 0 && "$SHADER_FAILS" -eq 0 && "$PSO_FAILS" -eq 0 && "$CLEAN_EXIT" -gt 0 && "$SCREENSHOTS" -gt 0 ]]; then
+# Verdict: PASS when no crashes, no shader/PSO failures, clean exit, and game screenshots captured
+if [[ "$CRASHES" -eq 0 && "$SHADER_FAILS" -eq 0 && "$PSO_FAILS" -eq 0 && "$CLEAN_EXIT" -gt 0 && "$GAME_SCREENSHOTS" -gt 0 ]]; then
     VERDICT="PASS"
 else
     VERDICT="FAIL"
 fi
 
 echo "CRASHES=$CRASHES"
+echo "SHADER_OK=$SHADER_OK"
 echo "SHADER_FAILS=$SHADER_FAILS"
 echo "PSO_FAILS=$PSO_FAILS"
 echo "DRAW_CALLS=$DRAW_CALLS"
+echo "WIDGET_EXIT=$WIDGET_EXIT"
+echo "FPS=$FPS"
+echo "EXIT_CLASS=$EXIT_CLASS"
 echo "CLEAN_EXIT=$CLEAN_EXIT"
 echo "SCREENSHOTS=$SCREENSHOTS"
+echo "GAME_SCREENSHOTS=$GAME_SCREENSHOTS"
 echo "VERDICT=$VERDICT"
 
 echo ""

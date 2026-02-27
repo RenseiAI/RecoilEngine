@@ -231,7 +231,7 @@ LOG="$RUN_PATH/infolog.txt"
         echo ""
 
         echo "## Errors"
-        ERR_COUNT=$(grep -c 'Error:\|FATAL\|SIGSEGV\|SIGABRT' "$LOG" 2>/dev/null || echo "0")
+        ERR_COUNT=$(grep -c 'Error:\|FATAL\|SIGSEGV\|SIGABRT' "$LOG" 2>/dev/null) || ERR_COUNT=0
         echo "Count: $ERR_COUNT"
         echo '```'
         grep 'Error:\|FATAL\|SIGSEGV\|SIGABRT' "$LOG" 2>/dev/null | head -20 || echo "(none)"
@@ -243,16 +243,16 @@ LOG="$RUN_PATH/infolog.txt"
         echo ""
 
         echo "## Shader Compilation"
-        echo "- Successes: $(grep -c 'Linked successfully' "$LOG" 2>/dev/null || echo 0)"
-        echo "- Failures: $(grep -c 'Failed to compile\|Failed to link\|failed to link' "$LOG" 2>/dev/null || echo 0)"
+        echo "- Successes: $(grep -c 'Linked successfully' "$LOG" 2>/dev/null || true)"
+        echo "- Failures: $(grep -c 'Failed to compile\|Failed to link\|failed to link' "$LOG" 2>/dev/null || true)"
         echo '```'
         grep 'Failed to compile\|Failed to link\|failed to link' "$LOG" 2>/dev/null | head -15 || echo "(none)"
         echo '```'
         echo ""
 
         echo "## Draw Calls"
-        echo "- Draw: $(grep -c '\[MTL-Draw\]' "$LOG" 2>/dev/null || echo 0)"
-        echo "- DrawIndexed: $(grep -c '\[MTL-DrawIdx\]' "$LOG" 2>/dev/null || echo 0)"
+        echo "- Draw: $(grep -c '\[MTL-Draw\]' "$LOG" 2>/dev/null || true)"
+        echo "- DrawIndexed: $(grep -c '\[MTL-DrawIdx\]' "$LOG" 2>/dev/null || true)"
         echo ""
 
         echo "## Metal Pipeline (PSO)"

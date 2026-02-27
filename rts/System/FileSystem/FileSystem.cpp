@@ -274,6 +274,10 @@ bool FileSystem::IsPathOnSpinningDisk(const std::string& path)
 	}
 	CloseHandle(volHandle);
 	return result.IncursSeekPenalty;
+#elif defined(__APPLE__)
+	// macOS has no /sys/dev/block sysfs; assume SSD (all Apple Silicon Macs use SSDs,
+	// and spinning disks on Intel Macs are rare enough to not warrant IOKit queries)
+	return false;
 #else
 	struct stat info;
 
