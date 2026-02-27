@@ -34,12 +34,11 @@ namespace math {
 
 	// Explicit overloads for raw float/double types to resolve ambiguity
 	// when called from template code (e.g., assimp) that uses float/double
-	// Note: sqrt(float) is defined here for non-FastMath.h code (like assimp)
-	// FastMath.h will check MATH_SQRT_DEFINED and provide its own faster version
+	// Note: math::sqrt(float) is always provided by FastMath.h (via fastmath::sqrt_sse).
+	// Do NOT define it here — it causes redefinition errors when streflop_cond.h
+	// is included before FastMath.h (e.g., lmathlib.cpp). The using-directive
+	// above imports streflop::sqrt as a fallback for TUs without FastMath.h.
 	inline float fabs(float x) { return streflop::fabs(Simple(x)); }
-#ifndef MATH_SQRT_OVERRIDE
-	inline float sqrt(float x) { return streflop::sqrt(Simple(x)); }
-#endif
 	inline double sqrt(double x) { return streflop::sqrt(Double(x)); }
 	inline double fabs(double x) { return streflop::fabs(Double(x)); }
 	inline float sin(float x) { return streflop::sin(Simple(x)); }

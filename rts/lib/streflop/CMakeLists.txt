@@ -84,18 +84,23 @@ elseif (MSVC AND MARCH_BITS EQUAL 64)
 endif(NOT MSVC)
 SET_SOURCE_FILES_PROPERTIES(${libm_flt32_source} PROPERTIES COMPILE_FLAGS "-DLIBM_COMPILING_FLT32 ${cxxflags}")
 
+SET(libm_dbl64_source
+	"libm/dbl64_system.cpp"
+	)
+
 ADD_LIBRARY(streflop STATIC EXCLUDE_FROM_ALL
 	SMath.cpp
 	Random.cpp
 	streflopC.cpp
 	${fpu_settings_asm}
 	${libm_flt32_source}
+	${libm_dbl64_source}
 	)
 set_target_properties(streflop PROPERTIES COMPILE_FLAGS "${PIC_FLAG}")
 
-# On ARM64 use STREFLOP_SOFT (pure software IEEE 754 via bundled SoftFloat)
+# On ARM64 use STREFLOP_NEON (hardware NEON FPU with deterministic rounding)
 # instead of STREFLOP_SSE which requires x86 SSE control registers.
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|armv8")
-	target_compile_definitions(streflop PUBLIC STREFLOP_SOFT)
+	target_compile_definitions(streflop PUBLIC STREFLOP_NEON)
 endif()
 #TODO do not use -fPIC for streflop (decreases performance)

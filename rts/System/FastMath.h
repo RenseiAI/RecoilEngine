@@ -229,6 +229,10 @@ namespace math {
 	inline float sqrtf(float x) { return fastmath::sqrt_sse(x); }
 	inline float isqrt(float x) { return fastmath::isqrt2_nosse(x); }
 
+	// Resolve ambiguity between sqrt(float) and sqrt(double) when called with int.
+	// Without this, integer arguments are equally viable for both overloads.
+	inline float sqrt(int x) { return fastmath::sqrt_sse(static_cast<float>(x)); }
+
 	using fastmath::floor;
 }
 

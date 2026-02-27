@@ -438,13 +438,16 @@ option(ENABLE_STREFLOP "build Spring with streflop support (REQUIRED FOR MULTIPL
 
 if (ENABLE_STREFLOP)
 	## note: is removed in ./AI/CMakeLists.txt since it would break AI compilation
-	if (APPLE)
-		# STREFLOP_SOFT has macOS fenv.h compatibility issues
-		# Disable streflop on Apple for now
-		add_definitions(-DNOT_USING_STREFLOP)
-		message(WARNING "Streflop disabled on Apple due to FPU settings compatibility issues")
+	if (APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|armv8")
+		# Apple ARM64: use NEON FPU with deterministic rounding.
+		# NEON mode uses hardware float with FPCR rounding control,
+		# which works correctly on macOS ARM64 (no fenv.h issues).
+		add_definitions(-DSTREFLOP_NEON)
+	elseif (APPLE)
+		# Apple x86_64: use SSE (same as Linux x86_64)
+		add_definitions(-DSTREFLOP_SSE)
 	elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|armv8")
-		add_definitions(-DSTREFLOP_SOFT)
+		add_definitions(-DSTREFLOP_NEON)
 	else ()
 		add_definitions(-DSTREFLOP_SSE)
 	endif ()
