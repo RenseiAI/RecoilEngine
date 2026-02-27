@@ -1,22 +1,24 @@
 # Metal Debug Iteration Log
 
 ## Current Status
-- Last iteration: 3
-- Commit: 95dbbff551
-- Shaders: 82/82, Draw calls: 5+17-21, FPS: 49.8, PSO fails: 0
+- Last iteration: 4
+- Commit: 5c07381883
+- Shaders: 82/82, Draw calls: 10+11, FPS: 49.4, PSO fails: 0
 - Exit: SHUTDOWN_HANG (widget EXIT_SUCCESS, process timeout)
-- Visual: **TERRAIN VISIBLE** — textured terrain, sky, horizon. Rendering in upper-left quadrant.
+- Visual: **TERRAIN TEXTURED** — correct SPIRV-Cross texture remapping. 2 patches visible (geometrically correct for camera angle).
 
 ## Priority Queue
-1. RENDERING COVERAGE — only 2 ROAM terrain patches draw per frame. Investigate why more patches aren't visible (LOD, frustum, camera).
-2. SHUTDOWN_HANG — hangs at SpringApp::Kill[3] after widget exit
-3. Font path error — doubled path in font loading
-4. Texture swizzle warnings — incorrect texture format handling
-5. ModernSky disabled — falls back to NullSky
+1. SHUTDOWN_HANG — hangs at SpringApp::Kill[3] after widget exit
+2. Font path error — doubled path in font loading
+3. Texture swizzle warnings — incorrect texture format handling
+4. ModernSky disabled — falls back to NullSky
+5. Unit model rendering (game needs to advance past gf=0)
 
-## Confirmed Working (Post-Phase 32)
-- Viewport: 800x600 full screen, correct coordinates, no Retina scaling issue
-- Terrain shader: SMFShaderGLSL-Forward-Adv with correct uniforms, textures, PSO
+## Confirmed Working (Post-Phase 33)
+- Viewport: 800x600, drawable matches, contentsScale=1.0
+- SPIRV-Cross texture remapping: GL unit → Metal [[texture(N)]] index per shader stage
+- Terrain shader: SMFShaderGLSL-Forward-Adv with correct texture bindings
+- ROAM patch visibility: 2/24 patches visible at steep camera angle — geometrically correct
 - Drawable: 800x600 matches viewport, present works correctly
 - Clear(): mid-pass clears properly handled via fullscreen quad
 - Screenshots: ReadPixels with Y-flip works correctly
@@ -101,3 +103,28 @@
   Rendering confined to upper-left quadrant — likely viewport/Y-axis issue to investigate next.
 - Next: Investigate viewport/quadrant issue — rendering appears in upper-left ~50% of screen.
   May be Metal Y-axis coordinate system difference or viewport setup.
+
+### Iteration 4 — 2026-02-27 (SPIRV-Cross texture binding remapping)
+- Run: 20260227_135740
+- Commit: 5c07381883
+- Metrics: shaders=82/82 draws=10+11 fps=49.4 pso_fails=0 exit=SHUTDOWN_HANG screenshots=7
+- Visual: **TERRAIN TEXTURED** — correct texture binding, detailed terrain surface with diffuse
+  textures properly applied. 2 ROAM patches visible out of 24 total.
+- Root cause: SPIRV-Cross assigns `[[texture(N)]]` indices that differ from GL texture unit
+  numbers. The engine binds textures by GL unit (diffuseTex→0, heightMapTex→1, etc.) but Metal
+  shaders expect SPIRV-Cross-assigned indices (e.g., diffuseTex→[[texture(2)]]). Without
+  remapping, textures were bound at wrong slots, causing incorrect or missing sampling.
+- Fix: Three-part fix in MTLShader/MTLContext:
+  1. **MTLShader::Link()**: Extract sampler reflection data to build `samplerInfoMap` mapping
+     uniform name → Metal texture/sampler indices per shader stage (VS/FS independently).
+  2. **MTLShader::SetUniform1i()**: Intercept sampler uniform calls. When `SetUniform1i("tex", N)`
+     is called, record GL unit N → Metal texture index from samplerInfoMap. Don't store in
+     uniform buffer (Metal binds textures directly, not via uniforms).
+  3. **MTLContext::BindCurrentResources()**: Use shader's remap table. When remapping is active,
+     skip unmapped GL units (prevents identity fallback from overwriting correct bindings).
+- Also: Set `metalLayer.contentsScale = 1.0` and use `SDL_Metal_GetDrawableSize()` for safety.
+- Viewport investigation: 800x600 drawable matches 800x600 viewport exactly. The "upper-left
+  quadrant" appearance is NOT a viewport bug — it's the natural frustum coverage at the default
+  camera angle (pos=3072,969,2105 dir=0,-0.86,-0.52, ~59° below horizontal). Only 2/24 ROAM
+  patches pass frustum culling at this steep angle, which is geometrically correct.
+- Next: Shutdown hang, font path error, texture swizzle, model rendering.
