@@ -46,13 +46,37 @@ MTLContext::MTLContext(MTLDevice* device)
 }
 
 MTLContext::~MTLContext() {
-	// Wait for all in-flight frames to complete
+	// Flush any pending work from the last BeginFrame that never got an EndFrame.
+	// The frame loop does EndFrame→BeginFrame in SwapBuffers, so at shutdown the
+	// last BeginFrame consumed a semaphore slot with no matching EndFrame/commit.
+	if (inRenderPass) {
+		EndRenderPass();
+	}
+	if (commandBuffer) {
+		// Commit without presenting — just flush GPU work
+		__block dispatch_semaphore_t blockSemaphore = frameSemaphore;
+		[commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+			(void)buffer;
+			dispatch_semaphore_signal(blockSemaphore);
+		}];
+		[commandBuffer commit];
+		[commandBuffer waitUntilCompleted];
+		commandBuffer = nil;
+	} else {
+		// No command buffer but BeginFrame may have consumed a slot — restore it
+		dispatch_semaphore_signal(frameSemaphore);
+	}
+
+	// Wait for remaining in-flight frames (with timeout to prevent hang)
 	for (int i = 0; i < MaxFramesInFlight; i++) {
-		dispatch_semaphore_wait(frameSemaphore, DISPATCH_TIME_FOREVER);
+		long result = dispatch_semaphore_wait(frameSemaphore, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC));
+		if (result != 0) {
+			LOG_L(L_WARNING, "[MTLContext] ~MTLContext: semaphore wait %d/%d timed out", i + 1, MaxFramesInFlight);
+			break;
+		}
 	}
 
 	renderEncoder = nil;
-	commandBuffer = nil;
 
 	// Release blit pipeline resources
 	blitLibrary = nil;
@@ -122,6 +146,9 @@ void MTLContext::EndFrame() {
 		if (!commandBuffer) {
 			// Still release the drawable even if no command buffer
 			device->ClearCurrentDrawable();
+			// Signal semaphore to balance the wait in BeginFrame — otherwise the
+			// semaphore count leaks and the destructor blocks forever
+			dispatch_semaphore_signal(frameSemaphore);
 			return;
 		}
 
