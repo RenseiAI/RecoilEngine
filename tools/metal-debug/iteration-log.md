@@ -1,21 +1,22 @@
 # Metal Debug Iteration Log
 
 ## Current Status
-- Last iteration: 5
-- Commit: f36a7c168c
-- Shaders: 82/82, Draw calls: 10+11, FPS: 50.2, PSO fails: 0
-- Exit: SHUTDOWN_HANG (widget EXIT_SUCCESS, process timeout)
-- Visual: **TERRAIN TEXTURED** — unchanged from iteration 4
+- Last iteration: 6
+- Commit: 2d0be0777a
+- Shaders: 82/82, Draw calls: 10+11, FPS: 49.2, PSO fails: 0
+- Exit: **CLEAN EXIT (code 0)** — shutdown hang FIXED
+- Visual: **TERRAIN TEXTURED** — correct texture remapping, 2 patches visible (correct for camera angle)
 - **STREFLOP_NEON enabled** — multiplayer sync now works on macOS ARM64
 
 ## Priority Queue
-1. SHUTDOWN_HANG — hangs at SpringApp::Kill[3] after widget exit
-2. Font path error — doubled path in font loading
-3. Texture swizzle warnings — incorrect texture format handling
-4. ModernSky disabled — falls back to NullSky
-5. Unit model rendering (game needs to advance past gf=0)
+1. Font path error — doubled path in font loading
+2. Texture swizzle warnings — incorrect texture format handling
+3. ModernSky disabled — falls back to NullSky
+4. Unit model rendering (game needs to advance past gf=0)
+5. Tier 5: CI pipeline, macOS app bundle, final audit
 
-## Confirmed Working (Post-Phase 33)
+## Confirmed Working (Post-Phase 34)
+- **Clean shutdown** — Metal device destroyed, all Kill[] stages complete, exit code 0
 - Viewport: 800x600, drawable matches, contentsScale=1.0
 - SPIRV-Cross texture remapping: GL unit → Metal [[texture(N)]] index per shader stage
 - Terrain shader: SMFShaderGLSL-Forward-Adv with correct texture bindings
@@ -24,6 +25,7 @@
 - Clear(): mid-pass clears properly handled via fullscreen quad
 - Screenshots: ReadPixels with Y-flip works correctly
 - Loading screen: "Loading..." text renders with fonts
+- STREFLOP_NEON with FPCR verification
 
 ## Iteration History
 
@@ -152,3 +154,23 @@
 - Also committed earlier in session: `-ffp-contract=off` fix in streflop libm, GitHub Actions
   workflow for x86_64 reference generation, reference results, upstream handoff doc.
 - Next: Shutdown hang, font path error, texture swizzle, model rendering.
+
+### Iteration 6 — 2026-02-27 (Shutdown hang fix) ★ CLEAN EXIT
+- Run: 20260227_180235
+- Commit: 2d0be0777a
+- Metrics: shaders=82/82 draws=10+11 fps=49.2 pso_fails=0 exit=0 (clean) screenshots=7
+- Visual: Unchanged — terrain textured, 2 ROAM patches, STREFLOP_NEON active.
+- Root cause: `dispatch_semaphore_wait(DISPATCH_TIME_FOREVER)` in `~MTLContext()` blocked
+  because the frame loop does `EndFrame→BeginFrame` in SwapBuffers, so at shutdown the last
+  `BeginFrame` consumed a semaphore slot with no matching `EndFrame` signal. The destructor
+  tried to acquire all 3 slots (MaxFramesInFlight) but only 2 were available → deadlock.
+- Fix: Three fixes in MTLContext.mm:
+  1. **~MTLContext**: Flush any pending command buffer from the last BeginFrame (commit without
+     present, waitUntilCompleted), or signal semaphore if no buffer exists. Then wait with
+     2-second timeout (safety net) instead of DISPATCH_TIME_FOREVER.
+  2. **EndFrame early-return**: When `commandBuffer` is nil, signal the semaphore before
+     returning — prevents permanent semaphore count leak.
+  3. **Destructor timeout**: `break` on timeout instead of blocking forever.
+- Result: Kill[7] → "Metal device destroyed" → Kill[8] → Kill[9] → exit code 0.
+  Previously hung at Kill[7] and never reached Kill[8].
+- Next: Font path error, texture swizzle, ModernSky, model rendering.
