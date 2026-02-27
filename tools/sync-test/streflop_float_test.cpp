@@ -402,6 +402,115 @@ static void test_double_precision(const std::vector<float>& inputs, int limit) {
 	}
 }
 
+// --- Construct float from raw IEEE 754 bits ---
+static float make_float(uint32_t bits) {
+	float f;
+	memcpy(&f, &bits, 4);
+	return f;
+}
+
+// --- Category E: Edge cases (denormals, ±inf, ±NaN, ±0.0f) ---
+// Exhaustively tests all combinations of special IEEE 754 values through
+// arithmetic and unary operations. These are the values most likely to
+// differ across architectures if FPU handling diverges.
+static void test_edge_cases() {
+	// Comprehensive set of IEEE 754 edge values
+	float edges[] = {
+		// Zeros
+		0.0f,
+		-0.0f,
+		// Infinities
+		make_float(0x7F800000),   // +inf
+		make_float(0xFF800000),   // -inf
+		// NaN variants
+		make_float(0x7FC00000),   // quiet NaN (QNaN)
+		make_float(0x7F800001),   // signaling NaN (SNaN)
+		make_float(0xFFC00000),   // negative quiet NaN
+		make_float(0x7FC0DEAD),   // QNaN with payload
+		// Denormals (subnormals)
+		make_float(0x00000001),   // smallest positive denormal (FLT_TRUE_MIN ~1.4e-45)
+		make_float(0x80000001),   // smallest negative denormal
+		make_float(0x007FFFFF),   // largest positive denormal
+		make_float(0x807FFFFF),   // largest negative denormal
+		make_float(0x00400000),   // mid-range positive denormal
+		make_float(0x00000100),   // small positive denormal
+		make_float(0x00000002),   // second smallest positive denormal
+		make_float(0x80000002),   // second smallest negative denormal
+		// Boundary normals
+		make_float(0x00800000),   // FLT_MIN (smallest positive normal ~1.175e-38)
+		make_float(0x80800000),   // -FLT_MIN
+		make_float(0x7F7FFFFF),   // FLT_MAX (~3.4e+38)
+		make_float(0xFF7FFFFF),   // -FLT_MAX
+		make_float(0x00800001),   // just above FLT_MIN
+		make_float(0x7F7FFFFE),   // just below FLT_MAX
+		// Common values
+		1.0f, -1.0f,
+		0.5f, -0.5f,
+		2.0f, -2.0f,
+	};
+	int N = (int)(sizeof(edges) / sizeof(edges[0]));
+
+	// --- All-pairs binary arithmetic (N x N x 5 ops) ---
+	for (int i = 0; i < N; i++) {
+		streflop::Simple a(edges[i]);
+		for (int j = 0; j < N; j++) {
+			streflop::Simple b(edges[j]);
+
+			rec_f2("edge", "add", edges[i], edges[j], (float)(a + b));
+			rec_f2("edge", "sub", edges[i], edges[j], (float)(a - b));
+			rec_f2("edge", "mul", edges[i], edges[j], (float)(a * b));
+			rec_f2("edge", "div", edges[i], edges[j], (float)(a / b));
+
+			// muladd: a * b + a (uses self as third operand for determinism)
+			rec_f2("edge", "muladd", edges[i], edges[j], (float)(a * b + a));
+		}
+	}
+
+	// --- Unary operations on all edge values ---
+	for (int i = 0; i < N; i++) {
+		streflop::Simple x(edges[i]);
+
+		rec_f1("edge", "fabs",  edges[i], (float)streflop::fabs(x));
+		rec_f1("edge", "floor", edges[i], (float)streflop::floor(x));
+		rec_f1("edge", "ceil",  edges[i], (float)streflop::ceil(x));
+		rec_f1("edge", "round", edges[i], (float)streflop::round(x));
+		rec_f1("edge", "trunc", edges[i], (float)streflop::trunc(x));
+
+		// sqrt(|x|) — domain-safe
+		rec_f1("edge", "sqrt_abs", edges[i], (float)streflop::sqrt(streflop::fabs(x)));
+
+		// Trig on all values (including inf/NaN — should produce NaN deterministically)
+		rec_f1("edge", "sin", edges[i], (float)streflop::sin(x));
+		rec_f1("edge", "cos", edges[i], (float)streflop::cos(x));
+		rec_f1("edge", "atan", edges[i], (float)streflop::atan(x));
+
+		// exp/log on all values (may produce inf/NaN — that's the point)
+		rec_f1("edge", "exp", edges[i], (float)streflop::exp(x));
+		rec_f1("edge", "log_abs", edges[i], (float)streflop::log(streflop::fabs(x) + streflop::Simple(1e-45f)));
+	}
+
+	// --- Double precision edge cases ---
+	double d_edges[] = {
+		0.0, -0.0,
+		1.0, -1.0,
+		1e-308, -1e-308,   // near smallest normal
+		1e+308, -1e+308,   // near largest finite
+		5e-324, -5e-324,   // denormals
+	};
+	int D = (int)(sizeof(d_edges) / sizeof(d_edges[0]));
+
+	for (int i = 0; i < D; i++) {
+		streflop::Double a(d_edges[i]);
+		for (int j = 0; j < D; j++) {
+			streflop::Double b(d_edges[j]);
+			rec_d2("edge", "d_add", d_edges[i], d_edges[j], (double)(a + b));
+			rec_d2("edge", "d_sub", d_edges[i], d_edges[j], (double)(a - b));
+			rec_d2("edge", "d_mul", d_edges[i], d_edges[j], (double)(a * b));
+			rec_d2("edge", "d_div", d_edges[i], d_edges[j], (double)(a / b));
+		}
+	}
+}
+
 // --- Category D: Compound operations (simulate engine patterns) ---
 static void test_compound(const std::vector<float>& inputs, int limit) {
 	int N = (int)inputs.size();
@@ -615,26 +724,31 @@ int main(int argc, char* argv[]) {
 	printf("  Generated in %.2f seconds\n\n",
 	       (double)(t_gen - t_start) / CLOCKS_PER_SEC);
 
-	// Run test categories
+	// Run test categories (with cumulative hash checkpoints for mismatch diagnosis)
 	printf("Running Category A: Basic arithmetic (limit=%d)...\n", arith_limit);
 	uint32_t before = g_stream.count;
 	test_arithmetic(inputs, arith_limit);
-	printf("  %u tests\n", g_stream.count - before);
+	printf("  %u tests  [hash: %016llX]\n", g_stream.count - before, (unsigned long long)g_stream.hasher.hash);
 
 	printf("Running Category B: Transcendentals (limit=%d)...\n", trans_limit);
 	before = g_stream.count;
 	test_transcendentals(inputs, trans_limit);
-	printf("  %u tests\n", g_stream.count - before);
+	printf("  %u tests  [hash: %016llX]\n", g_stream.count - before, (unsigned long long)g_stream.hasher.hash);
 
 	printf("Running Category C: Double precision (limit=%d)...\n", double_limit);
 	before = g_stream.count;
 	test_double_precision(inputs, double_limit);
-	printf("  %u tests\n", g_stream.count - before);
+	printf("  %u tests  [hash: %016llX]\n", g_stream.count - before, (unsigned long long)g_stream.hasher.hash);
 
 	printf("Running Category D: Compound operations (limit=%d)...\n", compound_limit);
 	before = g_stream.count;
 	test_compound(inputs, compound_limit);
-	printf("  %u tests\n", g_stream.count - before);
+	printf("  %u tests  [hash: %016llX]\n", g_stream.count - before, (unsigned long long)g_stream.hasher.hash);
+
+	printf("Running Category E: Edge cases (denormals, inf, NaN, zero)...\n");
+	before = g_stream.count;
+	test_edge_cases();
+	printf("  %u tests  [hash: %016llX]\n", g_stream.count - before, (unsigned long long)g_stream.hasher.hash);
 
 	clock_t t_end = clock();
 	double elapsed = (double)(t_end - t_start) / CLOCKS_PER_SEC;

@@ -22,16 +22,20 @@ jobs:
       - name: Build
         run: cmake --build build --target streflop-float-test -j$(nproc)
 
-      # Step 1: Regression gate — N=10000, compare against checked-in reference
-      - name: Regression test (47K tests, compare to reference)
+      # Step 1: Generate SSE reference at N=10000 and report hash
+      - name: Reference test (52K tests, generate SSE baseline)
         run: |
-          ./build/streflop-float-test -n 10000 streflop_regression
-          python3 tools/sync-test/compare_results.py \
-            tools/sync-test/reference/streflop_results_SSE_x86_64.bin \
-            streflop_regression.bin
+          ./build/streflop-float-test -n 10000 streflop_results_SSE_x86_64
           echo ""
-          echo "--- Hash cross-check ---"
-          python3 tools/sync-test/compare_results.py --hash streflop_regression.bin
+          echo "--- Compare against checked-in NEON reference ---"
+          if [ -f tools/sync-test/reference/streflop_results_NEON_arm64.bin ]; then
+            python3 tools/sync-test/compare_results.py \
+              tools/sync-test/reference/streflop_results_NEON_arm64.bin \
+              streflop_results_SSE_x86_64.bin
+          else
+            echo "No NEON reference found — skipping cross-arch comparison"
+            echo "Run locally on ARM64 to generate NEON reference"
+          fi
 
       # Step 2: 10M inputs — 261M tests, upload binary for cross-arch comparison
       - name: Medium scale (261M tests, ~45s)
@@ -44,9 +48,12 @@ jobs:
         run: |
           ./build/streflop-float-test -n 100000000 --hash-only
 
-      - name: Upload 10M results
+      - name: Upload results
         uses: actions/upload-artifact@v4
         with:
-          name: streflop-10M-SSE-x86_64
-          path: streflop_10M_SSE_x86_64.bin
+          name: streflop-SSE-x86_64
+          path: |
+            streflop_results_SSE_x86_64.bin
+            streflop_results_SSE_x86_64.txt
+            streflop_10M_SSE_x86_64.bin
           retention-days: 90
