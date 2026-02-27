@@ -1,0 +1,28 @@
+name: STREFLOP Float Reference
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate-reference:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -S tools/sync-test -DSTREFLOP_MODE=SSE
+
+      - name: Build
+        run: cmake --build build --target streflop-float-test -j$(nproc)
+
+      - name: Run
+        run: ./build/streflop-float-test
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: streflop-float-reference
+          path: |
+            streflop_results_*.bin
+            streflop_results_*.txt
+          retention-days: 90
