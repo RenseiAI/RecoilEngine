@@ -51,7 +51,7 @@ public:
 	const char* GetBackendName() const override { return "Metal"; }
 
 	// --- Capability queries ---
-	bool HaveGL4() const override { return true; }  // Metal exceeds GL4 capabilities
+	bool HaveGL4() const override { return false; }  // GL4 drawer uses SSBO transforms — not yet ported to Metal
 	bool SupportPersistentMapping() const override { return true; }  // storageModeShared
 	bool SupportClipSpaceControl() const override { return true; }
 	bool SupportSeamlessCubeMaps() const override { return true; }

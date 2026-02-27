@@ -650,6 +650,10 @@ void CSMFGroundTextures::BindSquareTexture(int texSquareX, int texSquareY)
 			glBindTexture(GL_TEXTURE_2D, square->GetLuaTextureID());
 	} else if (auto* tex = square->GetRHITexture()) {
 		tex->Bind(0);
+	} else {
+		static int noTexCount = 0;
+		if (noTexCount++ < 5)
+			LOG_L(L_WARNING, "[SMFGroundTex] BindSquareTexture(%d,%d): no RHI texture and no Lua texture", texSquareX, texSquareY);
 	}
 
 	if (game->GetDrawMode() == CGame::gameNormalDraw) {

@@ -274,8 +274,8 @@ namespace Threading {
 			return (~0);
 
 	#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__)
-		// no-op
-		return 0;
+		// These platforms don't support thread affinity; return ~0 ("not set")
+		return (~0);
 
 	#elif defined(_WIN32)
 		// create mask

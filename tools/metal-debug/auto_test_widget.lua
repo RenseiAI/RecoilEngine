@@ -17,10 +17,11 @@ function widget:GetInfo()
 end
 
 local TARGET_FRAMES = %%TARGET_FRAMES%%
-local screenshotAt = {1, 10, 30, 60, 120, 180, 240, 300, 500, 900}
+local screenshotAt = {1, 10, 30, 60, 120, 180, 300, 450, 600, 750, 900}
 local taken = {}
 local drawFrames = 0
 local startTimer = nil
+local sentForceStart = false
 
 function widget:Initialize()
     startTimer = Spring.GetTimer()
@@ -28,6 +29,16 @@ function widget:Initialize()
 end
 
 function widget:Update(dt)
+    -- Optionally force-start the game (disabled for menu screenshots)
+    -- if not sentForceStart then
+    --     local elapsed = Spring.DiffTimers(Spring.GetTimer(), startTimer)
+    --     if elapsed > 2.0 then
+    --         Spring.Echo("[METAL-TEST] Sending forcestart (elapsed=" .. string.format("%.1f", elapsed) .. "s)")
+    --         Spring.SendCommands("forcestart")
+    --         sentForceStart = true
+    --     end
+    -- end
+
     local gf = Spring.GetGameFrame()
     if gf < 0 then return end
 

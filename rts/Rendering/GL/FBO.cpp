@@ -27,10 +27,14 @@ GLsizei FBO::maxSamples = -1;
 
 
 /**
- * Returns if the current gpu supports Framebuffer Objects
+ * Returns if the current gpu supports Framebuffer Objects.
+ * On Metal, native render-to-texture is available via RHI framebuffers,
+ * so we report true to allow higher-level rendering code to proceed.
  */
 bool FBO::IsSupported()
 {
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return true;
 	return (GLAD_GL_EXT_framebuffer_object);
 }
 
@@ -45,6 +49,8 @@ GLint FBO::GetCurrentBoundFBO()
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (!IsSupported())
 		return 0;
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return 0;
 	GLint curFBO;
 	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &curFBO);
 	return curFBO;
@@ -57,6 +63,8 @@ GLint FBO::GetCurrentBoundFBO()
  */
 GLenum FBO::GetTextureTargetByID(const GLuint id, const unsigned int i)
 {
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return GL_TEXTURE_2D;
 	static constexpr std::array _targets = { GL_TEXTURE_2D, GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_1D, GL_TEXTURE_3D, GL_TEXTURE_2D_ARRAY };
 	GLint format;
 	glBindTexture(_targets[i], id);
@@ -172,6 +180,8 @@ void FBO::GLContextLost()
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (!IsSupported())
 		return;
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return;
 
 	GLint oldReadBuffer;
 
@@ -202,6 +212,8 @@ void FBO::GLContextReinit()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (!IsSupported())
+		return;
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
 		return;
 
 	for (auto ti = fboTexData.begin(); ti != fboTexData.end(); ++ti) {
@@ -246,6 +258,18 @@ void FBO::Init(bool noop)
 	if (!IsSupported())
 		return;
 
+	// On Metal, FBO objects are stubs — actual render-to-texture uses RHI framebuffers.
+	// Mark as valid so higher-level code proceeds with its rendering setup.
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal) {
+		if (maxAttachments == 0)
+			maxAttachments = 8; // Metal supports at least 8 color attachments
+		GetMaxSamples();
+		fboId = 1; // fake nonzero ID so IsValid() returns true
+		valid = true;
+		activeFBOs.push_back(this);
+		return;
+	}
+
 	glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS_EXT, &maxAttachments);
 
 	GetMaxSamples();
@@ -272,6 +296,16 @@ void FBO::Kill()
 		return;
 	if (!IsSupported())
 		return;
+
+	// On Metal, FBO is a stub — just clean up bookkeeping, no GL calls
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal) {
+		fboId = 0;
+		valid = false;
+		spring::VectorErase(activeFBOs, this);
+		if (activeFBOs.empty())
+			fboTexData.clear();
+		return;
+	}
 
 	{
 		glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, 0);
@@ -317,6 +351,8 @@ void FBO::Bind()
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (!IsSupported())
 		return;
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return; // stub on Metal — use RHI framebuffers
 	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, fboId);
 }
 
@@ -329,6 +365,8 @@ void FBO::Unbind()
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (!IsSupported())
 		return;
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return; // stub on Metal
 	// Bind is instance whereas Unbind is static (!),
 	// this is cause Binding FBOs is a very expensive function
 	// and so you want to save redundant FBO bindings when ever possible. e.g:
@@ -345,6 +383,8 @@ void FBO::Unbind()
 bool FBO::Blit(int32_t fromID, int32_t toID, const std::array<int, 4>& srcRect, const std::array<int, 4>& dstRect, uint32_t mask, uint32_t filter)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return false; // Metal blit is handled via RHI
 	if (!GLAD_GL_EXT_framebuffer_blit)
 		return false;
 
@@ -383,12 +423,16 @@ void FBO::SetDrawBuffer(GLenum attachment) const
 {
 	if (!IsSupported())
 		return;
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return;
 	glDrawBuffer(attachment);
 }
 
 void FBO::SetDrawBuffers(int count, const GLenum* bufs) const
 {
 	if (!IsSupported())
+		return;
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
 		return;
 	glDrawBuffers(count, bufs);
 }
@@ -403,6 +447,9 @@ bool FBO::CheckStatus(const char* name)
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (!IsSupported())
 		return (valid = false);
+	// On Metal, FBO is a stub — always valid
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return (valid = true);
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);
 #endif
@@ -449,6 +496,8 @@ GLenum FBO::GetStatus()
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (!IsSupported())
 		return GL_FRAMEBUFFER_UNSUPPORTED_EXT;
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return GL_FRAMEBUFFER_COMPLETE_EXT;
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);
 #endif
@@ -463,6 +512,8 @@ void FBO::AttachTexture(const GLuint texId, const GLenum texTarget, const GLenum
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (!IsSupported())
+		return;
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
 		return;
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);
@@ -484,6 +535,8 @@ void FBO::AttachTextureLayer(const GLuint texId, const GLenum attachment, const 
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (!IsSupported())
 		return;
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return;
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);
 #endif
@@ -500,6 +553,8 @@ void FBO::AttachRenderBuffer(const GLuint rboId, const GLenum attachment)
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (!IsSupported())
 		return;
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return;
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);
 #endif
@@ -514,6 +569,8 @@ void FBO::Detach(const GLenum attachment)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (!IsSupported())
+		return;
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
 		return;
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);
@@ -563,6 +620,8 @@ void FBO::CreateRenderBuffer(const GLenum attachment, const GLenum format, const
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (!IsSupported())
 		return;
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return;
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);
 #endif
@@ -582,6 +641,8 @@ void FBO::CreateRenderBufferMultisample(const GLenum attachment, const GLenum fo
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 	if (!IsSupported())
+		return;
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
 		return;
 #ifndef HEADLESS
 	assert(GetCurrentBoundFBO() == fboId);

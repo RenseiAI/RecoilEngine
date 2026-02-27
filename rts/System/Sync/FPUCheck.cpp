@@ -12,7 +12,10 @@
 #include "System/Platform/CpuID.h"
 
 #ifndef STREFLOP_H
-void good_fpu_control_registers(const char* text) { LOG_L(L_WARNING, "[%s](%s) streflop is disabled", __func__, text); }
+void good_fpu_control_registers(const char* text) {
+	static bool once = false;
+	if (!once) { LOG_L(L_WARNING, "[%s](%s) streflop is disabled", __func__, text); once = true; }
+}
 void good_fpu_init() { LOG_L(L_WARNING, "[%s] streflop is disabled", __func__); }
 
 #else

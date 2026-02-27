@@ -75,6 +75,8 @@ void RHIProgramObject::EnableRaw()
 		if (device) {
 			device->GetContext()->BindShader(rhiShader.get());
 		}
+	} else {
+		LOG_L(L_WARNING, "[RHI-PO::%s] EnableRaw for \"%s\": shader not valid", __func__, name.c_str());
 	}
 	IProgramObject::Enable();
 }
@@ -86,7 +88,8 @@ void RHIProgramObject::DisableRaw()
 	if (rhiShader && rhiShader->IsBound()) {
 		rhiShader->Unbind();
 
-		// Clear the shader from the RHI context
+		// Clear the shader from the RHI context so subsequent draws
+		// that don't set their own shader are safely skipped.
 		auto* device = RHI::GetDevice();
 		if (device) {
 			device->GetContext()->BindShader(nullptr);

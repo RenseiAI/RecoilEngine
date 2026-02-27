@@ -2,6 +2,7 @@
 
 #include "Map/Ground.h"
 #include "Rendering/GL/LightHandler.h"
+#include "Rendering/RHI/RHIFactory.h"
 #include "System/Config/ConfigHandler.h"
 #include "Rendering/Env/CubeMapHandler.h"
 #include "Rendering/LuaObjectDrawer.h"
@@ -20,6 +21,11 @@ void CModelDrawerConcept::InitStatic()
 	lightHandler.Init(configHandler->GetInt("MaxDynamicModelLights"));
 
 	deferredAllowed = configHandler->GetBool("AllowDeferredModelRendering");
+
+	// Deferred rendering requires real FBO bind/unbind to redirect draws to G-buffer textures.
+	// On Metal, FBO operations are stubs (no-ops), so deferred draws corrupt the screen.
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		deferredAllowed = false;
 
 	// shared with FeatureDrawer!
 	geomBuffer = LuaObjectDrawer::GetGeometryBuffer();

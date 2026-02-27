@@ -493,6 +493,13 @@ bool CSMFGroundDrawer::UpdateGeometryBuffer(bool init)
 	if (!drawDeferredAllowed)
 		return false;
 
+	// Deferred rendering requires real FBO bind/unbind to redirect draws to G-buffer textures.
+	// On Metal, FBO operations are stubs (no-ops), so deferred draws go to the screen and
+	// corrupt the depth buffer with reversed depth values, making the forward pass invisible.
+	// Disable deferred map rendering on Metal until RHI render-pass based deferred is implemented.
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return false;
+
 	return (geomBuffer.Update(init));
 }
 

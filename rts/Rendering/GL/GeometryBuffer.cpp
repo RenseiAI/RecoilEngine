@@ -177,6 +177,13 @@ bool GL::GeometryBuffer::Create(const int2 size) {
 		}
 	}
 
+	// On Metal, FBO is a stub — textures are created via RHI and bound at draw time.
+	// Skip the GL FBO attachment and glDrawBuffers calls entirely.
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal) {
+		// buffer is already valid (stub FBO), just return success
+		return true;
+	}
+
 	// Collect GLuint handles for FBO attachment (FBO class still uses raw GL)
 	GLuint texIDs[ATTACHMENT_COUNT];
 	for (unsigned int n = 0; n < ATTACHMENT_COUNT; n++) {

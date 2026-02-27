@@ -119,6 +119,16 @@ void CShadowHandler::Init()
 	if (!tmpFirstInit && !shadowsSupported)
 		return;
 
+	// Shadow rendering requires FBO bind/unbind to render to off-screen depth textures.
+	// On Metal, IRHIFramebuffer::Bind() is a no-op (render passes use BeginRenderPass instead),
+	// so shadow draws go to the screen and corrupt the depth buffer for the forward pass.
+	// Disable shadows on Metal until the shadow handler is migrated to BeginRenderPass/EndRenderPass.
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal) {
+		shadowConfig = -1;
+		LOG("[%s] shadow rendering disabled on Metal backend (FBO bind not yet migrated)", __func__);
+		return;
+	}
+
 	// possible values for the "Shadows" config-parameter:
 	// < 0: disable and don't try to initialize
 	//   0: disable, but create a fallback FBO

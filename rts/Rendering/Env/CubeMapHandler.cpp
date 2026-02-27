@@ -150,6 +150,11 @@ void CubeMapHandler::UpdateReflectionTexture()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
 
+	// Cubemap reflection rendering requires FBO bind to redirect draws to cubemap faces.
+	// On Metal, FBO::Bind() is a no-op so draws would go to the screen and corrupt it.
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return;
+
 	// NOTE:
 	//   we unbind later in WorldDrawer::GenerateIBLTextures() to save render
 	//   context switches (which are one of the slowest OpenGL operations!)

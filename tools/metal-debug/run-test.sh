@@ -25,6 +25,8 @@ TIMEOUT=90
 TARGET_FRAMES=300
 RESOLUTION="800x600"
 RUN_DIR="$SCRIPT_DIR/runs"
+FULLSCREEN=0
+NO_GAME=0
 
 # Parse args
 while [[ $# -gt 0 ]]; do
@@ -32,6 +34,8 @@ while [[ $# -gt 0 ]]; do
         --timeout)  TIMEOUT="$2"; shift 2 ;;
         --frames)   TARGET_FRAMES="$2"; shift 2 ;;
         --resolution) RESOLUTION="$2"; shift 2 ;;
+        --fullscreen) FULLSCREEN=1; shift ;;
+        --no-game)  NO_GAME=1; shift ;;
         *) echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
@@ -67,7 +71,7 @@ fi
 cat > "$SETTINGS" <<EOF
 FontFile = $CONT_DIR/fonts/FreeSansBold.otf
 SmallFontFile = $CONT_DIR/fonts/FreeSansBold.otf
-Fullscreen = 0
+Fullscreen = $FULLSCREEN
 XResolution = $RES_W
 YResolution = $RES_H
 XResolutionWindowed = $RES_W
@@ -96,6 +100,19 @@ sed "s/%%TARGET_FRAMES%%/$TARGET_FRAMES/g" \
 # Force archive rescan so the new widget file is discovered
 rm -f "$CONT_DIR/cache/ArchiveCache22.lua"
 
+# Ensure the widget is enabled in the LuaUI config (order > 0 = enabled).
+# The engine saves widget enable/disable state to this config file;
+# order=0 means disabled, order>0 means enabled+priority.
+WIDGET_CONFIG="$CONT_DIR/LuaUI/Config/BYAR.lua"
+if [[ -f "$WIDGET_CONFIG" ]]; then
+    # Remove any existing disabled/enabled entry
+    sed -i '' '/Metal Debug Auto-Test/d' "$WIDGET_CONFIG"
+    # Insert as enabled (order=1) right after the "order = {" line
+    sed -i '' '/^	order = {$/a\
+\t\t["Metal Debug Auto-Test"] = 1,
+' "$WIDGET_CONFIG"
+fi
+
 # Remove old infolog and screenshots to start clean
 rm -f "$CONT_DIR/infolog.txt"
 rm -f "$CONT_DIR/screenshots/"screen*.png 2>/dev/null || true
@@ -106,13 +123,21 @@ cleanup() {
         mv "$SETTINGS_BAK" "$SETTINGS"
     fi
     rm -f "$WIDGET_FILE"
+    # Remove widget entry from LuaUI config so it doesn't persist
+    if [[ -f "$WIDGET_CONFIG" ]]; then
+        sed -i '' '/Metal Debug Auto-Test/d' "$WIDGET_CONFIG"
+    fi
 }
 trap cleanup EXIT
 
 # Use --isolation-dir to point engine at cont/ for all data (read + write).
 # This makes the engine find gamedata/parse_tdf.lua, base archives, etc.
 # export MTL_DEBUG_LAYER=1  # Enable for detailed Metal validation
-LAUNCH_CMD="$BINARY --metal-backend --isolation-dir $CONT_DIR $CONT_DIR/script.txt"
+if [[ "$NO_GAME" -eq 1 ]]; then
+    LAUNCH_CMD="$BINARY --metal-backend --isolation-dir $CONT_DIR"
+else
+    LAUNCH_CMD="$BINARY --metal-backend --isolation-dir $CONT_DIR $CONT_DIR/script.txt"
+fi
 echo "  Command: $LAUNCH_CMD"
 echo ""
 echo "=== Launching engine ==="
@@ -122,6 +147,23 @@ $LAUNCH_CMD > "$RUN_PATH/stdout.log" 2>&1 &
 ENGINE_PID=$!
 
 echo "  PID: $ENGINE_PID"
+
+# In no-game mode, take macOS screenshots since the Lua widget doesn't load
+if [[ "$NO_GAME" -eq 1 ]]; then
+    SCREENSHOTS_DIR="$RUN_PATH/screenshots"
+    mkdir -p "$SCREENSHOTS_DIR"
+    (
+        sleep 3
+        for i in 1 2 3 4 5; do
+            if kill -0 $ENGINE_PID 2>/dev/null; then
+                screencapture -x "$SCREENSHOTS_DIR/menu_${i}.png"
+                echo "  [screencapture] Captured menu_${i}.png"
+                sleep 2
+            fi
+        done
+    ) &
+    CAPTURE_PID=$!
+fi
 
 # Wait for engine to exit or timeout
 WAIT_START=$(date +%s)

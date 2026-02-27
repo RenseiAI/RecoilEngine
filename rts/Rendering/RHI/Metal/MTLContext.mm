@@ -103,11 +103,12 @@ void MTLContext::EndFrame() {
 	@autoreleasepool {
 		// Log per-frame draw totals
 		static int frameCount = 0;
-		if (frameCount++ < 20 || frameCount % 300 == 0) {
+		if (frameCount < 5 || frameCount % 60 == 0) {
 			LOG("[MTL-Frame] frame=%d draws=%u drawIdx=%u drawInst=%u drawIdxInst=%u",
-			    frameCount - 1, frameDrawCount, frameDrawIdxCount,
+			    frameCount, frameDrawCount, frameDrawIdxCount,
 			    frameDrawInstCount, frameDrawIdxInstCount);
 		}
+		frameCount++;
 		frameDrawCount = 0;
 		frameDrawIdxCount = 0;
 		frameDrawInstCount = 0;
@@ -640,12 +641,12 @@ void MTLContext::BindCurrentResources() {
 void MTLContext::Draw(PrimitiveType primitive, uint32_t vertexCount, uint32_t firstVertex) {
 	frameDrawCount++;
 	static int drawLogCount = 0;
-	if (drawLogCount++ < 10 || drawLogCount % 5000 == 0) {
-		LOG("[MTL-Draw] verts=%u pipeline=%p shader=%s encoder=%p",
-		    vertexCount, (void*)currentPipeline,
-		    currentShader ? currentShader->GetName().c_str() : "null",
-		    (void*)renderEncoder);
+	if (drawLogCount < 10 || drawLogCount % 5000 == 0) {
+		LOG("[MTL-Draw] verts=%u shader=%s",
+		    vertexCount,
+		    currentShader ? currentShader->GetName().c_str() : "null");
 	}
+	drawLogCount++;
 	EnsureRenderEncoder();
 	if (!renderEncoder) return;
 
@@ -666,13 +667,12 @@ void MTLContext::Draw(PrimitiveType primitive, uint32_t vertexCount, uint32_t fi
 void MTLContext::DrawIndexed(PrimitiveType primitive, uint32_t indexCount, uint32_t firstIndex, int32_t vertexOffset) {
 	frameDrawIdxCount++;
 	static int drawIdxLogCount = 0;
-	if (drawIdxLogCount++ < 10 || drawIdxLogCount % 5000 == 0) {
-		LOG("[MTL-DrawIdx] indices=%u pipeline=%p shader=%s encoder=%p idxBuf=%p",
-		    indexCount, (void*)currentPipeline,
-		    currentShader ? currentShader->GetName().c_str() : "null",
-		    (void*)renderEncoder,
-		    currentIndexBuffer ? (void*)currentIndexBuffer->GetMTLBuffer() : nullptr);
+	if (drawIdxLogCount < 10 || drawIdxLogCount % 5000 == 0) {
+		LOG("[MTL-DrawIdx] indices=%u shader=%s",
+		    indexCount,
+		    currentShader ? currentShader->GetName().c_str() : "null");
 	}
+	drawIdxLogCount++;
 	EnsureRenderEncoder();
 	if (!renderEncoder || !currentIndexBuffer) return;
 
@@ -707,12 +707,12 @@ void MTLContext::DrawIndexed(PrimitiveType primitive, uint32_t indexCount, uint3
 void MTLContext::DrawInstanced(PrimitiveType primitive, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) {
 	frameDrawInstCount++;
 	static int drawInstLogCount = 0;
-	if (drawInstLogCount++ < 20 || drawInstLogCount % 5000 == 0) {
-		LOG("[MTL-DrawInst] verts=%u instances=%u shader=%s encoder=%p",
+	if (drawInstLogCount < 10 || drawInstLogCount % 5000 == 0) {
+		LOG("[MTL-DrawInst] verts=%u instances=%u shader=%s",
 		    vertexCount, instanceCount,
-		    currentShader ? currentShader->GetName().c_str() : "null",
-		    (void*)renderEncoder);
+		    currentShader ? currentShader->GetName().c_str() : "null");
 	}
+	drawInstLogCount++;
 	EnsureRenderEncoder();
 	if (!renderEncoder) return;
 
@@ -734,7 +734,7 @@ void MTLContext::DrawInstanced(PrimitiveType primitive, uint32_t vertexCount, ui
 void MTLContext::DrawIndexedInstanced(PrimitiveType primitive, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) {
 	frameDrawIdxInstCount++;
 	static int drawIdxInstLogCount = 0;
-	if (drawIdxInstLogCount++ < 20 || drawIdxInstLogCount % 5000 == 0) {
+	if (drawIdxInstLogCount++ < 10 || drawIdxInstLogCount % 5000 == 0) {
 		LOG("[MTL-DrawIdxInst] indices=%u instances=%u shader=%s encoder=%p",
 		    indexCount, instanceCount,
 		    currentShader ? currentShader->GetName().c_str() : "null",
@@ -806,11 +806,14 @@ void MTLContext::DrawIndexedIndirect(PrimitiveType primitive, IRHIBuffer* buffer
 }
 
 void MTLContext::SetViewport(const Viewport& viewport) {
-	static int vpLogCount = 0;
-	if (vpLogCount++ < 5 || vpLogCount % 5000 == 0) {
-		LOG("[MTLContext] SetViewport: x=%.0f y=%.0f w=%.0f h=%.0f znear=%.3f zfar=%.3f encoder=%p",
+	// Log when viewport dimensions change (to track distinct viewports, not every call)
+	static float lastW = 0, lastH = 0;
+	if (viewport.width != lastW || viewport.height != lastH) {
+		LOG("[MTLContext] SetViewport: x=%.0f y=%.0f w=%.0f h=%.0f znear=%.3f zfar=%.3f",
 		    viewport.x, viewport.y, viewport.width, viewport.height,
-		    viewport.minDepth, viewport.maxDepth, (void*)renderEncoder);
+		    viewport.minDepth, viewport.maxDepth);
+		lastW = viewport.width;
+		lastH = viewport.height;
 	}
 	currentViewport = viewport;
 
