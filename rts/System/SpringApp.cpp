@@ -984,7 +984,16 @@ int SpringApp::Run()
 	// cleanup signal handlers, etc
 	CrashHandler::Remove();
 
-	return spring::exitCode;
+	// Flush all output before exit. Kill() has already released all engine
+	// resources (threads joined, GPU destroyed, files closed). Returning
+	// normally would run C++ static destructors whose ordering across TUs
+	// is undefined — on macOS/libc++ this causes a std::mutex to be locked
+	// after another static's mutex was already destroyed (EINVAL from
+	// pthread_mutex_lock). Use _Exit() to skip static destructors entirely.
+	LOG_CLEANUP();
+	std::fflush(stdout);
+	std::fflush(stderr);
+	std::_Exit(spring::exitCode);
 }
 
 
