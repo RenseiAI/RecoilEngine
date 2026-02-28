@@ -1,11 +1,7 @@
 cmake_minimum_required(VERSION 3.27)
 # CMP0060 and CMP0065 removed: CMake 4.x no longer supports OLD behavior.
 # CMP0060 (OLD): was used to avoid link errors on Linux -- monitor for regressions.
-# CMP0065 (OLD): was used for -rdynamic needed by BARb -- added explicitly below.
-if(NOT APPLE)
-  string(APPEND CMAKE_EXE_LINKER_FLAGS " -rdynamic")
-endif()
-
+# CMP0065 (OLD): was used for -rdynamic needed by BARb -- added explicitly after project().
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -17,6 +13,13 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_MODULES_SPRING}")
 set(CMAKE_USER_MAKE_RULES_OVERRIDE "${CMAKE_MODULES_SPRING}/OverrideFlags.cmake")
 
 project(Spring)
+
+# -rdynamic needed by BARb AI module for dynamic symbol export.
+# Must be after project() so CMAKE_SYSTEM_NAME is set by the toolchain file.
+# Only applies to Linux — MinGW rejects this flag.
+if(NOT APPLE AND NOT WIN32)
+  string(APPEND CMAKE_EXE_LINKER_FLAGS " -rdynamic")
+endif()
 
 # Force Unicode WinAPI
 if (WIN32)
@@ -430,8 +433,6 @@ option(REPORT_LUANAN "report nans/infinities in lua" TRUE)
 if(REPORT_LUANAN)
         add_definitions(-DREPORT_LUANAN)
 endif()
-
-
 
 ### streflop
 option(ENABLE_STREFLOP "build Spring with streflop support (REQUIRED FOR MULTIPLAYER)" TRUE)

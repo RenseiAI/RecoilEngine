@@ -42,6 +42,27 @@
 			#undef max
 		#endif
 
+		// MinGW wingdi.h defines PI/TWOPI/HALFPI macros that conflict with
+		// math:: namespace constants. Must undef all three.
+		#ifdef PI
+			#undef PI
+		#endif
+		#ifdef TWOPI
+			#undef TWOPI
+		#endif
+		#ifdef HALFPI
+			#undef HALFPI
+		#endif
+
+		// MinGW dlgs.h defines rad1..rad16 as dialog control IDs (0x420..0x42f)
+		// which conflict with local variable names in rendering code.
+		#ifdef rad1
+			#undef rad1
+		#endif
+		#ifdef rad2
+			#undef rad2
+		#endif
+
 #endif // _WIN32
 
 #endif // WINDOWS_H_INCLUDED

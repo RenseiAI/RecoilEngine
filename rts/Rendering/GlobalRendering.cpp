@@ -457,7 +457,11 @@ SDL_Window* CGlobalRendering::CreateSDLWindow(const char* title) const
 
 	const bool useMetal = (RHI::GetDefaultBackend() == RHI::Backend::Metal);
 	uint32_t sdlFlags  = useMetal
+#ifdef SDL_WINDOW_METAL
 		? (SDL_WINDOW_METAL | SDL_WINDOW_RESIZABLE)
+#else
+		? (SDL_WINDOW_RESIZABLE) // Metal not available on this platform
+#endif
 		: (SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
 	         sdlFlags |= (borderless_ ? SDL_WINDOW_FULLSCREEN_DESKTOP : SDL_WINDOW_FULLSCREEN) * fullScreen_;
 	         sdlFlags |= (SDL_WINDOW_BORDERLESS * borderless_);
