@@ -1,4 +1,5 @@
 #!/bin/bash
 declare -A image_version
-image_version[amd64-linux]=sha256:981590550802c024306fb8a93ff536bdeb961ef5d68207178471627d6bfaaa63
-image_version[amd64-windows]=sha256:408bdfa82ed3e31fdb96d8f6d386dc3665486607d1b3c993e0b91106a04be87e
+image_version[amd64-linux]=sha256:f10dd2c9a8643f9e8e3d6367cd9220e1d3dbfcb805ff2352027f9b63fa66733e
+image_version[arm64-linux]=sha256:16a90686d1c7e280d470ac1dd730848c7be4bbee90057d3198f1ff1e487d8b01
+image_version[amd64-windows]=sha256:424c576fd4cb93aff8c8103ee3bb66ea1fb7c977589bcd29ac2215d4a3a8fd71
