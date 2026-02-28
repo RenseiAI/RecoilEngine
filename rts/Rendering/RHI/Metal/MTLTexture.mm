@@ -396,6 +396,16 @@ void MTLTexture::SetCompareMode(bool enabled, CompareFunc func) {
 }
 
 void MTLTexture::SetSwizzle(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+	// GL_ALPHA compatibility: single-channel Metal textures store data in Red,
+	// but GL_ALPHA stored it in Alpha. Remap Alpha→Red so callers using
+	// SetSwizzle(A,A,A,A) on R8 get (data,data,data,data) instead of (1,1,1,1).
+	bool isSingleChannel = (texFormat == TextureFormat::R8  || texFormat == TextureFormat::R16F ||
+	                         texFormat == TextureFormat::R32F || texFormat == TextureFormat::R32I);
+	if (isSingleChannel) {
+		auto remap = [](uint8_t c) -> uint8_t { return (c == 3) ? 0 : c; };
+		r = remap(r); g = remap(g); b = remap(b); a = remap(a);
+	}
+
 	// Early-out if unchanged
 	if (swizzleR == r && swizzleG == g && swizzleB == b && swizzleA == a)
 		return;
