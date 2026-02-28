@@ -106,6 +106,7 @@ public:
 #ifdef __OBJC__
 	// --- Metal-specific accessors ---
 	id<MTLTexture> GetMTLTexture() const { return mtlTexture; }
+	id<MTLTexture> GetMTLTextureForSampling() const;
 	id<MTLSamplerState> GetSamplerState();
 
 	// --- Format conversion helpers ---
@@ -115,6 +116,7 @@ public:
 	static MTLSamplerMipFilter ToMTLMipFilter(TextureFilter filter);
 	static MTLSamplerAddressMode ToMTLAddressMode(TextureWrap wrap);
 	static MTLCompareFunction ToMTLCompareFunction(CompareFunc func);
+	static MTLTextureSwizzle ToMTLSwizzle(uint8_t component);
 #endif
 
 private:
@@ -123,9 +125,11 @@ private:
 #ifdef __OBJC__
 	id<MTLTexture>      mtlTexture    = nil;
 	id<MTLSamplerState> samplerState  = nil;
+	id<MTLTexture>      swizzledView  = nil;
 #else
 	void*               mtlTexture    = nullptr;
 	void*               samplerState  = nullptr;
+	void*               swizzledView  = nullptr;
 #endif
 
 	MTLDevice*    device;
@@ -150,6 +154,12 @@ private:
 	float         lodMinClamp  = 0.0f;
 	float         lodMaxClamp  = FLT_MAX;
 	bool          samplerDirty = true;
+
+	// Swizzle state (0=Red, 1=Green, 2=Blue, 3=Alpha, 4=Zero, 5=One)
+	uint8_t swizzleR = 0;
+	uint8_t swizzleG = 1;
+	uint8_t swizzleB = 2;
+	uint8_t swizzleA = 3;
 };
 
 } // namespace RHI

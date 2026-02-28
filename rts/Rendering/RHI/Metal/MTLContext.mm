@@ -648,7 +648,7 @@ void MTLContext::BindCurrentResources() {
 	for (uint32_t i = 0; i < MaxTextureUnits; i++) {
 		if (!boundTextures[i]) continue;
 
-		id<MTLTexture> tex = boundTextures[i]->GetMTLTexture();
+		id<MTLTexture> tex = boundTextures[i]->GetMTLTextureForSampling();
 		if (!tex) continue;
 
 		// Determine Metal texture index per stage.

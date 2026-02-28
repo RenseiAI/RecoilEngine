@@ -193,7 +193,7 @@ MTLTexture::MTLTexture(MTLDevice* device, TextureType type, TextureFormat format
 	                       format == TextureFormat::Depth32FStencil8);
 
 	desc.storageMode = MTLStorageModeShared;
-	desc.usage = MTLTextureUsageShaderRead;
+	desc.usage = MTLTextureUsageShaderRead | MTLTextureUsagePixelFormatView;
 
 	if (isDepthStencil) {
 		desc.storageMode = MTLStorageModePrivate;
@@ -218,6 +218,7 @@ MTLTexture::MTLTexture(MTLDevice* device, TextureType type, TextureFormat format
 }
 
 MTLTexture::~MTLTexture() {
+	swizzledView = nil;
 	samplerState = nil;
 	mtlTexture = nil;
 }
@@ -395,11 +396,41 @@ void MTLTexture::SetCompareMode(bool enabled, CompareFunc func) {
 }
 
 void MTLTexture::SetSwizzle(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
-	// Metal doesn't support runtime swizzle like OpenGL.
-	// Swizzle would need to be done in the shader or by creating a texture view.
-	// For now, log a warning if non-identity swizzle is requested.
-	if (r != 0 || g != 1 || b != 2 || a != 3) {
-		LOG_L(L_WARNING, "[MTLTexture] Texture swizzle not supported in Metal backend");
+	// Early-out if unchanged
+	if (swizzleR == r && swizzleG == g && swizzleB == b && swizzleA == a)
+		return;
+
+	swizzleR = r;
+	swizzleG = g;
+	swizzleB = b;
+	swizzleA = a;
+
+	// Release old swizzled view
+	swizzledView = nil;
+
+	// Identity swizzle — no view needed
+	if (r == 0 && g == 1 && b == 2 && a == 3)
+		return;
+
+	if (!mtlTexture)
+		return;
+
+	// Create a texture view with the requested swizzle
+	MTLTextureSwizzleChannels channels = {
+		ToMTLSwizzle(r),
+		ToMTLSwizzle(g),
+		ToMTLSwizzle(b),
+		ToMTLSwizzle(a)
+	};
+
+	swizzledView = [mtlTexture newTextureViewWithPixelFormat:mtlTexture.pixelFormat
+	                                            textureType:mtlTexture.textureType
+	                                                 levels:NSMakeRange(0, mtlTexture.mipmapLevelCount)
+	                                                 slices:NSMakeRange(0, mtlTexture.arrayLength)
+	                                                swizzle:channels];
+
+	if (!swizzledView) {
+		LOG_L(L_WARNING, "[MTLTexture] Failed to create swizzled texture view (swizzle %d,%d,%d,%d)", r, g, b, a);
 	}
 }
 
@@ -488,9 +519,26 @@ id<MTLSamplerState> MTLTexture::GetSamplerState() {
 	return samplerState;
 }
 
+id<MTLTexture> MTLTexture::GetMTLTextureForSampling() const {
+	return swizzledView ? swizzledView : mtlTexture;
+}
+
+MTLTextureSwizzle MTLTexture::ToMTLSwizzle(uint8_t component) {
+	switch (component) {
+		case 0: return MTLTextureSwizzleRed;
+		case 1: return MTLTextureSwizzleGreen;
+		case 2: return MTLTextureSwizzleBlue;
+		case 3: return MTLTextureSwizzleAlpha;
+		case 4: return MTLTextureSwizzleZero;
+		case 5: return MTLTextureSwizzleOne;
+	}
+	return MTLTextureSwizzleRed;
+}
+
 uint32_t MTLTexture::DisownNativeHandle() {
-	mtlTexture = nil;  // Release the Metal texture reference
-	return 0;          // Metal doesn't use integer handles
+	swizzledView = nil;  // View references the old texture
+	mtlTexture = nil;    // Release the Metal texture reference
+	return 0;            // Metal doesn't use integer handles
 }
 
 } // namespace RHI
