@@ -22,6 +22,8 @@ local taken = {}
 local drawFrames = 0
 local startTimer = nil
 local sentForceStart = false
+local sentCheat = false
+local gaveUnits = false
 
 function widget:Initialize()
     startTimer = Spring.GetTimer()
@@ -41,6 +43,19 @@ function widget:Update(dt)
 
     local gf = Spring.GetGameFrame()
     if gf < 0 then return end
+
+    -- Enable cheats first, then spawn units after a delay (cheat is async)
+    if not sentCheat and gf >= 3 then
+        Spring.Echo("[METAL-TEST] Enabling cheats at gf=" .. gf)
+        Spring.SendCommands("cheat")
+        sentCheat = true
+    end
+    if not gaveUnits and gf >= 15 then
+        Spring.Echo("[METAL-TEST] Spawning extra units at gf=" .. gf)
+        Spring.SendCommands("give armcom")
+        Spring.SendCommands("give 5 armpw")
+        gaveUnits = true
+    end
 
     drawFrames = drawFrames + 1
 
