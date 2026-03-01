@@ -189,6 +189,9 @@ build-*
 # Metal debug test runs (large logs/screenshots, local only)
 /tools/metal-debug/runs
 
+# Sync test artifacts (build output, test binaries, run logs, local scripts)
+/tools/sync-test
+
 # dSYM debug symbol bundles
 *.dSYM
 
