@@ -29,15 +29,15 @@ function widget:Initialize()
 end
 
 function widget:Update(dt)
-    -- Optionally force-start the game (disabled for menu screenshots)
-    -- if not sentForceStart then
-    --     local elapsed = Spring.DiffTimers(Spring.GetTimer(), startTimer)
-    --     if elapsed > 2.0 then
-    --         Spring.Echo("[METAL-TEST] Sending forcestart (elapsed=" .. string.format("%.1f", elapsed) .. "s)")
-    --         Spring.SendCommands("forcestart")
-    --         sentForceStart = true
-    --     end
-    -- end
+    -- Force-start the game after a short delay so simulation begins
+    if not sentForceStart then
+        local elapsed = Spring.DiffTimers(Spring.GetTimer(), startTimer)
+        if elapsed > 2.0 then
+            Spring.Echo("[METAL-TEST] Sending forcestart (elapsed=" .. string.format("%.1f", elapsed) .. "s)")
+            Spring.SendCommands("forcestart")
+            sentForceStart = true
+        end
+    end
 
     local gf = Spring.GetGameFrame()
     if gf < 0 then return end

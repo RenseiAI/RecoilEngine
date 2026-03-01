@@ -7,7 +7,26 @@
 
 #import <Metal/Metal.h>
 
+#include <signal.h>
+#include <setjmp.h>
+
 #include "System/Log/ILog.h"
+
+// Metal's release-mode validation may call abort() for certain vertex
+// descriptor / shader combinations that it considers programmer errors.
+// Since abort() sends SIGABRT which is not catchable by @try/@catch,
+// we use sigsetjmp/siglongjmp to recover from the abort.
+static thread_local sigjmp_buf sPSOJumpBuf;
+static thread_local bool sPSOGuardActive = false;
+
+static void MTLPSOAbortHandler(int sig) {
+	if (sPSOGuardActive) {
+		siglongjmp(sPSOJumpBuf, 1);
+	}
+	// If the guard isn't active, re-raise to get normal crash handling
+	signal(SIGABRT, SIG_DFL);
+	raise(SIGABRT);
+}
 
 namespace RHI {
 
@@ -349,20 +368,80 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
 	// Depth format
 	pipelineDesc.depthAttachmentPixelFormat = depthFormat;
 
-	// Compile the pipeline — wrap in @try/@catch for ObjC exceptions
+	// Pre-validate: Metal may abort() (SIGABRT, not catchable by @try/@catch)
+	// when the vertex descriptor + shader combination is invalid.
+	if (vertexLayout && vertexLayout->attributeCount > 0 && vtxFn) {
+		NSArray<MTLAttribute*>* stageInputs = vtxFn.stageInputAttributes;
+
+		if (!stageInputs || stageInputs.count == 0) {
+			// Shader doesn't use [[stage_in]] — omit vertex descriptor
+			pipelineDesc.vertexDescriptor = nil;
+		} else {
+			// Check that all active stage inputs have matching vertex descriptor entries
+			NSMutableSet<NSNumber*>* configuredLocs = [NSMutableSet set];
+			for (uint32_t i = 0; i < vertexLayout->attributeCount; ++i) {
+				[configuredLocs addObject:@(vertexLayout->attributes[i].location)];
+			}
+
+			for (MTLAttribute* attr in stageInputs) {
+				if (attr.isActive && ![configuredLocs containsObject:@((uint32_t)attr.attributeIndex)]) {
+					LOG_L(L_WARNING, "[MTLPipeline] Shader '%s' vtx func requires attr loc %lu "
+					      "not in layout (%u attrs) — skipping PSO",
+					      shader->GetName().c_str(), (unsigned long)attr.attributeIndex,
+					      vertexLayout->attributeCount);
+					pipelineCache[key] = nil;
+					return nil;
+				}
+			}
+		}
+	}
+
+	// Compile the pipeline.
+	// Metal may abort() for certain shader/descriptor combos. We protect
+	// against this with a SIGABRT handler + sigsetjmp/siglongjmp, plus
+	// @try/@catch for ObjC exceptions.
 	NSError* error = nil;
 	id<MTLRenderPipelineState> pipelineState = nil;
 
-	@try {
-		pipelineState = [mtlDevice newRenderPipelineStateWithDescriptor:pipelineDesc
-		                                                          error:&error];
-	} @catch (NSException* exception) {
-		LOG_L(L_ERROR, "[MTLPipeline] Exception creating PSO for %s: %s — %s",
+	// Install SIGABRT guard
+	struct sigaction oldAction;
+	struct sigaction newAction;
+	memset(&newAction, 0, sizeof(newAction));
+	newAction.sa_handler = MTLPSOAbortHandler;
+	sigemptyset(&newAction.sa_mask);
+	newAction.sa_flags = 0;
+	sigaction(SIGABRT, &newAction, &oldAction);
+	sPSOGuardActive = true;
+
+	if (sigsetjmp(sPSOJumpBuf, 1) == 0) {
+		@try {
+			pipelineState = [mtlDevice newRenderPipelineStateWithDescriptor:pipelineDesc
+			                                                          error:&error];
+		} @catch (NSException* exception) {
+			LOG_L(L_ERROR, "[MTLPipeline] Exception creating PSO for %s: %s — %s",
+			      shader->GetName().c_str(),
+			      [[exception name] UTF8String],
+			      [[exception reason] UTF8String]);
+			pipelineState = nil;
+		}
+	} else {
+		// Recovered from SIGABRT — Metal aborted during PSO creation
+		LOG_L(L_ERROR, "[MTLPipeline] Metal aborted during PSO creation for '%s' "
+		      "(vtxLayout=%u stride=%u) — recovered via signal handler",
 		      shader->GetName().c_str(),
-		      [[exception name] UTF8String],
-		      [[exception reason] UTF8String]);
+		      vertexLayout ? vertexLayout->attributeCount : 0,
+		      vertexLayout ? vertexLayout->stride : 0);
+		pipelineState = nil;
+		// Cache the failure to prevent repeated aborts for the same combo
+		sPSOGuardActive = false;
+		sigaction(SIGABRT, &oldAction, nullptr);
+		pipelineCache[key] = nil;
 		return nil;
 	}
+
+	// Restore original signal handler
+	sPSOGuardActive = false;
+	sigaction(SIGABRT, &oldAction, nullptr);
 
 	if (!pipelineState) {
 		LOG_L(L_ERROR, "[MTLPipeline] Failed to create PSO for %s: %s",
