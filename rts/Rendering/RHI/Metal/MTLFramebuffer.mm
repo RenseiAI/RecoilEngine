@@ -163,6 +163,10 @@ bool MTLFramebuffer::IsComplete() const {
 void MTLFramebuffer::Bind() {
 	// In Metal, framebuffers are not bound globally.
 	// This is a no-op; actual binding happens via BeginRenderPass in the context.
+	// Note: Making this start a render pass breaks RmlUi compositing because
+	// the RmlUi layer system expects to draw directly to the screen when its
+	// FBOs are "bound" — the compositing step then overwrites the screen
+	// with an opaque dark layer from the FBO content (mostly transparent black).
 }
 
 void MTLFramebuffer::Unbind() {

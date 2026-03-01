@@ -110,6 +110,7 @@ bool MTLDevice::SetupMetalLayer(SDL_Window* window) {
 	// Configure the layer
 	metalLayer.device = mtlDevice;
 	metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+	metalLayer.opaque = YES;  // Don't composite with window background — engine draws all pixels
 	metalLayer.framebufferOnly = NO;  // Allow drawable texture reads (blit source, ReadPixels)
 
 	// Enable display sync (vsync)

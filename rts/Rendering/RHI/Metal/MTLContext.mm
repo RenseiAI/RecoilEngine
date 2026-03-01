@@ -287,11 +287,29 @@ void MTLContext::BeginDefaultRenderPass(const RenderPassDesc& desc) {
 
 	// Attach depth
 	rpDesc.depthAttachment.texture = defaultDepthTexture;
-	if (pendingDepthClear) {
+	if (desc.hasDepth) {
+		// Caller specified explicit depth handling (e.g., resuming mid-frame
+		// after an FBO render pass — use Load to preserve existing depth)
+		switch (desc.depthAttachment.loadAction) {
+			case LoadAction::Load:
+				rpDesc.depthAttachment.loadAction = MTLLoadActionLoad;
+				break;
+			case LoadAction::Clear:
+				rpDesc.depthAttachment.loadAction = MTLLoadActionClear;
+				rpDesc.depthAttachment.clearDepth = desc.depthAttachment.clearDepth;
+				break;
+			case LoadAction::DontCare:
+				rpDesc.depthAttachment.loadAction = MTLLoadActionDontCare;
+				break;
+		}
+		pendingDepthClear = false;
+	} else if (pendingDepthClear) {
 		rpDesc.depthAttachment.loadAction = MTLLoadActionClear;
 		rpDesc.depthAttachment.clearDepth = clearDepthValue;
 		pendingDepthClear = false;
 	} else {
+		// Default: clear depth for first pass of frame.
+		// On Metal, stale depth from previous pass can cause geometry to fail.
 		rpDesc.depthAttachment.loadAction = MTLLoadActionClear;
 		rpDesc.depthAttachment.clearDepth = 1.0;
 	}
@@ -993,8 +1011,11 @@ void MTLContext::Clear(bool color, bool depth, bool stencil) {
 	// color, which respects the current scissor rect (matching GL behavior).
 	if (inRenderPass) {
 		// Mid-pass clear: draw a fullscreen quad instead of restarting pass.
-		// Color-only mid-pass clears are common (Lua widgets, minimap, etc.)
-		// and in GL they only clear within the current scissor rect.
+		// Restarting the render pass (EndRenderPass + BeginDefaultRenderPass)
+		// resets all pipeline/buffer/texture state on the new encoder, which
+		// can cause subsequent draws to fail if they don't fully re-bind state.
+		// DrawClearQuad respects the current scissor rect (matching GL behavior)
+		// and keeps the existing render pass alive.
 		bool needDepthRestart = depth && !color;
 		if (needDepthRestart) {
 			// Depth-only clear without color: must restart pass (rare case).
@@ -1002,7 +1023,7 @@ void MTLContext::Clear(bool color, bool depth, bool stencil) {
 			EndRenderPass();
 
 			RenderPassDesc clearDesc = currentPassDesc;
-			if (depth && clearDesc.hasDepth) {
+			if (clearDesc.hasDepth) {
 				clearDesc.depthAttachment.loadAction = LoadAction::Clear;
 				clearDesc.depthAttachment.clearDepth = clearDepthValue;
 			}

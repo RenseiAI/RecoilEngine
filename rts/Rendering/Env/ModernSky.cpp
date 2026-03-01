@@ -73,6 +73,7 @@ void CModernSky::Draw()
 		pipeDesc.blend.dstAlpha = RHI::BlendFactor::OneMinusSrcAlpha;
 		pipeDesc.depthStencil.depthTestEnabled = true;
 		pipeDesc.depthStencil.depthFunc = RHI::CompareFunc::LessEqual;
+		pipeDesc.rasterizer.cullMode = RHI::CullMode::None;  // Camera is inside the sky cube
 		auto pipeline = RHI::GetDevice()->CreatePipeline(pipeDesc);
 		RHI::GetDevice()->GetContext()->BindPipeline(pipeline.get());
 	}

@@ -99,6 +99,12 @@ bool DepthBufferCopy::IsValid(bool ms) const {
 
 void DepthBufferCopy::MakeDepthBufferCopy() const
 {
+	// Metal: depth buffer blit ends the current render pass (EndRenderPass)
+	// which causes a render pass restart with LoadAction::Load. Skip on Metal
+	// until FBO rendering is properly migrated to BeginRenderPass/EndRenderPass.
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return;
+
 	auto* ctx = RHI::GetDevice()->GetContext();
 
 	const std::array<int, 4> srcScreenRect = { globalRendering->viewPosX, globalRendering->viewPosY, globalRendering->viewPosX + globalRendering->viewSizeX, globalRendering->viewPosY + globalRendering->viewSizeY };

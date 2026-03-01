@@ -333,7 +333,18 @@ void CWorldDrawer::Draw() const
 	auto* ctx = device->GetContext();
 
 	const auto& sky = ISky::GetSky();
-	ctx->ClearColor(sky->fogColor.x, sky->fogColor.y, sky->fogColor.z, 0.0f);
+	// Metal: force viewport to screen dimensions at start of Draw.
+	// On Metal, FBO::Bind() is a no-op so IBL texture generation (shadows,
+	// cubemaps, grass far tex) sets non-screen viewports that persist on
+	// the default framebuffer. Restore the full screen viewport here.
+	ctx->SetViewport({
+		static_cast<float>(globalRendering->viewPosX),
+		static_cast<float>(globalRendering->viewPosY),
+		static_cast<float>(globalRendering->viewSizeX),
+		static_cast<float>(globalRendering->viewSizeY)
+	});
+
+	ctx->ClearColor(sky->fogColor.x, sky->fogColor.y, sky->fogColor.z, 1.0f);
 	ctx->Clear(true, true, true);
 
 	ctx->SetDepthWriteEnabled(true);

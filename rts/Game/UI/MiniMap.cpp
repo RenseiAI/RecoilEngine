@@ -130,6 +130,12 @@ CMiniMap::CMiniMap()
 	minimapRefreshRate = configHandler->GetInt("MiniMapRefreshRate");
 	renderToTexture = configHandler->GetBool("MiniMapRenderToTexture") && FBO::IsSupported();
 
+	// Metal: GL FBO class doesn't work (Bind() is no-op), so UpdateTextureCache()
+	// would render the minimap scene directly to the screen at a reduced viewport,
+	// producing a black rectangle in the upper-left. Use direct rendering path instead.
+	if (RHI::IsMetalBackend())
+		renderToTexture = false;
+
 	ConfigUpdate();
 
 	configHandler->NotifyOnChange(this, {"DualScreenMiniMapAspectRatio", "MiniMapCanFlip", "MiniMapDrawProjectiles", "MiniMapDrawPings", "MiniMapCursorScale", "MiniMapIcons", "MiniMapDrawCommands", "MiniMapButtonSize"});

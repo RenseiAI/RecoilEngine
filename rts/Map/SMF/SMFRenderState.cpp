@@ -296,7 +296,12 @@ void SMFRenderStateGLSL::Enable(const CSMFGroundDrawer* smfGroundDrawer, const D
 		currShader->SetUniform("clipPlane2", 0.0f, -1.0f, 0.0f, 5.0f);
 		break;
 	default:
-		break; // default (0,0,0,1) in shader — no clip
+		// SPIRV-Cross doesn't preserve GLSL uniform defaults.
+		// On Metal, unset uniforms are zero. The GLSL default for
+		// clipPlane2 is vec4(0,0,0,1) which gives clipDistance=1.0
+		// (always pass). We must set it explicitly.
+		currShader->SetUniform("clipPlane2", 0.0f, 0.0f, 0.0f, 1.0f);
+		break;
 	}
 
 	if (isAdv) {

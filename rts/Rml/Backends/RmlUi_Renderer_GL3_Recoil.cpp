@@ -724,8 +724,13 @@ void RenderInterface_GL3_Recoil::BeginFrame()
 	SetTransform(nullptr);
 
 	render_layers.BeginFrame(viewport_width, viewport_height);
-	render_layers.GetTopLayer().fbo->Bind();
-	rhiCtx->Clear(true, false, false);
+	if (!RHI::IsMetalBackend()) {
+		// On Metal, FBO Bind() is a no-op — layer FBOs are never actually bound.
+		// The Clear here would wipe the screen (destroying world rendering output).
+		// Skip the bind+clear so RmlUi draws directly to the screen.
+		render_layers.GetTopLayer().fbo->Bind();
+		rhiCtx->Clear(true, false, false);
+	}
 
 	UseProgram(ProgramId::None);
 	program_transform_dirty.set();
@@ -738,23 +743,28 @@ void RenderInterface_GL3_Recoil::EndFrame()
 
 	auto* rhiCtx = RHI::GetDevice()->GetContext();
 
-	const Gfx::FramebufferData& fb_active = render_layers.GetTopLayer();
-	const Gfx::FramebufferData& fb_postprocess = render_layers.GetPostprocessPrimary();
+	if (!RHI::IsMetalBackend()) {
+		// On Metal, FBO Bind() is a no-op so layer FBOs are empty.
+		// Blitting empty FBOs and drawing a fullscreen quad from them would
+		// overwrite the screen with black, destroying all rendered content.
+		const Gfx::FramebufferData& fb_active = render_layers.GetTopLayer();
+		const Gfx::FramebufferData& fb_postprocess = render_layers.GetPostprocessPrimary();
 
-	// Resolve MSAA to postprocess framebuffer.
-	rhiCtx->BlitFramebuffer(
-		fb_active.fbo.get(), fb_postprocess.fbo.get(),
-		0, 0, fb_active.width, fb_active.height,
-		0, 0, fb_postprocess.width, fb_postprocess.height,
-		true, false, false);
+		// Resolve MSAA to postprocess framebuffer.
+		rhiCtx->BlitFramebuffer(
+			fb_active.fbo.get(), fb_postprocess.fbo.get(),
+			0, 0, fb_active.width, fb_active.height,
+			0, 0, fb_postprocess.width, fb_postprocess.height,
+			true, false, false);
 
-	// Draw to backbuffer
-	rhiCtx->BindDefaultFramebuffer();
+		// Draw to backbuffer
+		rhiCtx->BindDefaultFramebuffer();
 
-	// Assuming we have an opaque background, we can just write to it with the premultiplied alpha blend mode and we'll get the correct result.
-	Gfx::BindTexture(fb_postprocess);
-	UseProgram(ProgramId::Passthrough);
-	DrawFullscreenQuad();
+		// Assuming we have an opaque background, we can just write to it with the premultiplied alpha blend mode and we'll get the correct result.
+		Gfx::BindTexture(fb_postprocess);
+		UseProgram(ProgramId::Passthrough);
+		DrawFullscreenQuad();
+	}
 
 	render_layers.EndFrame();
 
@@ -1035,6 +1045,13 @@ void RenderInterface_GL3_Recoil::RenderBlur(float sigma, const Gfx::FramebufferD
 											const Gfx::FramebufferData& temp,
 											const Rml::Rectanglei window_flipped)
 {
+	// Metal: IRHIFramebuffer::Bind() is a no-op, so the blur filter's FBO draws
+	// (downscale, gaussian passes) all land on the default framebuffer at reduced
+	// viewport (e.g. 400×300 for 800×600), painting a black rectangle on screen.
+	// Skip blur entirely on Metal until FBO render-pass routing is implemented.
+	if (RHI::GetDefaultBackend() == RHI::Backend::Metal)
+		return;
+
 	RMLUI_ASSERT(&source_destination != &temp && source_destination.width == temp.width &&
 				 source_destination.height == temp.height)
 	RMLUI_ASSERT(window_flipped.Valid())
@@ -1556,9 +1573,11 @@ Rml::LayerHandle RenderInterface_GL3_Recoil::PushLayer()
 {
 	const Rml::LayerHandle layer_handle = render_layers.PushLayer();
 
-	auto* rhiCtx = RHI::GetDevice()->GetContext();
-	render_layers.GetLayer(layer_handle).fbo->Bind();
-	rhiCtx->Clear(true, false, false);
+	if (!RHI::IsMetalBackend()) {
+		auto* rhiCtx = RHI::GetDevice()->GetContext();
+		render_layers.GetLayer(layer_handle).fbo->Bind();
+		rhiCtx->Clear(true, false, false);
+	}
 
 	return layer_handle;
 }
@@ -1568,6 +1587,12 @@ void RenderInterface_GL3_Recoil::CompositeLayers(Rml::LayerHandle source_handle,
 												 Rml::Span<const Rml::CompiledFilterHandle> filters)
 {
 	using Rml::BlendMode;
+
+	// Metal: FBO Bind() is a no-op, so layer FBOs are empty.
+	// Blitting and compositing empty layers would overwrite the screen with black.
+	// RmlUi draws directly to the screen on Metal, so compositing is not needed.
+	if (RHI::IsMetalBackend())
+		return;
 
 	auto tok = Gfx::CheckGLError("CompositeLayers");
 
@@ -1601,7 +1626,8 @@ void RenderInterface_GL3_Recoil::CompositeLayers(Rml::LayerHandle source_handle,
 void RenderInterface_GL3_Recoil::PopLayer()
 {
 	render_layers.PopLayer();
-	render_layers.GetTopLayer().fbo->Bind();
+	if (!RHI::IsMetalBackend())
+		render_layers.GetTopLayer().fbo->Bind();
 }
 
 Rml::TextureHandle RenderInterface_GL3_Recoil::SaveLayerAsTexture()

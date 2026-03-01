@@ -42,6 +42,8 @@
 #include "System/Misc/TracyDefs.h"
 
 CONFIG(bool, LogClientData).defaultValue(false);
+CONFIG(bool, LogSyncChecksums).defaultValue(false)
+	.description("Log per-frame sync checksums to infolog for desync comparison");
 
 #define LOG_SECTION_NET "Net"
 LOG_REGISTER_SECTION_GLOBAL(LOG_SECTION_NET)
@@ -624,8 +626,14 @@ void CGame::ClientReadNet()
 				clientNet->Send(CBaseNetProtocol::Get().SendSyncResponse(gu->myPlayerNum, gs->frameNum, CSyncChecker::GetChecksum()));
 
 				// buffer all checksums, so we can check sync later between demo & local
-				if (haveServerDemo)
-					localSyncChecksums[gs->frameNum] = CSyncChecker::GetChecksum();
+				if (haveServerDemo) {
+					const uint32_t chk = CSyncChecker::GetChecksum();
+					localSyncChecksums[gs->frameNum] = chk;
+
+					static const bool logSync = configHandler->GetBool("LogSyncChecksums");
+					if (logSync)
+						LOG("[SYNC-TRACE] frame=%d checksum=%08x", gs->frameNum, chk);
+				}
 
 				// reset checksum every 4096 frames =~ 2.5 minutes
 				if ((gs->frameNum & 4095) == 0)

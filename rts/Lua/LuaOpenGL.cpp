@@ -4618,25 +4618,21 @@ int LuaOpenGL::RenderToTexture(lua_State* L)
 	const LuaTextures& textures = CLuaHandle::GetActiveTextures(L);
 
 	if (RHI::IsMetalBackend()) {
-		const size_t texIdx = textures.GetIdx(texture);
-		const auto* tex = textures.GetInfo(texIdx);
-		if (tex == nullptr)
-			return 0;
-
-		auto* rhiFBO = textures.GetRHIFramebuffer(texIdx);
-		if (rhiFBO == nullptr)
-			return 0;
-
+		// Metal: FBO Bind() is a no-op, so Lua draws would go to the screen.
+		// Render pass breaks (BeginRenderPass/EndRenderPass) to redirect to the
+		// FBO destroy terrain depth on resume. Instead, clip all draws to a 1x1
+		// scissor rect so the Lua function executes (no crash) but draws are
+		// invisible. The widget's off-screen texture won't be updated, but this
+		// prevents both the black rectangle and terrain corruption.
 		auto* ctx = RHI::GetDevice()->GetContext();
 
-		rhiFBO->Bind();
-		ctx->SetViewport({0.0f, 0.0f,
-			static_cast<float>(tex->xsize), static_cast<float>(tex->ysize)});
+		ctx->SetScissorTestEnabled(true);
+		ctx->SetScissor({0, 0, 1, 1});
 
 		const int error = lua_pcall(L, lua_gettop(L) - 2, 0, 0);
 
-		rhiFBO->Unbind();
-		ctx->BindDefaultFramebuffer();
+		ctx->SetScissorTestEnabled(false);
+		globalRendering->LoadViewport();
 
 		if (error != 0) {
 			LOG_L(L_ERROR, "gl.RenderToTexture: error(%i) = %s",
