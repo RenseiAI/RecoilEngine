@@ -386,8 +386,17 @@ void CSMFReadMap::CreateGrassTex()
 
 	CBitmap grassShadingTexBM;
 
-	if (!grassShadingTexBM.Load(mapInfo->smf.grassShadingTexName))
+	if (!grassShadingTexBM.Load(mapInfo->smf.grassShadingTexName)) {
+		// No custom grass shading texture — default to minimap.
+		// On non-GL backends (Metal), GL texture ID sharing doesn't work,
+		// so load the minimap data to create a separate RHI texture.
+		if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL) {
+			CBitmap minimapBM;
+			if (minimapBM.Load(mapInfo->smf.minimapTexName))
+				SetMapTexFromBitmap(grassShadingTex, minimapBM);
+		}
 		return;
+	}
 
 	// override minimap
 	SetMapTexFromBitmap(grassShadingTex, grassShadingTexBM);

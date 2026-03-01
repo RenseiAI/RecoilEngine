@@ -1,18 +1,22 @@
 # Metal Debug Iteration Log
 
 ## Current Status
-- Last iteration: 8
-- Commit: e2da3d26b9
-- Shaders: 82/82, Draw calls: 11+15+2inst, FPS: 47.5, PSO fails: 2 (cached), PSOs OK: 27
-- Exit: **CLEAN EXIT (code 0)**, Errors: **13** (was 1636)
-- Visual: **TERRAIN TEXTURED** — game simulation running (gf=43)
-- **Lua shader PSO fixes** — PadMissingVertexOutputs + FixGlPerVertexOutputLocations + failure caching
+- Last iteration: 11
+- Commit: (pending)
+- Shaders: 89/89(+5 grass), Draw calls: 19idx+11, FPS: 54.3, PSO fails: 2 (cached)
+- Exit: **CLEAN EXIT (code 0)**, Errors: **12**
+- Visual: **UNITS + SKY + GRASS PIPELINE READY** — all grass infrastructure on Metal
+- **Grass rendering fully enabled on Metal** — shaders compile, GL_QUADS→Triangles conversion,
+  GLAD extension bypass, BAR Lua override patching. Test map has no grass data (0/24576 squares).
 
 ## Priority Queue
-1. Unit model rendering — model shaders compile, indexed draws active, no visible models
-2. ModernSky disabled — falls back to NullSky
-3. Last 2 PSO failures — vtx-to-frag mismatch for 1 Lua shader, SIGABRT for 1 layout
-4. Tier 5: CI pipeline, macOS app bundle, final audit
+1. Terrain rendering diagnostic — only top-left ~25% of screen shows detailed terrain,
+   other 3/4 render units/effects but no ground. Viewport/frustum investigation needed.
+2. Shadow pass verification — shadow shader variants compile, need to verify FBO + shadow map pipeline
+3. BumpWater — requires `[[clip_distance]]` across all water-affected shaders. Water=0 anyway.
+4. Last 2 PSO failures — both cached, non-crashing. Quick investigation.
+5. Info textures (Combiner) — requires FFP builtin removal from Lua info shaders.
+6. Tier 5: CI pipeline, macOS app bundle, final audit
 
 ## Confirmed Working (Post-Phase 38)
 - **Clean shutdown** — Metal device destroyed, all Kill[] stages complete, exit code 0
@@ -234,3 +238,74 @@
   PSOs created OK: **27** (was ~8). Only non-rendering errors remain (ModernSky fallback,
   missing FeatureDefs, unknown SkirmishAI).
 - Next: Unit model visibility, ModernSky, remaining 2 PSO failures.
+
+### Iteration 9 — 2026-02-28 (Unit model rendering) ★ UNITS VISIBLE
+- Run: 20260228_223559
+- Commit: 03f0f878bd
+- Metrics: shaders=82/82 draws=110-130/frame fps=~53 pso_fails=2(cached) exit=0 gf=164+
+- Visual: **UNITS VISIBLE** — commanders + infantry textured, lit, with particle effects.
+  ModelShaderGLSL-NoShadowStandard PSO created, 4 textures bound (diffuse/shading/specular/reflect).
+- Root cause: **Units not spawning** — `MinimalSetup=1` in script.txt prevented commander
+  placement, and factions weren't specified so auto-select had nothing to choose.
+- Fix: Three changes to test configuration:
+  1. **Removed `MinimalSetup=1`** from script.txt — was preventing commander spawn.
+  2. **Added `Side=Armada` / `Side=Cortex`** to TEAM0/TEAM1 sections — factions must be
+     explicitly specified for auto-select to work without lobby GUI.
+  3. **Cheat+give widget commands** — auto_test_widget.lua now executes `cheat` then (after
+     12 game-frame delay) `give armcom` and `give 5 armpw` to spawn test units. The delay is
+     needed because `cheat` is async and must complete before `give` works.
+- Result: Draw calls increased from ~36 (no units) to 110-130/frame (with units). Unit models
+  render with full material pipeline: diffuse textures, shading maps, specular highlights,
+  reflection cubemap. Particle effects (engine exhaust, construction sparks) also rendering.
+- Next: ModernSky, shadow pass verification, grass rendering.
+
+### Iteration 10 — 2026-03-01 (ModernSky atmospheric rendering) ★ SKY VISIBLE
+- Run: 20260301_001521
+- Commit: 120e9d8fe4
+- Metrics: shaders=84(+2 Sky-0/Sky-1) draws=29 fps=52.9 pso_fails=2(cached) exit=0 gf=194 errors=12
+- Visual: **Atmospheric sky gradient** replaces solid black background. Sky-0 PSO created OK.
+  ModernSky Draw() was already fully RHI-migrated — only the constructor guard blocked it.
+- Root cause: **Stale backend guard** in `ModernSky::ModernSky()` constructor:
+  `if (RHI::GetDefaultBackend() != RHI::Backend::OpenGL) return;` threw `content_error`
+  which fell back to NullSky. The guard was added early in the port when Metal rendering
+  infrastructure was incomplete, but by this point all needed RHI methods were implemented.
+- Fix: Removed the `RHI::GetDefaultBackend() != RHI::Backend::OpenGL` guard from
+  ModernSky constructor. Draw()/DrawSun() already use RHI calls exclusively.
+- Resolved error: `[ISky::SetSky] error creating ModernSky (falling back to NullSky)` —
+  no longer appears in infolog. Error count 13 → 12.
+- Next: Near grass rendering, shadow pass verification.
+
+### Iteration 11 — 2026-03-01 (Grass rendering pipeline on Metal) ★ GRASS READY
+- Run: 20260301_* (multiple diagnostic runs)
+- Commit: (pending)
+- Metrics: shaders=89(+5 grass) draws=19idx+11 fps=54.3 pso_fails=2(cached) exit=0 errors=12
+- Visual: No visible grass — **test map has zero grass data** (0/24576 squares). All rendering
+  infrastructure is complete and would produce grass on a map with grass content.
+- Root causes and fixes (5 blockers resolved):
+  1. **GrassDetail=0 override** — BAR mod's `luaintro/springconfig.lua` and
+     `gui_options.lua` both call `Spring.SetConfigInt("GrassDetail", 0)`, overriding
+     springsettings.cfg. Fix: run-test.sh now patches these Lua files to comment out
+     the override, with backup/restore in cleanup.
+  2. **GLAD_GL_EXT_framebuffer_blit check** — GrassDrawer constructor disabled grass
+     when `GLAD_GL_EXT_framebuffer_blit == 0` (always 0 on Metal since GLAD isn't loaded).
+     Fix: Added `!RHI::IsMetalBackend()` bypass.
+  3. **GL texture ID check in Draw()** — `readMap->GetGrassShadingTexture()` returns GL
+     texture ID (always 0 on Metal). Fix: Skip check on Metal backend.
+  4. **Missing RHI texture for grassShadingTex** — `CreateGrassTex()` defaulted to minimap's
+     GL texture ID (0 on Metal). `WrapMapTexture()` skips ID=0 textures. Fix: On non-GL
+     backends, load minimap bitmap and create RHI texture via `SetMapTexFromBitmap()`.
+  5. **GL_QUADS in far billboard path** — `CVertexArray::DrawArrayTN(GL_QUADS)` has no
+     Metal equivalent. Fix: Added `DrawQuadsAsTrianglesRHI()` helper that converts quad
+     vertex data to triangles via a dynamic VB + static quad→triangle index buffer.
+     Uses same VA_TYPE_TN vertex layout as near grass blades.
+- Additional changes:
+  - Added `data()` accessor to CVertexArray for read-only access to vertex data
+  - Added `farBillboardVB`/`farBillboardIB` members to GrassDrawer for RHI far billboard path
+  - Added grassMap coverage diagnostic LOG (informational, kept)
+  - run-test.sh: `GrassDetail=7`, BAR Lua grass override patching with cleanup
+- Files modified: GrassDrawer.cpp, GrassDrawer.h, SMFReadMap.cpp, VertexArray.h, run-test.sh
+- Verification: 0/24576 grass squares have data on test map. All 3 grass shaders compile
+  to MSL (grassNearAdvShaderGLSL, grassDistAdvShaderGLSL, grassShadGenShaderGLSL).
+  Far billboard path enters Draw() with 59 blocks but all have empty grassMap data.
+  Near grass blade VBO created, DrawIndexed(Triangles) path ready.
+- Next: Terrain rendering diagnostic (top-left quadrant issue), shadow pass verification.

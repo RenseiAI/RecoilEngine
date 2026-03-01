@@ -83,7 +83,7 @@ XResolutionWindowed = $RES_W
 YResolutionWindowed = $RES_H
 WindowPosX = 50
 WindowPosY = 50
-GrassDetail = 0
+GrassDetail = 7
 Water = 0
 SoftParticles = 0
 AllowDeferredMapRendering = 0
@@ -118,6 +118,21 @@ if [[ -f "$WIDGET_CONFIG" ]]; then
 ' "$WIDGET_CONFIG"
 fi
 
+# Patch BAR Lua scripts that force-disable grass (GrassDetail=0).
+# BAR's luaintro/springconfig.lua and gui_options.lua both set GrassDetail=0,
+# overriding springsettings.cfg via Spring.SetConfigInt during loading/gameplay.
+SPRINGCONFIG_LUA="$CONT_DIR/games/BYAR.sdd/luaintro/springconfig.lua"
+GUI_OPTIONS_LUA="$CONT_DIR/games/BYAR.sdd/luaui/Widgets/gui_options.lua"
+if [[ -f "$SPRINGCONFIG_LUA" ]]; then
+    cp "$SPRINGCONFIG_LUA" "${SPRINGCONFIG_LUA}.metal-bak"
+    sed -i '' 's/Spring.SetConfigInt("GrassDetail", 0)/-- Spring.SetConfigInt("GrassDetail", 0) -- patched by run-test.sh/' "$SPRINGCONFIG_LUA"
+fi
+if [[ -f "$GUI_OPTIONS_LUA" ]]; then
+    cp "$GUI_OPTIONS_LUA" "${GUI_OPTIONS_LUA}.metal-bak"
+    # Comment out both the condition check and the SetConfigInt for grass
+    sed -i '' '/disable grass/{n;s/if Spring.GetConfigInt("GrassDetail"/-- if Spring.GetConfigInt("GrassDetail"/;n;s/Spring.SetConfigInt("GrassDetail", 0)/-- Spring.SetConfigInt("GrassDetail", 0)/;n;s/end/-- end/;}' "$GUI_OPTIONS_LUA"
+fi
+
 # Remove old infolog and screenshots to start clean
 rm -f "$CONT_DIR/infolog.txt"
 rm -f "$CONT_DIR/screenshots/"screen*.png 2>/dev/null || true
@@ -131,6 +146,13 @@ cleanup() {
     # Remove widget entry from LuaUI config so it doesn't persist
     if [[ -f "$WIDGET_CONFIG" ]]; then
         sed -i '' '/Metal Debug Auto-Test/d' "$WIDGET_CONFIG"
+    fi
+    # Restore patched BAR Lua scripts
+    if [[ -f "${SPRINGCONFIG_LUA}.metal-bak" ]]; then
+        mv "${SPRINGCONFIG_LUA}.metal-bak" "$SPRINGCONFIG_LUA"
+    fi
+    if [[ -f "${GUI_OPTIONS_LUA}.metal-bak" ]]; then
+        mv "${GUI_OPTIONS_LUA}.metal-bak" "$GUI_OPTIONS_LUA"
     fi
 }
 trap cleanup EXIT

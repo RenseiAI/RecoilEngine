@@ -96,6 +96,7 @@ protected:
 	void DrawFarBillboards(const std::vector<GrassStruct*>& inviewGrass);
 	void DrawNearBillboards(const std::vector<InviewNearGrass>& inviewNearGrass);
 	void DrawBillboard(const int x, const int y, const float dist, VA_TYPE_TN* va_tn);
+	void DrawQuadsAsTrianglesRHI(const float* vertData, unsigned int numFloats);
 
 	void ResetPos(const int grassBlockX, const int grassBlockZ);
 
@@ -105,9 +106,14 @@ protected:
 	int blocksX;
 	int blocksY;
 
-	std::unique_ptr<RHI::IRHIBuffer> grassBladeVB;  // RHI vertex buffer
-	std::unique_ptr<RHI::IRHIBuffer> grassBladeIB;  // RHI index buffer
+	std::unique_ptr<RHI::IRHIBuffer> grassBladeVB;  // RHI vertex buffer (near blades)
+	std::unique_ptr<RHI::IRHIBuffer> grassBladeIB;  // RHI index buffer (near blades)
 	unsigned int grassBladeIndexCount = 0;
+
+	// Far billboard RHI buffers (quads→triangles conversion for Metal)
+	std::unique_ptr<RHI::IRHIBuffer> farBillboardVB;  // dynamic vertex buffer
+	std::unique_ptr<RHI::IRHIBuffer> farBillboardIB;  // static quad→tri index buffer
+	unsigned int farBillboardIBMaxQuads = 0;
 
 	std::unique_ptr<RHI::IRHITexture> grassBladeTex;
 	std::unique_ptr<RHI::IRHITexture> farTex;

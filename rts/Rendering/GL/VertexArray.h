@@ -46,6 +46,7 @@ public:
 	}
 
 	bool IsReady() const;
+	const float* data() const { return drawArray; }
 	void Initialize();
 	void CheckInitSize(const unsigned int vertexes, const unsigned int strips = 0);
 	void EnlargeArrays(const unsigned int vertexes, const unsigned int strips = 0, const unsigned int stripsize = VA_SIZE_0);

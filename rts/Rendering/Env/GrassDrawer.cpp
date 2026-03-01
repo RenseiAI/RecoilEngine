@@ -243,6 +243,7 @@ CGrassDrawer::CGrassDrawer()
 		MapBitmapInfo grassbm;
 		unsigned char* grassdata = readMap->GetInfoMap("grass", &grassbm);
 		if (grassdata == nullptr) {
+			LOG("[GrassDrawer] no grass info-map found for this map — grass disabled");
 			grassOff = true;
 			return;
 		}
@@ -258,17 +259,30 @@ CGrassDrawer::CGrassDrawer()
 		memcpy(grassMap.data(), grassdata, grassMap.size());
 		readMap->FreeInfoMap("grass", grassdata);
 
+		{
+			int nonZero = 0;
+			for (size_t k = 0; k < grassMap.size(); ++k)
+				if (grassMap[k]) nonZero++;
+			LOG("[GrassDrawer] grassMap: %d/%d squares have grass (%.1f%%)",
+				nonZero, (int)grassMap.size(), 100.0f * nonZero / grassMap.size());
+		}
+
 		// some ATI drivers crash with grass enabled, default to disabled
 		if ((detail == 0) || ((detail == 7) && globalRendering->haveAMD)) {
+			LOG("[GrassDrawer] grass disabled (detail=%d, haveAMD=%d)", detail, globalRendering->haveAMD);
 			grassOff = true;
 			return;
 		}
 
 		// needed to create the far tex (Metal has blit via RHI, skip GLAD check)
 		if (!RHI::IsMetalBackend() && !GLAD_GL_EXT_framebuffer_blit) {
+			LOG("[GrassDrawer] no framebuffer blit support — grass disabled");
 			grassOff = true;
 			return;
 		}
+
+		LOG("[GrassDrawer] grass info-map found (%dx%d), detail=%d — initializing",
+			grassbm.width, grassbm.height, detail);
 
 	}
 
@@ -382,8 +396,10 @@ void CGrassDrawer::LoadGrassShaders() {
 		grassShaders[i]->Disable();
 		grassShaders[i]->Validate();
 
-		if ((grassOff = !grassShaders[i]->IsValid()))
+		if ((grassOff = !grassShaders[i]->IsValid())) {
+			LOG("[GrassDrawer] shader '%s' failed validation — grass disabled", shaderNames[i].c_str());
 			break;
+		}
 	}
 
 	#undef sh
@@ -543,6 +559,70 @@ void CGrassDrawer::DrawBillboard(const int x, const int y, const float dist, VA_
 }
 
 
+void CGrassDrawer::DrawQuadsAsTrianglesRHI(const float* vertData, unsigned int numFloats)
+{
+	RECOIL_DETAILED_TRACY_ZONE;
+	auto* device = RHI::GetDevice();
+	if (!device)
+		return;
+
+	const unsigned int numVerts = numFloats / VA_SIZE_TN;
+	const unsigned int numQuads = numVerts / 4;
+	if (numQuads == 0)
+		return;
+
+	const size_t vertBytes = numVerts * sizeof(VA_TYPE_TN);
+	const unsigned int numIndices = numQuads * 6;
+
+	// Ensure index buffer is large enough (quad→triangle pattern: 0,1,2, 0,2,3, ...)
+	if (numQuads > farBillboardIBMaxQuads) {
+		const unsigned int newMax = numQuads + 256; // headroom
+		std::vector<unsigned int> indices(newMax * 6);
+		for (unsigned int q = 0; q < newMax; ++q) {
+			const unsigned int base = q * 4;
+			indices[q * 6 + 0] = base + 0;
+			indices[q * 6 + 1] = base + 1;
+			indices[q * 6 + 2] = base + 2;
+			indices[q * 6 + 3] = base + 0;
+			indices[q * 6 + 4] = base + 2;
+			indices[q * 6 + 5] = base + 3;
+		}
+		farBillboardIB = device->CreateBuffer(
+			RHI::BufferType::Index, RHI::BufferUsage::Static,
+			indices.size() * sizeof(unsigned int), indices.data());
+		farBillboardIBMaxQuads = newMax;
+	}
+
+	// Create or resize vertex buffer
+	if (!farBillboardVB || farBillboardVB->GetSize() < vertBytes) {
+		farBillboardVB = device->CreateBuffer(
+			RHI::BufferType::Vertex, RHI::BufferUsage::Stream,
+			vertBytes, vertData);
+	} else {
+		farBillboardVB->Upload(vertData, 0, vertBytes);
+	}
+
+	auto* ctx = device->GetContext();
+
+	farBillboardVB->Bind();
+	farBillboardIB->Bind();
+
+	const RHI::VertexAttribute attrs[] = {
+		{0, 0,                                              RHI::VertexFormat::Float3, 0},
+		{1, static_cast<uint32_t>(offsetof(VA_TYPE_TN, s)), RHI::VertexFormat::Float2, 0},
+		{2, static_cast<uint32_t>(offsetof(VA_TYPE_TN, n)), RHI::VertexFormat::Float3, 0},
+	};
+	const RHI::VertexLayout layout{attrs, 3, sizeof(VA_TYPE_TN)};
+	ctx->SetVertexLayout(layout);
+
+	ctx->DrawIndexed(RHI::PrimitiveType::Triangles, numIndices);
+
+	ctx->ClearVertexLayout();
+	farBillboardIB->Unbind();
+	farBillboardVB->Unbind();
+}
+
+
 void CGrassDrawer::DrawFarBillboards(const std::vector<GrassStruct*>& inviewFarGrass)
 {
 	RECOIL_DETAILED_TRACY_ZONE;
@@ -590,8 +670,13 @@ void CGrassDrawer::DrawFarBillboards(const std::vector<GrassStruct*>& inviewFarG
 	}
 
 	// render far grass blocks
+	const bool useRHI = RHI::IsMetalBackend();
 	for (GrassStruct* g: inviewFarGrass) {
-		g->va.DrawArrayTN(GL_QUADS);
+		if (useRHI) {
+			DrawQuadsAsTrianglesRHI(g->va.data(), g->va.drawIndex());
+		} else {
+			g->va.DrawArrayTN(GL_QUADS);
+		}
 	}
 }
 
@@ -608,7 +693,11 @@ void CGrassDrawer::DrawNearBillboards(const std::vector<InviewNearGrass>& inview
 		});
 	}
 
-	farnearVA.DrawArrayTN(GL_QUADS);
+	if (RHI::IsMetalBackend()) {
+		DrawQuadsAsTrianglesRHI(farnearVA.data(), farnearVA.drawIndex());
+	} else {
+		farnearVA.DrawArrayTN(GL_QUADS);
+	}
 }
 
 
@@ -664,7 +753,10 @@ void CGrassDrawer::Update()
 void CGrassDrawer::Draw()
 {
 	RECOIL_DETAILED_TRACY_ZONE;
-	if (grassOff || !readMap->GetGrassShadingTexture())
+	if (grassOff)
+		return;
+	// GL path: check GL texture ID; Metal: RHI texture is checked at bind time
+	if (!RHI::IsMetalBackend() && !readMap->GetGrassShadingTexture())
 		return;
 
 	if (!blockDrawer.inviewGrass.empty()) {
@@ -676,8 +768,7 @@ void CGrassDrawer::Draw()
 	// ATI crashes w/o an error when shadows are enabled!?
     const bool shadows = (shadowHandler.ShadowsLoaded() && globalRendering->amdHacks);
 
-	// Far billboard path uses legacy CVertexArray::DrawArrayTN(GL_QUADS) — skip on Metal
-	if (!shadows && !RHI::IsMetalBackend() && (!blockDrawer.inviewFarGrass.empty() || !blockDrawer.inviewNearGrass.empty())) {
+	if (!shadows && (!blockDrawer.inviewFarGrass.empty() || !blockDrawer.inviewNearGrass.empty())) {
 		SetupGlStateFar();
 			DrawFarBillboards(blockDrawer.inviewFarGrass);
 			DrawNearBillboards(blockDrawer.inviewNearGrass);
