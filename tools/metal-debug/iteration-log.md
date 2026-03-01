@@ -1,35 +1,35 @@
 # Metal Debug Iteration Log
 
 ## Current Status
-- Last iteration: 11
-- Commit: (pending)
-- Shaders: 89/89(+5 grass), Draw calls: 19idx+11, FPS: 54.3, PSO fails: 2 (cached)
+- Last iteration: 12
+- Commit: 1ad1171218
+- Shaders: 87, Draw calls: 19idx+11, FPS: 54.6, PSO fails: 2 (cached)
 - Exit: **CLEAN EXIT (code 0)**, Errors: **12**
-- Visual: **UNITS + SKY + GRASS PIPELINE READY** — all grass infrastructure on Metal
-- **Grass rendering fully enabled on Metal** — shaders compile, GL_QUADS→Triangles conversion,
-  GLAD extension bypass, BAR Lua override patching. Test map has no grass data (0/24576 squares).
+- Visual: **FULL-SCREEN TERRAIN + UNITS + SKY** — no black rectangle, no blinking
+- **Terrain covers entire 800x600** — previously only top-left ~25% showed ground.
+  Root cause was Metal FBO Bind() no-op leaking Lua/MiniMap/RmlUi draws to screen.
 
 ## Priority Queue
-1. Terrain rendering diagnostic — only top-left ~25% of screen shows detailed terrain,
-   other 3/4 render units/effects but no ground. Viewport/frustum investigation needed.
+1. Widget off-screen textures — `gl.RenderToTexture()` stale on Metal (scissor-clipped workaround)
 2. Shadow pass verification — shadow shader variants compile, need to verify FBO + shadow map pipeline
 3. BumpWater — requires `[[clip_distance]]` across all water-affected shaders. Water=0 anyway.
 4. Last 2 PSO failures — both cached, non-crashing. Quick investigation.
 5. Info textures (Combiner) — requires FFP builtin removal from Lua info shaders.
 6. Tier 5: CI pipeline, macOS app bundle, final audit
 
-## Confirmed Working (Post-Phase 38)
+## Confirmed Working (Post-Iteration 12)
+- **Full-screen terrain** — terrain covers entire 800x600, no black rectangle or blinking
+- **Units + particle effects** — commanders, infantry, battle smoke, construction sparks
+- **Atmospheric sky** — ModernSky gradient rendering (Sky-0/Sky-1 shaders)
+- **Grass pipeline** — all infrastructure ready, test map has 0 grass data
 - **Clean shutdown** — Metal device destroyed, all Kill[] stages complete, exit code 0
-- **Game simulation** — forcestart works, gf=0→43 in 300 frames
+- **Game simulation** — forcestart works, gf=189 in 600 frames, ~54.6 FPS
 - **SIGABRT recovery** — Metal abort() during PSO creation caught + cached via sigsetjmp
 - **Vertex output padding** — PadMissingVertexOutputs adds zero-initialized dummy outputs
 - **PSO failure caching** — both NSError and SIGABRT failures cached, logged once per shader
-- **27 PSOs created OK** — up from ~8 before padding fix
 - Viewport: 800x600, drawable matches, contentsScale=1.0
 - SPIRV-Cross texture remapping: GL unit → Metal [[texture(N)]] index per shader stage
 - Terrain shader: SMFShaderGLSL-Forward-Adv with correct texture bindings
-- ROAM patch visibility: 2/24 patches visible at steep camera angle — geometrically correct
-- Drawable: 800x600 matches viewport, present works correctly
 - Clear(): mid-pass clears properly handled via fullscreen quad
 - Screenshots: ReadPixels with Y-flip works correctly
 - Loading screen: "Loading..." text renders with fonts
@@ -309,3 +309,40 @@
   Far billboard path enters Draw() with 59 blocks but all have empty grassMap data.
   Near grass blade VBO created, DrawIndexed(Triangles) path ready.
 - Next: Terrain rendering diagnostic (top-left quadrant issue), shadow pass verification.
+
+### Iteration 12 — 2026-03-01 (Black rectangle fix + full-screen terrain) ★ FULL SCREEN
+- Run: 20260301_181211
+- Commit: 1ad1171218
+- Metrics: shaders=87 draws=19idx+11 fps=54.6 pso_fails=2(cached) exit=0 gf=189 errors=12
+- Visual: **TERRAIN FILLS ENTIRE 800x600 SCREEN** — no black rectangle, no alternating black
+  frames. Units with battle smoke, particle effects, atmospheric sky all visible.
+- Root cause: **Metal FBO Bind() is a no-op** — three subsystems called FBO::Bind() expecting
+  rendering to redirect to off-screen textures, but on Metal all draws went to the screen:
+  1. **LuaOpenGL::RenderToTexture** — Lua widgets called `gl.RenderToTexture()` which set viewport
+     to texture size (400x300 = half screen) and drew to screen, producing the black rectangle.
+  2. **MiniMap::UpdateTextureCache** — `FBO::IsSupported()` returns true on Metal (line 36-37 of
+     FBO.cpp), so `renderToTexture=true`, causing minimap to render at reduced viewport to screen.
+  3. **RmlUi layer compositing** — `BeginFrame`/`PushLayer`/`CompositeLayers` used FBO Bind()+Clear()
+     which cleared the screen each frame, causing alternating black frames ("blinking").
+- Failed approaches:
+  - **Render pass break** (EndRenderPass→BeginRenderPass(FBO)→EndRenderPass→BeginDefaultRenderPass):
+    Terrain became invisible even with LoadAction::Load for both color and depth. Draw counts normal
+    (128+) but fragments didn't render. Root cause unclear — possibly Metal Store→Load within same
+    command buffer doesn't preserve correctly.
+  - **Clear FBO to transparent** (LoadAction::Clear with 0,0,0,0): Same terrain disappearance.
+- Fix: Three targeted workarounds (11 files, 127 insertions, 42 deletions):
+  1. **LuaOpenGL.cpp**: Scissor-clip RenderToTexture on Metal — set 1x1 scissor rect before Lua
+     function execution, restore after. Lua code runs (no crash) but draws are invisible.
+  2. **MiniMap.cpp**: Force `renderToTexture=false` on Metal — uses direct rendering path instead
+     of broken FBO texture cache.
+  3. **RmlUi_Renderer_GL3_Recoil.cpp**: Guard all FBO operations with `IsMetalBackend()` checks —
+     BeginFrame, EndFrame, PushLayer, CompositeLayers, PopLayer all skip FBO paths on Metal.
+  4. **MTLContext.mm**: Support explicit depth LoadAction in BeginDefaultRenderPass (for future
+     render pass resume support).
+  5. **WorldDrawer.cpp**: Viewport restore at start of Draw(), ClearColor alpha 1.0 (was 0.0).
+  6. **Supporting**: ModernSky CullMode::None, DepthBufferCopy Metal skip, MTLDevice opaque=YES,
+     SMFRenderState clipPlane2 default, NetCommands sync logging.
+- Known limitation: Widget off-screen textures not updated on Metal (stale via scissor workaround).
+  Widgets that depend on RenderToTexture will have empty/stale textures. Proper fix requires
+  solving the render pass break terrain issue.
+- Next: Widget texture rendering, shadow pass verification.
