@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <fstream>
 #include <map>
+#include <set>
 #include <sstream>
 #include <cstring>
 
@@ -161,6 +162,130 @@ static void FixGlPerVertexOutputLocations(std::string& vertexMSL, const std::str
 	}
 }
 
+/// Ensure the vertex shader outputs all varyings the fragment expects.
+/// In OpenGL, unwritten varyings default to zero. Metal requires explicit
+/// vertex-to-fragment interface matching. This function adds zero-initialized
+/// dummy outputs for any fragment input [[user(locnN)]] not present in the
+/// vertex output struct. Runs AFTER FixGlPerVertexOutputLocations.
+static void PadMissingVertexOutputs(std::string& vertexMSL, const std::string& fragmentMSL) {
+	// Step 1: Parse fragmentMain_in for all [[user(locnN)]] entries with types
+	size_t fragStructPos = fragmentMSL.find("struct fragmentMain_in");
+	if (fragStructPos == std::string::npos) return;
+	size_t fragStructEnd = fragmentMSL.find("};", fragStructPos);
+	if (fragStructEnd == std::string::npos) return;
+
+	struct VaryingInfo {
+		std::string type;
+		std::string name;
+		uint32_t locn;
+	};
+	std::vector<VaryingInfo> fragmentInputs;
+
+	// Parse each line in fragmentMain_in for "TYPE NAME [[user(locnN)]];"
+	size_t linePos = fragmentMSL.find('\n', fragStructPos);
+	while (linePos != std::string::npos && linePos < fragStructEnd) {
+		linePos++; // skip the newline
+		size_t lineEnd = fragmentMSL.find('\n', linePos);
+		if (lineEnd == std::string::npos || lineEnd > fragStructEnd) lineEnd = fragStructEnd;
+
+		std::string line = fragmentMSL.substr(linePos, lineEnd - linePos);
+		linePos = lineEnd;
+
+		// Look for [[user(locnN)]]
+		size_t locnPos = line.find("[[user(locn");
+		if (locnPos == std::string::npos) continue;
+
+		size_t numStart = locnPos + 11;
+		size_t numEnd = line.find(")", numStart);
+		if (numEnd == std::string::npos) continue;
+
+		uint32_t locn;
+		try { locn = static_cast<uint32_t>(std::stoul(line.substr(numStart, numEnd - numStart))); }
+		catch (...) { continue; }
+
+		// Extract type and name: "    TYPE NAME [[user(locnN)]];"
+		size_t typeStart = line.find_first_not_of(" \t");
+		if (typeStart == std::string::npos) continue;
+
+		// Find the [[user portion to get everything before it
+		std::string before = line.substr(typeStart, locnPos - typeStart);
+		// Trim trailing whitespace
+		while (!before.empty() && (before.back() == ' ' || before.back() == '\t'))
+			before.pop_back();
+
+		// Split into type and name at last space
+		size_t lastSpace = before.rfind(' ');
+		if (lastSpace == std::string::npos) continue;
+
+		std::string type = before.substr(0, lastSpace);
+		std::string name = before.substr(lastSpace + 1);
+		// Trim type trailing space
+		while (!type.empty() && type.back() == ' ') type.pop_back();
+
+		fragmentInputs.push_back({type, name, locn});
+	}
+
+	if (fragmentInputs.empty()) return;
+
+	// Step 2: Collect existing [[user(locnN)]] locations in vertexMain_out
+	size_t vtxStructPos = vertexMSL.find("struct vertexMain_out");
+	if (vtxStructPos == std::string::npos) return;
+	size_t vtxStructEnd = vertexMSL.find("};", vtxStructPos);
+	if (vtxStructEnd == std::string::npos) return;
+
+	std::set<uint32_t> existingLocations;
+	size_t searchPos = vtxStructPos;
+	while (searchPos < vtxStructEnd) {
+		size_t lp = vertexMSL.find("[[user(locn", searchPos);
+		if (lp == std::string::npos || lp >= vtxStructEnd) break;
+		size_t ns = lp + 11;
+		size_t ne = vertexMSL.find(")", ns);
+		if (ne != std::string::npos) {
+			try { existingLocations.insert(static_cast<uint32_t>(std::stoul(vertexMSL.substr(ns, ne - ns)))); }
+			catch (...) {}
+		}
+		searchPos = lp + 1;
+	}
+
+	// Step 3: Find missing locations
+	std::vector<VaryingInfo> missing;
+	for (const auto& fi : fragmentInputs) {
+		if (existingLocations.find(fi.locn) == existingLocations.end()) {
+			missing.push_back(fi);
+		}
+	}
+
+	if (missing.empty()) return;
+
+	// Step 4: Add dummy members to vertexMain_out before closing "};"
+	std::string structAdditions;
+	for (const auto& m : missing) {
+		structAdditions += "    " + m.type + " _pad_locn" + std::to_string(m.locn)
+		                 + " [[user(locn" + std::to_string(m.locn) + ")]];\n";
+		LOG("[MTLShader] Padded vertex output: '%s _pad_locn%u [[user(locn%u)]]' "
+		    "(fragment expects '%s')", m.type.c_str(), m.locn, m.locn, m.name.c_str());
+	}
+	// vtxStructEnd may have shifted if FixGlPerVertexOutputLocations ran, re-find it
+	vtxStructEnd = vertexMSL.find("};", vtxStructPos);
+	if (vtxStructEnd == std::string::npos) return;
+	vertexMSL.insert(vtxStructEnd, structAdditions);
+
+	// Step 5: Zero-initialize the padding members before "return out;"
+	size_t returnPos = vertexMSL.rfind("return out;");
+	if (returnPos != std::string::npos) {
+		std::string inits;
+		for (const auto& m : missing) {
+			std::string padName = "out._pad_locn" + std::to_string(m.locn);
+			if (m.type == "float") {
+				inits += "    " + padName + " = 0.0;\n";
+			} else {
+				inits += "    " + padName + " = " + m.type + "(0);\n";
+			}
+		}
+		vertexMSL.insert(returnPos, inits);
+	}
+}
+
 static size_t ShaderDataTypeSize(ShaderDataType type) {
 	switch (type) {
 		case ShaderDataType::Float:           return  4;
@@ -293,6 +418,13 @@ void MTLShader::Link() {
 	// fragment's locations and apply them to the matching vertex output members.
 	if (!vertexMSL.empty() && !fragmentMSL.empty()) {
 		FixGlPerVertexOutputLocations(vertexMSL, fragmentMSL);
+	}
+
+	// Pad missing vertex outputs: OpenGL defaults unwritten varyings to zero,
+	// but Metal requires explicit matching. Add zero-initialized dummy outputs
+	// for any fragment input location the vertex shader doesn't write.
+	if (!vertexMSL.empty() && !fragmentMSL.empty()) {
+		PadMissingVertexOutputs(vertexMSL, fragmentMSL);
 	}
 
 	// Log the generated MSL for debugging pipeline creation issues

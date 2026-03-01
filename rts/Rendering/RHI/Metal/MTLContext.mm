@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <set>
 #include <vector>
 
 #include "System/Log/ILog.h"
@@ -429,8 +430,12 @@ bool MTLContext::ApplyPipelineState() {
 		                                 currentFramebuffer);
 
 	if (!pipelineState) {
-		LOG_L(L_ERROR, "[MTL-PSO] GetRenderPipelineState returned nil for shader '%s'",
-		      currentShader->GetName().c_str());
+		// Only log once per shader to avoid spamming (nil is cached in PSO cache)
+		static std::set<const void*> loggedNilShaders;
+		if (loggedNilShaders.insert(currentShader).second) {
+			LOG_L(L_WARNING, "[MTL-PSO] GetRenderPipelineState returned nil for shader '%s'",
+			      currentShader->GetName().c_str());
+		}
 		return false;
 	}
 

@@ -458,6 +458,7 @@ id<MTLRenderPipelineState> MTLPipeline::GetRenderPipelineState(MTLShader* shader
 				      (a.divisor > 0) ? (kVertexBufferIndex - 1) : kVertexBufferIndex);
 			}
 		}
+		pipelineCache[key] = nil;
 		return nil;
 	}
 

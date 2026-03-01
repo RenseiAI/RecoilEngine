@@ -1,24 +1,26 @@
 # Metal Debug Iteration Log
 
 ## Current Status
-- Last iteration: 7
-- Commit: 66145de041
-- Shaders: 82/82, Draw calls: 11+23+2inst, FPS: 47.4, PSO fails: 255 (gracefully handled)
-- Exit: **CLEAN EXIT (code 0)**
-- Visual: **TERRAIN TEXTURED** — game simulation running (gf=44), unit models pending
-- **Game simulation active** — forcestart enabled, gf advances to 44 in 300 frames
-- **SIGABRT recovery** — Metal abort() during PSO creation caught via signal handler
+- Last iteration: 8
+- Commit: e2da3d26b9
+- Shaders: 82/82, Draw calls: 11+15+2inst, FPS: 47.5, PSO fails: 2 (cached), PSOs OK: 27
+- Exit: **CLEAN EXIT (code 0)**, Errors: **13** (was 1636)
+- Visual: **TERRAIN TEXTURED** — game simulation running (gf=43)
+- **Lua shader PSO fixes** — PadMissingVertexOutputs + FixGlPerVertexOutputLocations + failure caching
 
 ## Priority Queue
-1. Lua shader PSO failures — vertex-to-fragment output mismatch (255 graceful failures/run)
-2. Unit model rendering — model shaders compile but no visible models yet
-3. ModernSky disabled — falls back to NullSky
+1. Unit model rendering — model shaders compile, indexed draws active, no visible models
+2. ModernSky disabled — falls back to NullSky
+3. Last 2 PSO failures — vtx-to-frag mismatch for 1 Lua shader, SIGABRT for 1 layout
 4. Tier 5: CI pipeline, macOS app bundle, final audit
 
-## Confirmed Working (Post-Phase 37)
+## Confirmed Working (Post-Phase 38)
 - **Clean shutdown** — Metal device destroyed, all Kill[] stages complete, exit code 0
-- **Game simulation** — forcestart works, gf=0→44 in 300 frames
+- **Game simulation** — forcestart works, gf=0→43 in 300 frames
 - **SIGABRT recovery** — Metal abort() during PSO creation caught + cached via sigsetjmp
+- **Vertex output padding** — PadMissingVertexOutputs adds zero-initialized dummy outputs
+- **PSO failure caching** — both NSError and SIGABRT failures cached, logged once per shader
+- **27 PSOs created OK** — up from ~8 before padding fix
 - Viewport: 800x600, drawable matches, contentsScale=1.0
 - SPIRV-Cross texture remapping: GL unit → Metal [[texture(N)]] index per shader stage
 - Terrain shader: SMFShaderGLSL-Forward-Adv with correct texture bindings
@@ -206,3 +208,29 @@
   draws now active, suggesting model/unit rendering pipeline is executing.
 - Next: Investigate Lua shader PSO failures (vertex-to-fragment mismatch), unit model
   visibility, ModernSky.
+
+### Iteration 8 — 2026-02-28 (Vertex output padding + PSO caching) ★ ERROR REDUCTION
+- Run: 20260228_212558
+- Commit: (pending)
+- Metrics: shaders=82/82 draws=11+15+2inst fps=47.5 pso_fails=2(cached) pso_ok=27 errors=13 exit=0 gf=43
+- Visual: Terrain textured, game simulation running. 27 PSOs created successfully.
+- Root cause: Lua shaders had fragment inputs (`[[user(locnN)]]`) that the vertex shader
+  didn't output. OpenGL silently defaults unwritten varyings to zero; Metal requires explicit
+  matching. Additionally, PSO failures weren't cached (NSError path), causing the same
+  failure to retry every frame (~240 times).
+- Fix: Three changes across MTLShader.mm, MTLPipeline.mm, MTLContext.mm:
+  1. **PadMissingVertexOutputs()** (MTLShader.mm): New post-process step after
+     `FixGlPerVertexOutputLocations`. Parses `fragmentMain_in` for all `[[user(locnN)]]`
+     entries, checks which locations exist in `vertexMain_out`, and adds zero-initialized
+     dummy members for missing locations. Matches OpenGL behavior of defaulting unwritten
+     varyings to zero. 3 paddings applied: `gl_TexCoord_0`, `m_12_uv`, `m_12_mirrorParams`.
+  2. **PSO failure caching** (MTLPipeline.mm): Added `pipelineCache[key] = nil` to the
+     NSError failure path (was already in the SIGABRT path). Prevents retrying the same
+     failing shader+layout combination every frame.
+  3. **Nil PSO dedup logging** (MTLContext.mm): `GetRenderPipelineState returned nil`
+     now logs once per shader pointer instead of every draw call. Reduces error count
+     from ~240 repeated messages to 0.
+- Result: Errors **1636 → 13** (99.2% reduction). PSO failures **255 → 2** (both cached).
+  PSOs created OK: **27** (was ~8). Only non-rendering errors remain (ModernSky fallback,
+  missing FeatureDefs, unknown SkirmishAI).
+- Next: Unit model visibility, ModernSky, remaining 2 PSO failures.
