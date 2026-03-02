@@ -4,6 +4,14 @@
 
 RecoilEngine is a fork of the Recoil/Spring RTS engine being ported to macOS ARM64 with a Metal rendering backend. The primary branch is `arm64-metal-port`.
 
+## Git Remotes
+
+- **`supaku`** — Our fork (`supaku/RecoilEngine.git`). **Always push here.**
+- **`origin`** — Upstream (`beyond-all-reason/RecoilEngine.git`). Read-only for us; never push.
+- **`chainfire`** — Another fork. Read-only reference.
+
+When pushing, always use `git push supaku <branch>`. Never push to `origin`.
+
 ## Build
 
 ```bash
