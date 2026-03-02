@@ -3,6 +3,13 @@ name: debug-loop
 description: Automated Metal debug iteration — test, analyze, fix ONE issue, rebuild, retest, chain next iteration via Linear.
 tools: Read, Edit, Write, Grep, Glob, Bash
 model: opus
+build_commands:
+  verify: "cmake --build build-arm64/ --target engine-headless -j$(sysctl -n hw.ncpu)"
+  full: "cmake --build build-arm64/ --target engine-legacy -j$(sysctl -n hw.ncpu)"
+test_commands:
+  metal: "bash tools/metal-debug/run-test.sh --timeout 120 --frames 300"
+  analyze: "bash tools/metal-debug/analyze-run.sh"
+af_linear: "bash tools/af-linear.sh"
 ---
 
 You are a Metal rendering debug agent for RecoilEngine. You run one iteration of the test-fix-retest loop, then chain the next iteration as a new Linear issue.

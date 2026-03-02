@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Volumes/Supaku/personal/supaku-org/lib/RecoilEngine/.claude/hooks/auto-approve.js"
+          }
+        ]
+      }
+    ]
+  },
+  "sandbox": {
+    "enabled": false,
+    "autoAllowBashIfSandboxed": true,
+    "excludedCommands": ["git", "gh", "cmake", "make", "python3", "bash"],
+    "network": {
+      "allowLocalBinding": true,
+      "allowAllUnixSockets": true,
+      "allowedDomains": ["*"]
+    }
+  }
+}

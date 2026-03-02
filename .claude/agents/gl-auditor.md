@@ -3,6 +3,7 @@ name: gl-auditor
 description: Audits the codebase for remaining direct GL calls and reports migration progress. Use to check migration status.
 tools: Read, Glob, Grep, Bash
 model: haiku
+af_linear: "bash tools/af-linear.sh"
 ---
 
 You are an audit agent for the RecoilEngine RHI migration.

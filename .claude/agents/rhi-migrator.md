@@ -3,6 +3,10 @@ name: rhi-migrator
 description: Migrates rendering code from direct OpenGL calls to the RHI abstraction layer. Use when migrating a specific file or subsystem.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
+build_commands:
+  verify: "cmake --build build-arm64/ --target engine-headless -j$(sysctl -n hw.ncpu)"
+  full: "cmake --build build-arm64/ --target engine-legacy -j$(sysctl -n hw.ncpu)"
+af_linear: "bash tools/af-linear.sh"
 ---
 
 You are an RHI migration specialist for the RecoilEngine ARM64 Metal port.

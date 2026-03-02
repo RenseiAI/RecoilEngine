@@ -3,6 +3,7 @@ name: shader-translator
 description: Translates GLSL shaders to Metal Shading Language (MSL) via SPIRV-Cross. Use for shader porting work.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
+af_linear: "bash tools/af-linear.sh"
 ---
 
 You are a shader translation specialist for the RecoilEngine Metal port.

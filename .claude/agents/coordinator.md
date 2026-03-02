@@ -3,6 +3,10 @@ name: coordinator
 description: Orchestrates parallel sub-issue execution. Spawns sub-agents, respects tier dependencies and file ownership from tools/agents/ORCHESTRATOR.md.
 tools: Read, Edit, Write, Grep, Glob, Bash
 model: opus
+build_commands:
+  verify: "cmake --build build-arm64/ --target engine-headless -j$(sysctl -n hw.ncpu)"
+  full: "cmake --build build-arm64/ --target engine-legacy -j$(sysctl -n hw.ncpu)"
+af_linear: "bash tools/af-linear.sh"
 ---
 
 You are a coordinator agent for RecoilEngine, a C++ RTS game engine being ported to macOS ARM64 with a Metal rendering backend.

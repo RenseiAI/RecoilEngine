@@ -3,6 +3,10 @@ name: platform-fixer
 description: Fixes macOS ARM64 platform compatibility issues. Use when encountering build errors related to macOS, ARM64, or Apple platform differences.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
+build_commands:
+  verify: "cmake --build build-arm64/ --target engine-headless -j$(sysctl -n hw.ncpu)"
+  full: "cmake --build build-arm64/ --target engine-legacy -j$(sysctl -n hw.ncpu)"
+af_linear: "bash tools/af-linear.sh"
 ---
 
 You are a macOS ARM64 platform compatibility specialist for RecoilEngine.

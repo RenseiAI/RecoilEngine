@@ -3,3 +3,6 @@ kind: RepositoryConfig
 repository: github.com/beyond-all-reason/RecoilEngine
 allowedProjects:
   - Recoil-on-Metal
+buildCommand: "cmake --build build-arm64/ --target engine-headless -j$(sysctl -n hw.ncpu)"
+testCommand: "cmake --build build-arm64/ --target engine-legacy -j$(sysctl -n hw.ncpu)"
+validateCommand: "bash tools/metal-debug/run-test.sh --timeout 120 --frames 300"

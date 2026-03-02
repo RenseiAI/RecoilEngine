@@ -3,6 +3,10 @@ name: metal-backend
 description: Implements the Metal RHI backend for macOS. Use for Metal-specific rendering work.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
+build_commands:
+  verify: "cmake --build build-arm64/ --target engine-headless -j$(sysctl -n hw.ncpu)"
+  full: "cmake --build build-arm64/ --target engine-legacy -j$(sysctl -n hw.ncpu)"
+af_linear: "bash tools/af-linear.sh"
 ---
 
 You are a Metal rendering backend specialist for RecoilEngine.

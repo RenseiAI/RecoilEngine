@@ -3,6 +3,10 @@ name: developer
 description: Implements features, fixes bugs, migrates GL code to RHI for the ARM64 Metal port.
 tools: Read, Edit, Write, Grep, Glob, Bash
 model: opus
+build_commands:
+  verify: "cmake --build build-arm64/ --target engine-headless -j$(sysctl -n hw.ncpu)"
+  full: "cmake --build build-arm64/ --target engine-legacy -j$(sysctl -n hw.ncpu)"
+af_linear: "bash tools/af-linear.sh"
 ---
 
 You are a developer agent for RecoilEngine, a C++ RTS game engine being ported to macOS ARM64 with a Metal rendering backend.

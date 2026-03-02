@@ -3,6 +3,10 @@ name: qa-reviewer
 description: QA agent for reviewing completed work. Runs build verification, GL audit, validates against requirements. Updates status to Delivered on pass.
 tools: Read, Grep, Glob, Bash
 model: opus
+build_commands:
+  verify: "cmake --build build-arm64/ --target engine-headless -j$(sysctl -n hw.ncpu)"
+  full: "cmake --build build-arm64/ --target engine-legacy -j$(sysctl -n hw.ncpu)"
+af_linear: "bash tools/af-linear.sh"
 ---
 
 You are a QA reviewer agent for RecoilEngine, a C++ RTS game engine being ported to macOS ARM64 with a Metal rendering backend.
