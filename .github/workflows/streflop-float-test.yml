@@ -4,13 +4,21 @@ on:
   workflow_dispatch:
     inputs:
       large_scale:
-        description: 'Run 2.6B test hash-only pass (adds ~3 min)'
+        description: 'Run 2.6B test hash-only pass'
         required: false
         default: true
         type: boolean
+  pull_request:
+    paths:
+      - 'rts/lib/streflop/**'
+      - 'tools/sync-test/**'
+      - '.github/workflows/streflop-float-test.yml'
 
 jobs:
-  streflop-sync-test:
+  # ---------------------------------------------------------------------------
+  # Stage 1: Generate results on each architecture
+  # ---------------------------------------------------------------------------
+  generate-x86_64:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -22,38 +30,116 @@ jobs:
       - name: Build
         run: cmake --build build --target streflop-float-test -j$(nproc)
 
-      # Step 1: Generate SSE reference at N=10000 and report hash
-      - name: Reference test (52K tests, generate SSE baseline)
-        run: |
-          ./build/streflop-float-test -n 10000 streflop_results_SSE_x86_64
-          echo ""
-          echo "--- Compare against checked-in NEON reference ---"
-          if [ -f tools/sync-test/reference/streflop_results_NEON_arm64.bin ]; then
-            python3 tools/sync-test/compare_results.py \
-              tools/sync-test/reference/streflop_results_NEON_arm64.bin \
-              streflop_results_SSE_x86_64.bin
-          else
-            echo "No NEON reference found — skipping cross-arch comparison"
-            echo "Run locally on ARM64 to generate NEON reference"
-          fi
+      - name: Reference test (52K tests, hash-only)
+        run: ./build/streflop-float-test -n 10000 --hash-only 2>&1 | tee streflop_ref_SSE_x86_64_hashes.txt
 
-      # Step 2: 10M inputs — 261M tests, upload binary for cross-arch comparison
-      - name: Medium scale (261M tests, ~45s)
-        run: |
-          ./build/streflop-float-test -n 10000000 streflop_10M_SSE_x86_64
+      - name: Medium scale (261M tests, hash-only)
+        run: ./build/streflop-float-test -n 10000000 --hash-only 2>&1 | tee streflop_med_SSE_x86_64_hashes.txt
 
-      # Step 3: 100M inputs — 2.6B tests, hash-only (no disk I/O)
-      - name: Large scale (2.6B tests, hash-only, ~3 min)
+      - name: Large scale (2.6B tests, hash-only)
         if: ${{ inputs.large_scale }}
-        run: |
-          ./build/streflop-float-test -n 100000000 --hash-only
+        run: ./build/streflop-float-test -n 100000000 --hash-only 2>&1 | tee streflop_large_SSE_x86_64_hashes.txt
 
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
           name: streflop-SSE-x86_64
           path: |
-            streflop_results_SSE_x86_64.bin
-            streflop_results_SSE_x86_64.txt
-            streflop_10M_SSE_x86_64.bin
+            streflop_ref_SSE_x86_64_hashes.txt
+            streflop_med_SSE_x86_64_hashes.txt
+            streflop_large_SSE_x86_64_hashes.txt
           retention-days: 90
+          if-no-files-found: ignore
+
+  generate-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -S tools/sync-test -DCMAKE_BUILD_TYPE=Release -DSTREFLOP_MODE=NEON
+
+      - name: Build
+        run: cmake --build build --target streflop-float-test -j$(nproc)
+
+      - name: Reference test (52K tests, hash-only)
+        run: ./build/streflop-float-test -n 10000 --hash-only 2>&1 | tee streflop_ref_NEON_arm64_hashes.txt
+
+      - name: Medium scale (261M tests, hash-only)
+        run: ./build/streflop-float-test -n 10000000 --hash-only 2>&1 | tee streflop_med_NEON_arm64_hashes.txt
+
+      - name: Large scale (2.6B tests, hash-only)
+        if: ${{ inputs.large_scale }}
+        run: ./build/streflop-float-test -n 100000000 --hash-only 2>&1 | tee streflop_large_NEON_arm64_hashes.txt
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: streflop-NEON-arm64
+          path: |
+            streflop_ref_NEON_arm64_hashes.txt
+            streflop_med_NEON_arm64_hashes.txt
+            streflop_large_NEON_arm64_hashes.txt
+          retention-days: 90
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Stage 2: Download both artifacts and compare per-category hashes
+  # ---------------------------------------------------------------------------
+  compare:
+    runs-on: ubuntu-latest
+    needs: [generate-x86_64, generate-arm64]
+    timeout-minutes: 10
+    steps:
+      - name: Download x86_64 results
+        uses: actions/download-artifact@v4
+        with:
+          name: streflop-SSE-x86_64
+          path: results/x86_64
+
+      - name: Download ARM64 results
+        uses: actions/download-artifact@v4
+        with:
+          name: streflop-NEON-arm64
+          path: results/arm64
+
+      - name: Compare hashes
+        env:
+          LARGE_SCALE: ${{ inputs.large_scale }}
+        run: |
+          categories=(A B C D E)
+
+          compare() {
+            local label="$1" x86_file="$2" arm_file="$3"
+            echo "=== $label ==="
+            mapfile -t hx < <(grep '\[hash:' "$x86_file" | sed 's/.*\[hash: \([0-9A-F]*\)\].*/\1/')
+            mapfile -t ha < <(grep '\[hash:' "$arm_file" | sed 's/.*\[hash: \([0-9A-F]*\)\].*/\1/')
+            local fail=0
+            for i in 0 1 2 3 4; do
+              local cat="${categories[$i]}" x="${hx[$i]:-MISSING}" a="${ha[$i]:-MISSING}"
+              if [ "$x" = "$a" ]; then
+                echo "  Category $cat: MATCH  ($x)"
+              elif [ "$i" -eq 4 ]; then
+                echo "  Category $cat: DIFFERS (x86=$x arm=$a) [informational — edge/NaN cases]"
+              else
+                echo "  Category $cat: DIFFERS (x86=$x arm=$a) [SYNC FAILURE]"
+                fail=1
+              fi
+            done
+            [ "$fail" -eq 0 ] && echo "PASS: categories A-D are identical" || { echo "FAIL: sync-critical category mismatch"; return 1; }
+          }
+
+          compare "52K tests" \
+            results/x86_64/streflop_ref_SSE_x86_64_hashes.txt \
+            results/arm64/streflop_ref_NEON_arm64_hashes.txt
+
+          compare "261M tests" \
+            results/x86_64/streflop_med_SSE_x86_64_hashes.txt \
+            results/arm64/streflop_med_NEON_arm64_hashes.txt
+
+          if [ "$LARGE_SCALE" = "true" ]; then
+            compare "2.6B tests" \
+              results/x86_64/streflop_large_SSE_x86_64_hashes.txt \
+              results/arm64/streflop_large_NEON_arm64_hashes.txt
+          fi
