@@ -1,10 +1,10 @@
 # Recoil is an open source real time strategy game engine
 
-<a href="https://github.com/supaku/agentfactory">
+<a href="https://github.com/RenseiAI/agentfactory">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/supaku/agentfactory/main/docs/assets/badge-built-with-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/supaku/agentfactory/main/docs/assets/badge-built-with-light.svg">
-    <img alt="Built with AgentFactory" src="https://raw.githubusercontent.com/supaku/agentfactory/main/docs/assets/badge-built-with.svg">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/RenseiAI/agentfactory/main/docs/assets/badge-built-with-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/RenseiAI/agentfactory/main/docs/assets/badge-built-with-light.svg">
+    <img alt="Built with AgentFactory" src="https://raw.githubusercontent.com/RenseiAI/agentfactory/main/docs/assets/badge-built-with.svg">
   </picture>
 </a>
 

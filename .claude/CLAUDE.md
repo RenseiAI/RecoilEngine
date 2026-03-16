@@ -6,11 +6,11 @@ RecoilEngine is a fork of the Recoil/Spring RTS engine being ported to macOS ARM
 
 ## Git Remotes
 
-- **`supaku`** — Our fork (`supaku/RecoilEngine.git`). **Always push here.**
+- **`renseiai`** — Our fork (`RenseiAI/RecoilEngine.git`). **Always push here.**
 - **`origin`** — Upstream (`beyond-all-reason/RecoilEngine.git`). Read-only for us; never push.
 - **`chainfire`** — Another fork. Read-only reference.
 
-When pushing, always use `git push supaku <branch>`. Never push to `origin`.
+When pushing, always use `git push renseiai <branch>`. Never push to `origin`.
 
 ## Build
 
